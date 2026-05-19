@@ -1,0 +1,7 @@
+flask
+flask-jwt-extended
+argon2-cffi
+mysql-connector-python
+web3
+python-dotenv
+gunicorn
