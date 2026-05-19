@@ -1,2 +1,4 @@
 .env
 venv/
+client-cpp/build/
+.claude/settings.json
