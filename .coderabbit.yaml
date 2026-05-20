@@ -1,0 +1,11 @@
+reviews:
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - ".*"
+  profile: "chill"
+  review_status: true
+  poem: false
+
+language: "en-US"
