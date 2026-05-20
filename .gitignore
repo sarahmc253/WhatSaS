@@ -2,3 +2,4 @@
 venv/
 client-cpp/build/
 .claude/
+__pycache__/
