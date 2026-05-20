@@ -2,3 +2,8 @@
 venv/
 client-cpp/build/
 .claude/settings.json
+AI_INTERACTIONS.md
+DOCUMENTATION_STRUCTURE.md
+USER_PROMPTS.md
+.claude/settings.local.json
+.vscode/settings.json

@@ -38,7 +38,7 @@ cmake --build build
 
 ## Project structure
 
-```
+```text
 client-cpp/
   include/
     User.hpp          — user identity and Curve25519 public key
@@ -61,7 +61,15 @@ client-cpp/
 
 | Primitive | Algorithm | Library |
 |---|---|---|
-| Symmetric encryption | AES-256-GCM (AEAD) | libsodium |
-| Key exchange | HPKE Mode\_Auth, DHKEM(X25519, HKDF-SHA256) — RFC 9180 | libsodium |
-| Nonce | 12-byte CSPRNG | libsodium `randombytes_buf` |
-| Transport | HTTPS/TLS | libcurl |
+| Symmetric encryption | AES-256-GCM (AEAD) | libsodium via `crypto_aead_aes256gcm_*` |
+| Key derivation | HKDF-SHA256 | libsodium via `crypto_kdf_hkdf_sha256_*` |
+| Authenticated encryption | AEAD with associated data (sender_id + recipient_id + timestamp) | libsodium |
+| Key exchange | X25519 Elliptic Curve Diffie-Hellman | libsodium via `crypto_box_*` and `crypto_scalarmult_*` |
+| Random nonce | 12-byte CSPRNG (AES-256-GCM requirement) | libsodium `randombytes_buf` |
+| Transport | HTTPS/TLS | libcurl with mandatory certificate validation |
+
+**Notes on libsodium:**
+- libsodium provides `crypto_aead_aes256gcm_*` for AES-256-GCM encryption/decryption
+- X25519 key exchange is available via `crypto_box_*` (public key cryptography) and `crypto_scalarmult_*` (raw scalar multiplication)
+- For HPKE RFC 9180 mode, manual implementation of HPKE is required; libsodium does not provide HPKE directly
+- All cryptographic functions use constant-time operations to prevent timing attacks
