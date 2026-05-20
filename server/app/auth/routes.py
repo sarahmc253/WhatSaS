@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+from flask_jwt_extended import create_access_token
 import uuid
 from datetime import datetime, timezone
 import mysql.connector
@@ -12,6 +14,8 @@ from .. import get_db
 # hash_len=32       — 256-bit output; exceeds minimum security margin
 # salt_len=16       — 128-bit random salt; prevents precomputation attacks
 ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4, hash_len=32, salt_len=16)
+# Pre-computed at startup for timing attack mitigation in /login — see route for usage.
+_DUMMY_HASH = ph.hash("dummy")
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -69,3 +73,77 @@ def register():
         cursor.close()
 
     return jsonify({'message': 'User registered successfully'}), 201
+
+
+@auth_bp.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'Request body must be JSON'}), 400
+
+    missing = [f for f in ['username', 'password'] if not data.get(f)]
+    if missing:
+        return jsonify({'error': f"Missing required fields: {', '.join(missing)}"}), 400
+
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT id, username, argon2id_server_hash,
+                   hpke_wrapped_private_key, argon2id_kek_salt, x25519_public_key
+            FROM users
+            WHERE username = %s
+            """,
+            (data['username'],),
+        )
+        user = cursor.fetchone()
+    finally:
+        cursor.close()
+
+    if user is None:
+        # Run a verify against a dummy hash so response time is indistinguishable
+        # from a wrong-password attempt — prevents username enumeration via timing.
+        try:
+            ph.verify(_DUMMY_HASH, data['password'])
+        except Exception:
+            pass
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    try:
+        ph.verify(user['argon2id_server_hash'], data['password'])
+    except VerifyMismatchError:
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    if ph.check_needs_rehash(user['argon2id_server_hash']):
+        new_hash = ph.hash(data['password'])
+        new_salt = new_hash.split('$')[4]
+        cursor = db.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE users
+                SET argon2id_server_hash = %s, argon2id_server_salt = %s
+                WHERE id = %s
+                """,
+                (new_hash, new_salt, user['id']),
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            cursor.close()
+
+    token = create_access_token(
+        identity=str(user['id']),
+        additional_claims={'username': user['username']},
+    )
+
+    return jsonify({
+        'token': token,
+        'hpke_wrapped_private_key': user['hpke_wrapped_private_key'],
+        'argon2id_kek_salt': user['argon2id_kek_salt'],
+        'x25519_public_key': user['x25519_public_key'],
+    }), 200
