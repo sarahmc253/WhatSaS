@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <optional>
 
 class MessageStore {
 public:
@@ -12,8 +13,8 @@ public:
 
     void addMessage(const Message& msg);
 
-    // Returns nullptr if messageId not found
-    const Message* findMessage(const std::string& messageId) const;
+    // Returns a copy of the message if found, or empty optional if not found
+    std::optional<Message> findMessage(const std::string& messageId) const;
 
     // Returns messages for a recipient (derived index) and empty vector if none
     const std::vector<Message>& getMessagesFor(const std::string& recipientId) const;

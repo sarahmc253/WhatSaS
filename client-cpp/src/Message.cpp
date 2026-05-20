@@ -1,4 +1,5 @@
 #include "Message.hpp"
+#include <stdexcept>
 
 Message::Message(const std::string& messageId,
                  const std::string& senderId,
@@ -12,7 +13,16 @@ Message::Message(const std::string& messageId,
     , ciphertext_(ciphertext)
     , nonce_(nonce)
     , timestamp_(timestamp)
-{}
+{
+    // Validate nonce: AES-256-GCM requires 12-byte nonce
+    if (nonce_.size() != 12) {
+        throw std::invalid_argument("nonce must be exactly 12 bytes for AES-256-GCM");
+    }
+    // Validate ciphertext: must be non-empty and at least 16 bytes (auth tag)
+    if (ciphertext_.size() < 16) {
+        throw std::invalid_argument("ciphertext must be at least 16 bytes (includes 16-byte auth tag)");
+    }
+}
 
 const std::string& Message::getMessageId()   const { return messageId_;   }
 const std::string& Message::getSenderId()    const { return senderId_;    }

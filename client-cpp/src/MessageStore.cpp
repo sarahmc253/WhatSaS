@@ -9,12 +9,12 @@ void MessageStore::addMessage(const Message& msg) {
     byRecipient_[msg.getRecipientId()].push_back(msg);
 }
 
-const Message* MessageStore::findMessage(const std::string& messageId) const {
+std::optional<Message> MessageStore::findMessage(const std::string& messageId) const {
     auto it = std::find_if(messages_.begin(), messages_.end(),
         [&messageId](const Message& m) {
             return m.getMessageId() == messageId;
         });
-    return it != messages_.end() ? &(*it) : nullptr;
+    return it != messages_.end() ? std::optional<Message>(*it) : std::nullopt;
 }
 
 const std::vector<Message>& MessageStore::getMessagesFor(const std::string& recipientId) const {
