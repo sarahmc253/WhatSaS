@@ -2,3 +2,4 @@
 venv/
 client-cpp/build/
 .claude/settings.json
+.vscode/settings.json

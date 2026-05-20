@@ -28,3 +28,21 @@ target_link_libraries(sas-client PRIVATE
   ${SODIUM_LIB}
   SQLite::SQLite3
 )
+
+add_executable(sas-tests
+  tests/test_main.cpp
+  tests/test_message.cpp
+  tests/test_user.cpp
+  tests/test_store.cpp
+  src/User.cpp
+  src/Message.cpp
+  src/MessageStore.cpp
+  src/Conversation.cpp
+)
+
+target_include_directories(sas-tests PRIVATE include tests)
+
+target_link_libraries(sas-tests PRIVATE
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+)

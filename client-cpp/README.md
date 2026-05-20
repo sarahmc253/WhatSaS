@@ -23,14 +23,22 @@ pacman -S mingw-w64-ucrt-x86_64-cmake \
 
 ## Build
 
-From the `client-cpp` directory in PowerShell or the MSYS2 UCRT64 shell:
+From the `client-cpp` directory:
 
 ```sh
 cmake -B build
 cmake --build build
 ```
 
-## Run
+## Run tests
+
+```powershell
+.\build\sas-tests.exe
+```
+
+Expected output: all tests pass with no failures.
+
+## Run application
 
 ```powershell
 .\build\sas-client.exe
@@ -53,6 +61,12 @@ client-cpp/
     Conversation.cpp
     Client.cpp
     main.cpp
+  tests/
+    test_helpers.hpp  — CHECK_EQ and CHECK_TRUE macros
+    test_message.cpp  — Message class tests
+    test_user.cpp     — User class tests
+    test_store.cpp    — MessageStore class tests
+    test_main.cpp     — test runner entry point
   CMakeLists.txt
   README.md
 ```
