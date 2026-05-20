@@ -8,7 +8,7 @@
 
 Typical structure:
 
-```
+```text
 app/
 ├── __init__.py        # create_app() factory
 ├── auth/
