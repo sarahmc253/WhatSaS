@@ -22,7 +22,10 @@ def create_app():
         raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
     app.config['DB_HOST'] = os.getenv('DB_HOST')
-    app.config['DB_PORT'] = int(os.getenv('DB_PORT'))
+    try:
+        app.config['DB_PORT'] = int(os.getenv('DB_PORT'))
+    except ValueError:
+        raise RuntimeError(f"DB_PORT must be a valid integer, got: {os.getenv('DB_PORT')}")
     app.config['DB_USER'] = os.getenv('DB_USER')
     app.config['DB_PASSWORD'] = os.getenv('DB_PASSWORD')
     app.config['DB_NAME'] = os.getenv('DB_NAME')
