@@ -69,4 +69,7 @@ target_link_libraries(test_http PRIVATE
   SQLite::SQLite3
   ${PLATFORM_LIBS}
 )
-add_test(NAME HTTP_GET_Test COMMAND test_http --network)
+# Network tests are opt-in — run manually with: ctest -L network
+# or: ./build/test_http.exe --network
+add_test(NAME HTTP_GET_Test COMMAND test_http)
+set_tests_properties(HTTP_GET_Test PROPERTIES LABELS "network")

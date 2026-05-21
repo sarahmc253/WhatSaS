@@ -5,10 +5,11 @@
 #include "../include/HttpClient.hpp"
 
 struct ParsedUrl {
-    std::string scheme;  // "https" or "http"
+    std::string scheme;
     std::string host;
-    std::string port;    // "443" default for https, "80" for http
-    std::string path;    // "/foo/bar?q=1", always starts with '/'
+    std::string port;   // "443" default for https
+    std::string path;   // "/foo/bar?q=1", always starts with '/'
+    std::string error;  // non-empty if parseUrl rejected the URL
 };
 
 // Split a URL string into its components.

@@ -81,6 +81,9 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
     ERR_clear_error();
 
     ParsedUrl parsed = parseUrl(url);
+    if (!parsed.error.empty()) {
+        return {0, "", parsed.error, false};
+    }
 
     std::string err;
     SOCKET fd = connectTcp(parsed.host, parsed.port, err);
@@ -107,6 +110,16 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
     int n;
     while ((n = SSL_read(ssl.get(), buf, sizeof(buf))) > 0) {
         raw.append(buf, n);
+    }
+
+    // n == 0 is a clean TLS close_notify — normal end of response
+    // n < 0 is a real error — do not attempt to parse whatever we received
+    if (n < 0) {
+        int sslErr = SSL_get_error(ssl.get(), n);
+        if (sslErr != SSL_ERROR_ZERO_RETURN) {
+            unsigned long e = ERR_get_error();
+            return {0, "", e ? ERR_error_string(e, nullptr) : "SSL_read error", false};
+        }
     }
 
     return parseResponse(raw);

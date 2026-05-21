@@ -18,7 +18,12 @@ ParsedUrl parseUrl(const std::string& url) {
         rest = rest.substr(schemeEnd + 3);
     }
 
-    out.port = (out.scheme == "http") ? "80" : "443";
+    // Bug fix: reject plain HTTP — this client only supports HTTPS
+    if (out.scheme == "http") {
+        out.error = "Plain HTTP not supported — use HTTPS";
+        return out;
+    }
+    out.port = "443";
 
     auto slashPos = rest.find('/');
     std::string hostPort = (slashPos != std::string::npos) ? rest.substr(0, slashPos) : rest;
@@ -41,8 +46,10 @@ ParsedUrl parseUrl(const std::string& url) {
 // ============================================================================
 
 std::string buildGetRequest(const ParsedUrl& u) {
+    // RFC 7230: Host header must include port when it differs from the default (443)
+    std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
     return "GET " + u.path + " HTTP/1.1\r\n"
-           "Host: " + u.host + "\r\n"
+           "Host: " + hostHeader + "\r\n"
            "Connection: close\r\n"
            "Accept: */*\r\n"
            "\r\n";
@@ -71,7 +78,8 @@ static std::string decodeChunked(const std::string& body) {
         auto semi = sizeLine.find(';');  // strip chunk extensions
         if (semi != std::string::npos) sizeLine = sizeLine.substr(0, semi);
 
-        std::size_t chunkSize = std::stoul(sizeLine, nullptr, 16);
+        std::size_t chunkSize = 0;
+        try { chunkSize = std::stoul(sizeLine, nullptr, 16); } catch (const std::exception&) { break; }
         if (chunkSize == 0) break;
 
         pos = crlf + 2;
@@ -103,7 +111,12 @@ HttpResponse parseResponse(const std::string& raw) {
         resp.error_ = "Malformed status line: " + statusLine;
         return resp;
     }
-    resp.statusCode_ = std::stol(statusLine.substr(sp1 + 1, sp2 - sp1 - 1));
+    try {
+        resp.statusCode_ = std::stol(statusLine.substr(sp1 + 1, sp2 - sp1 - 1));
+    } catch (const std::exception&) {
+        resp.error_ = "Malformed status code in: " + statusLine;
+        return resp;
+    }
 
     // Scan headers for Transfer-Encoding and Content-Length
     std::string transferEncoding;
@@ -120,8 +133,11 @@ HttpResponse parseResponse(const std::string& raw) {
         auto vstart = value.find_first_not_of(" \t");
         if (vstart != std::string::npos) value = value.substr(vstart);
 
-        if (name == "transfer-encoding")      transferEncoding = value;
-        else if (name == "content-length")    contentLength = std::stol(value);
+        if (name == "transfer-encoding") {
+            transferEncoding = value;
+        } else if (name == "content-length") {
+            try { contentLength = std::stol(value); } catch (const std::exception&) {}
+        }
     }
 
     if (toLower(transferEncoding).find("chunked") != std::string::npos) {
