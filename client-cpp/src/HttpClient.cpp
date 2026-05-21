@@ -1,61 +1,56 @@
-#include "tcp_connect.hpp"   // connectTcp + getWsaErrorString (shared with test_tcp)
-
-#include <wincrypt.h>
+#include "tcp_connect.hpp"
+#include "tls_connect.hpp"
+#include "http_response.hpp"
 #include "../include/HttpClient.hpp"
-#include <openssl/ssl.h>
+
 #include <openssl/err.h>
-
 #include <iostream>
-#include <sstream>
+#include <memory>
 
-// RAII wrapper for SOCKET
+// RAII wrappers for OpenSSL SSL* and raw SOCKET
+
+struct SslDeleter   { void operator()(SSL*    s) const { if (s) SSL_free(s); } };
 struct SocketDeleter {
     void operator()(SOCKET* s) const {
-        if (s && *s != INVALID_SOCKET) {
-            closesocket(*s);
-        }
+        if (s && *s != INVALID_SOCKET) closesocket(*s);
         delete s;
     }
 };
+using UniqueSSL    = std::unique_ptr<SSL,    SslDeleter>;
 using UniqueSocket = std::unique_ptr<SOCKET, SocketDeleter>;
 
-// RAII wrapper for SSL_CTX — implementation of the deleter
+// SSL_CTX deleter (declared in HttpClient.hpp, implemented here)
+
 void HttpClient::SslCtxDeleter::operator()(SSL_CTX* ctx) const {
-    if (ctx) {
-        SSL_CTX_free(ctx);
-    }
+    if (ctx) SSL_CTX_free(ctx);
 }
 
-// Helper: Convert hex string to size_t (for chunked encoding)
-static std::size_t hexToSize(const std::string& hex) {
-    return std::stoul(hex, nullptr, 16);
-}
-
-// Constructor / Destructor (WSA and SSL_CTX initialization)
+// Constructor / destructor / move
 
 HttpClient::HttpClient() : wsaInitialized_(false), ctx_(nullptr) {
-    // Initialize Winsock2
     WSADATA wsaData;
-    int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (result == 0) {
-        wsaInitialized_ = true;
-    } else {
-        std::cerr << "WSAStartup failed: " << getWsaErrorString(result) << "\n";
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        std::cerr << "WSAStartup failed\n";
+        return;
     }
+    wsaInitialized_ = true;
 
-    // Initialize OpenSSL context (full init deferred to Phase B)
-    // For Phase A, we only initialize the structure; TLS setup happens in Phase B
+    SSL_CTX* raw = createSslCtx();
+    if (!raw) {
+        std::cerr << "SSL_CTX creation failed\n";
+        return;
+    }
+    ctx_.reset(raw);
 }
 
 HttpClient::~HttpClient() {
-    if (wsaInitialized_) {
-        WSACleanup();
-    }
+    // ctx_ unique_ptr destructor runs first (SSL_CTX_free), then WSACleanup
+    if (wsaInitialized_) WSACleanup();
 }
 
 HttpClient::HttpClient(HttpClient&& other) noexcept
     : wsaInitialized_(other.wsaInitialized_), ctx_(std::move(other.ctx_)) {
-    other.wsaInitialized_ = false;  // prevent double WSACleanup
+    other.wsaInitialized_ = false;
 }
 
 HttpClient& HttpClient::operator=(HttpClient&& other) noexcept {
@@ -68,44 +63,61 @@ HttpClient& HttpClient::operator=(HttpClient&& other) noexcept {
     return *this;
 }
 
+// Public API
+
 HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
-    if (!wsaInitialized_) {
-        return {0, "", "Winsock not initialized", false};
+    if (!wsaInitialized_ || !ctx_) {
+        return {0, "", "HttpClient not initialized", false};
     }
 
-    // Phase A: verify TCP reachability; TLS + HTTP parsing added in Phase B
-    // For now, extract host and attempt a raw TCP connect to validate the path
-    // A URL like "https://host/path" → host="host", port="443"
-    std::string host;
-    std::string port = "443";
+    ERR_clear_error();
 
-    // Strip scheme
-    std::string rest = url;
-    auto schemeEnd = rest.find("://");
-    if (schemeEnd != std::string::npos) {
-        rest = rest.substr(schemeEnd + 3);
-    }
-
-    // Strip path
-    auto slashPos = rest.find('/');
-    std::string hostPort = (slashPos != std::string::npos) ? rest.substr(0, slashPos) : rest;
-
-    // Split host:port
-    auto colonPos = hostPort.rfind(':');
-    if (colonPos != std::string::npos) {
-        host = hostPort.substr(0, colonPos);
-        port = hostPort.substr(colonPos + 1);
-    } else {
-        host = hostPort;
+    ParsedUrl parsed = parseUrl(url);
+    if (!parsed.error.empty()) {
+        return {0, "", parsed.error, false};
     }
 
     std::string err;
-    SOCKET fd = connectTcp(host, port, err);
+    SOCKET fd = connectTcp(parsed.host, parsed.port, err);
     if (fd == INVALID_SOCKET) {
         return {0, "", err, false};
     }
-    closesocket(fd);
+    UniqueSocket sock(new SOCKET(fd));
 
-    // TCP connected — TLS handshake and HTTP exchange implemented in Phase B
-    return {0, "", "TLS not yet implemented (Phase B)", false};
+    SSL* sslRaw = performTlsHandshake(ctx_.get(), fd, parsed.host, verifyCert, err);
+    if (!sslRaw) {
+        return {0, "", err, false};
+    }
+    UniqueSSL ssl(sslRaw);
+
+    std::string req = buildGetRequest(parsed);
+    if (SSL_write(ssl.get(), req.data(), static_cast<int>(req.size()))
+            != static_cast<int>(req.size())) {
+        unsigned long e = ERR_get_error();
+        return {0, "", e ? ERR_error_string(e, nullptr) : "SSL_write incomplete", false};
+    }
+
+    static constexpr std::size_t MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+
+    std::string raw;
+    char buf[4096];
+    int n;
+    while ((n = SSL_read(ssl.get(), buf, sizeof(buf))) > 0) {
+        raw.append(buf, n);
+        if (raw.size() > MAX_RESPONSE_BYTES) {
+            return {0, "", "Response exceeded size limit", false};
+        }
+    }
+
+    // n == 0 is a clean TLS close_notify — normal end of response
+    // n < 0 is a real error — do not attempt to parse whatever we received
+    if (n < 0) {
+        int sslErr = SSL_get_error(ssl.get(), n);
+        if (sslErr != SSL_ERROR_ZERO_RETURN) {
+            unsigned long e = ERR_get_error();
+            return {0, "", e ? ERR_error_string(e, nullptr) : "SSL_read error", false};
+        }
+    }
+
+    return parseResponse(raw);
 }

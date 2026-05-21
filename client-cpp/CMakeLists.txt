@@ -27,6 +27,8 @@ add_executable(sas-client
   src/Conversation.cpp
   src/Client.cpp
   src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
 )
 
 target_link_libraries(sas-client PRIVATE
@@ -42,6 +44,8 @@ enable_testing()
 add_executable(test_tcp
   tests/test_tcp.cpp
   src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
 )
 target_link_libraries(test_tcp PRIVATE
   OpenSSL::SSL
@@ -51,3 +55,21 @@ target_link_libraries(test_tcp PRIVATE
   ${PLATFORM_LIBS}
 )
 add_test(NAME TCP_Socket_Test COMMAND test_tcp)
+
+add_executable(test_http
+  tests/test_http.cpp
+  src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
+)
+target_link_libraries(test_http PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  ${PLATFORM_LIBS}
+)
+# Network tests are opt-in — run manually with: ctest -L network
+# or: ./build/test_http.exe --network
+add_test(NAME HTTP_GET_Test COMMAND test_http)
+set_tests_properties(HTTP_GET_Test PROPERTIES LABELS "network")
