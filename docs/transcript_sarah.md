@@ -253,3 +253,27 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update transcript
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** pin all dependencies in requirements.txt with minimum versions based on what's currently installed in the venv. use >= not == so we're not too restrictive
+
+**Claude:** Read `requirements.txt` (7 unpinned packages) and ran `pip freeze` against the venv. Updated all seven direct dependencies with `>=` minimum versions based on installed versions: `flask>=3.1.3`, `flask-jwt-extended>=4.7.4`, `argon2-cffi>=25.1.0`, `mysql-connector-python>=9.7.0`, `web3>=7.16.0`, `python-dotenv>=1.2.2`, `gunicorn>=26.0.0`. Transitive dependencies left unspecified.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update the field validation in /register and /login to check that each required field is a non-empty string, not just present. return 400 if any field is not a string or is empty after stripping whitespace
+
+**Claude:** Added a `_invalid_fields(data, fields)` helper to `auth/routes.py` that rejects a field if it is missing, not a `str`, or blank after `.strip()`. Replaced the `not data.get(f)` list comprehension in both `/register` and `/login` with calls to this helper. Error message updated to "Missing or invalid fields".
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript

@@ -24,6 +24,13 @@ REQUIRED_FIELDS = [
     'x25519_public_key', 'hpke_wrapped_private_key', 'argon2id_kek_salt',
 ]
 
+def _invalid_fields(data, fields):
+    """Return fields that are missing, not a string, or blank after stripping."""
+    return [
+        f for f in fields
+        if not isinstance(data.get(f), str) or not data[f].strip()
+    ]
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
@@ -31,9 +38,9 @@ def register():
     if not data:
         return jsonify({'error': 'Request body must be JSON'}), 400
 
-    missing = [f for f in REQUIRED_FIELDS if not data.get(f)]
-    if missing:
-        return jsonify({'error': f"Missing required fields: {', '.join(missing)}"}), 400
+    invalid = _invalid_fields(data, REQUIRED_FIELDS)
+    if invalid:
+        return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
     password_hash = ph.hash(data['password'])
     # Hash format: $argon2id$v=19$m=...,t=...,p=...$<base64-salt>$<base64-hash>
@@ -82,9 +89,9 @@ def login():
     if not data:
         return jsonify({'error': 'Request body must be JSON'}), 400
 
-    missing = [f for f in ['username', 'password'] if not data.get(f)]
-    if missing:
-        return jsonify({'error': f"Missing required fields: {', '.join(missing)}"}), 400
+    invalid = _invalid_fields(data, ['username', 'password'])
+    if invalid:
+        return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
     db = get_db()
     cursor = db.cursor(dictionary=True)
