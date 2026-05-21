@@ -1,4 +1,5 @@
 #include "../include/Client.hpp"
+#include "../src/crypto_utils.hpp"
 #include <sodium.h>
 #include <stdio.h>
 #include <string>
@@ -16,14 +17,6 @@ static void check(const char* label, bool ok, const char* detail = "") {
 }
 
 static bool aesAvailable() { return crypto_aead_aes256gcm_is_available() != 0; }
-
-static std::string b64Encode(const unsigned char* data, std::size_t len) {
-    std::size_t bufLen = sodium_base64_encoded_len(len, sodium_base64_VARIANT_ORIGINAL);
-    std::string out(bufLen, '\0');
-    sodium_bin2base64(&out[0], bufLen, data, len, sodium_base64_VARIANT_ORIGINAL);
-    out.resize(std::strlen(out.c_str()));
-    return out;
-}
 
 // ============================================================================
 
