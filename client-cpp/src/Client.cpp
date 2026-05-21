@@ -3,11 +3,41 @@
 #include <sodium.h>
 #include <stdexcept>
 #include <cstring>
+#include <cstdio>
 #include <ctime>
 #include <string>
 #include <vector>
 
 // Helpers
+
+// Escape a string for use as a JSON string value.
+// Escapes \, ", and the JSON control characters (\b \f \n \r \t and other < 0x20).
+// The caller is responsible for wrapping the result in double-quotes.
+static std::string jsonEscape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b";  break;
+            case '\f': out += "\\f";  break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if (c < 0x20) {
+                    // Control characters must be \uXXXX-escaped in JSON (RFC 8259 §7)
+                    char buf[7];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+                    out += buf;
+                } else {
+                    out += static_cast<char>(c);
+                }
+        }
+    }
+    return out;
+}
 
 // Encode binary data as standard base64 (RFC 4648, no URL-safe variant)
 // sodium_bin2base64 writes a null-terminated string; we strip the terminator
@@ -31,13 +61,14 @@ static std::string generateMsgId() {
 
 // Build canonical associated data JSON — no spaces, exact key order.
 // Both sender and recipient must reconstruct this string identically for AEAD verification.
+// All string values are JSON-escaped so a malicious senderId cannot alter the structure.
 static std::string buildAd(const std::string& senderId,
                             const std::string& recipientId,
                             const std::string& msgId,
                             std::time_t ts) {
-    return "{\"sender_id\":\"" + senderId +
-           "\",\"recipient_id\":\"" + recipientId +
-           "\",\"message_id\":\"" + msgId +
+    return "{\"sender_id\":\"" + jsonEscape(senderId) +
+           "\",\"recipient_id\":\"" + jsonEscape(recipientId) +
+           "\",\"message_id\":\"" + jsonEscape(msgId) +
            "\",\"timestamp\":" + std::to_string(static_cast<long long>(ts)) + "}";
 }
 
@@ -57,14 +88,17 @@ Client::Client(const std::string& baseUrl,
             "AES-256-GCM key must be exactly 32 bytes, got " +
             std::to_string(aesKey_.size()));
     }
+    // sodium_init must run before any other libsodium call, including
+    // crypto_aead_aes256gcm_is_available(). Calling libsodium functions before
+    // init produces undefined behaviour.
+    if (sodium_init() < 0) {
+        throw std::runtime_error("libsodium initialisation failed");
+    }
     // AES-256-GCM in libsodium requires hardware AES-NI; fail fast rather than
     // silently producing incorrect results on unsupported hardware.
     if (crypto_aead_aes256gcm_is_available() == 0) {
         throw std::runtime_error(
             "AES-256-GCM unavailable: hardware AES acceleration (AES-NI) required");
-    }
-    if (sodium_init() < 0) {
-        throw std::runtime_error("libsodium initialisation failed");
     }
 }
 
@@ -100,12 +134,14 @@ HttpResponse Client::sendMessage(const std::string& recipientId,
     const std::string ctB64    = b64Encode(ct.data(), ct.size());
     const std::string nonceB64 = b64Encode(nonce, sizeof(nonce));
 
-    //Build JSON body — kem_output and sender_ephemeral_pk are HPKE fields so left empty for nw
-    //included as empty strings now; populated when HPKE key exchange is added.
+    // Build JSON body. All string values are escaped to prevent JSON injection.
+    // nonce/ciphertext are base64 and safe by construction; senderId/recipientId/msgId
+    // are escaped because they originate from user input or client-generated hex.
+    // kem_output and sender_ephemeral_pk are HPKE fields; empty until HPKE is added.
     const std::string jsonBody =
-        "{\"sender_id\":\"" + senderId_ + "\","
-        "\"recipient_id\":\"" + recipientId + "\","
-        "\"message_id\":\"" + msgId + "\","
+        "{\"sender_id\":\"" + jsonEscape(senderId_) + "\","
+        "\"recipient_id\":\"" + jsonEscape(recipientId) + "\","
+        "\"message_id\":\"" + jsonEscape(msgId) + "\","
         "\"nonce\":\"" + nonceB64 + "\","
         "\"ciphertext\":\"" + ctB64 + "\","
         "\"kem_output\":\"\","

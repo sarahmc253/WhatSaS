@@ -58,6 +58,24 @@ std::string buildGetRequest(const ParsedUrl& u) {
 std::string buildPostRequest(const ParsedUrl& u,
                              const std::string& body,
                              const std::string& contentType) {
+    // Reject \r or \n in header-field values: an attacker-controlled path or
+    // content-type containing CRLF would terminate the current header line and
+    // inject arbitrary headers or body content (RFC 7230 §3.2 forbids obs-fold).
+    auto hasCrlf = [](const std::string& s) {
+        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
+    };
+    if (hasCrlf(u.path)) {
+        // Returning an empty string is safe: HttpClient::doRequest will send it
+        // and receive a 400, which surfaces as an error to the caller.
+        // We cannot return HttpResponse here (wrong return type), so we use a
+        // sentinel that will produce a parse error rather than silently sending
+        // a malformed request. Callers validate the response ok_ flag.
+        return "";
+    }
+    if (hasCrlf(contentType)) {
+        return "";
+    }
+
     std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
     return "POST " + u.path + " HTTP/1.1\r\n"
            "Host: " + hostHeader + "\r\n"

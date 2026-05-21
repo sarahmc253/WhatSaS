@@ -46,7 +46,7 @@ ctest --test-dir build -L network
 
 ## Project structure
 
-```
+```text
 client-cpp/
   include/                      — public headers
     User.hpp                    — user identity + Curve25519 public key
