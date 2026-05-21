@@ -31,11 +31,23 @@ public:
     // Perform HTTP GET request over HTTPS with optional SSL cert verification
     HttpResponse get(const std::string& url, bool verifyCert = true) const;
 
+    // Perform HTTP POST request over HTTPS with a JSON (or other) body
+    HttpResponse post(const std::string& url,
+                      const std::string& body,
+                      const std::string& contentType = "application/json",
+                      bool verifyCert = true) const;
+
 private:
     // Custom deleter for SSL_CTX (defined in .cpp file)
     struct SslCtxDeleter {
         void operator()(SSL_CTX* ctx) const;
     };
+
+    // Shared TCP → TLS → send → read → parse pipeline used by get() and post()
+    HttpResponse doRequest(const std::string& host,
+                           const std::string& port,
+                           const std::string& requestStr,
+                           bool verifyCert) const;
 
     bool wsaInitialized_;
     std::unique_ptr<SSL_CTX, SslCtxDeleter> ctx_;

@@ -18,6 +18,11 @@ ParsedUrl    parseUrl(const std::string& url);
 // Build a minimal HTTP/1.1 GET request string.
 std::string  buildGetRequest(const ParsedUrl& u);
 
+// Build a minimal HTTP/1.1 POST request string with a body.
+std::string  buildPostRequest(const ParsedUrl& u,
+                              const std::string& body,
+                              const std::string& contentType);
+
 // Parse a raw HTTP/1.1 response (headers + body) into HttpResponse.
 HttpResponse parseResponse(const std::string& raw);
 

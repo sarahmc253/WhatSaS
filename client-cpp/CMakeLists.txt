@@ -73,3 +73,23 @@ target_link_libraries(test_http PRIVATE
 # or: ./build/test_http.exe --network
 add_test(NAME HTTP_GET_Test COMMAND test_http)
 set_tests_properties(HTTP_GET_Test PROPERTIES LABELS "network")
+
+add_executable(test_client
+  tests/test_client.cpp
+  src/Client.cpp
+  src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
+  src/User.cpp
+  src/Message.cpp
+  src/MessageStore.cpp
+  src/Conversation.cpp
+)
+target_link_libraries(test_client PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  ${PLATFORM_LIBS}
+)
+add_test(NAME Client_Crypto_Test COMMAND test_client)

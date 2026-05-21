@@ -55,6 +55,18 @@ std::string buildGetRequest(const ParsedUrl& u) {
            "\r\n";
 }
 
+std::string buildPostRequest(const ParsedUrl& u,
+                             const std::string& body,
+                             const std::string& contentType) {
+    std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
+    return "POST " + u.path + " HTTP/1.1\r\n"
+           "Host: " + hostHeader + "\r\n"
+           "Connection: close\r\n"
+           "Content-Type: " + contentType + "\r\n"
+           "Content-Length: " + std::to_string(body.size()) + "\r\n"
+           "\r\n" + body;
+}
+
 // ============================================================================
 // Response parser
 // ============================================================================
