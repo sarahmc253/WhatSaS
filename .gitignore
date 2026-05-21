@@ -1,6 +1,5 @@
 .env
 venv/
 client-cpp/build/
-.claude/settings.json
-.claude/settings.local.json
-.vscode/settings.json
+.claude/
+__pycache__/

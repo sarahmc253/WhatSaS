@@ -1,6 +1,8 @@
 import os
 import mysql.connector
+from datetime import timedelta
 from flask import Flask, g, current_app
+from flask_jwt_extended import JWTManager
 
 def get_db():
     if 'db' not in g:
@@ -32,6 +34,13 @@ def create_app():
     app.config['DB_PASSWORD'] = os.getenv('DB_PASSWORD')
     app.config['DB_NAME'] = os.getenv('DB_NAME')
     app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
+    app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
+    # 15 minutes balances security and usability: short enough to limit exposure if a token
+    # is stolen, at the cost of requiring re-login for long sessions. A refresh token endpoint
+    # would remove that UX penalty, but adds scope — chosen not to implement for now.
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=15)
+
+    JWTManager(app)
 
     @app.teardown_appcontext
     def close_db(e=None):
