@@ -277,3 +277,19 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update transcript
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** add a check in both /register and /login that returns 400 if data is not a dict before calling _invalid_fields. something like: if not isinstance(data, dict)
+
+**Claude:** Replaced the `if not data:` guard in both `/register` and `/login` with `if not isinstance(data, dict):`, returning 400 with `'Request body must be a JSON object'`. This correctly rejects `None`, JSON arrays, strings, and numbers — anything that isn't an object — before `_invalid_fields` is ever called.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript

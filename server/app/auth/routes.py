@@ -35,8 +35,8 @@ def _invalid_fields(data, fields):
 def register():
     data = request.get_json()
 
-    if not data:
-        return jsonify({'error': 'Request body must be JSON'}), 400
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request body must be a JSON object'}), 400
 
     invalid = _invalid_fields(data, REQUIRED_FIELDS)
     if invalid:
@@ -86,8 +86,8 @@ def register():
 def login():
     data = request.get_json()
 
-    if not data:
-        return jsonify({'error': 'Request body must be JSON'}), 400
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request body must be a JSON object'}), 400
 
     invalid = _invalid_fields(data, ['username', 'password'])
     if invalid:
