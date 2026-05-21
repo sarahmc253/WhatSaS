@@ -68,15 +68,44 @@ HttpClient& HttpClient::operator=(HttpClient&& other) noexcept {
     return *this;
 }
 
-// Phase B stub (Parts 3-4): TLS and HTTP
-
 HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
-    // Phase A: Stub implementation
-    // This will be fully implemented in later
-    HttpResponse resp;
-    resp.statusCode_ = 0;
-    resp.body_ = "";
-    resp.error_ = "TLS layer not yet implemented (Phase B)";
-    resp.ok_ = false;
-    return resp;
+    if (!wsaInitialized_) {
+        return {0, "", "Winsock not initialized", false};
+    }
+
+    // Phase A: verify TCP reachability; TLS + HTTP parsing added in Phase B
+    // For now, extract host and attempt a raw TCP connect to validate the path
+    // A URL like "https://host/path" → host="host", port="443"
+    std::string host;
+    std::string port = "443";
+
+    // Strip scheme
+    std::string rest = url;
+    auto schemeEnd = rest.find("://");
+    if (schemeEnd != std::string::npos) {
+        rest = rest.substr(schemeEnd + 3);
+    }
+
+    // Strip path
+    auto slashPos = rest.find('/');
+    std::string hostPort = (slashPos != std::string::npos) ? rest.substr(0, slashPos) : rest;
+
+    // Split host:port
+    auto colonPos = hostPort.rfind(':');
+    if (colonPos != std::string::npos) {
+        host = hostPort.substr(0, colonPos);
+        port = hostPort.substr(colonPos + 1);
+    } else {
+        host = hostPort;
+    }
+
+    std::string err;
+    SOCKET fd = connectTcp(host, port, err);
+    if (fd == INVALID_SOCKET) {
+        return {0, "", err, false};
+    }
+    closesocket(fd);
+
+    // TCP connected — TLS handshake and HTTP exchange implemented in Phase B
+    return {0, "", "TLS not yet implemented (Phase B)", false};
 }
