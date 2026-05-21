@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from flask_jwt_extended import create_access_token
@@ -137,9 +137,9 @@ def login():
                 (new_hash, new_salt, user['id']),
             )
             db.commit()
-        except Exception:
+        except Exception as e:
             db.rollback()
-            raise
+            current_app.logger.error("Rehash failed for user %s: %s", user['id'], e)
         finally:
             cursor.close()
 
