@@ -33,7 +33,7 @@ def _invalid_fields(data, fields):
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({'error': 'Request body must be a JSON object'}), 400
@@ -84,7 +84,7 @@ def register():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
+    data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
         return jsonify({'error': 'Request body must be a JSON object'}), 400

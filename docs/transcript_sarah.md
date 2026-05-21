@@ -293,3 +293,19 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update transcript
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** use request.get_json(silent=True) in both /register and /login so malformed JSON returns None and hits our isinstance check instead of raising BadRequest
+
+**Claude:** Updated `auth/routes.py` lines 36 and 87 — changed `request.get_json()` to `request.get_json(silent=True)` in both `/register` and `/login`. Malformed JSON now returns `None` instead of raising a `BadRequest` exception, which falls cleanly into the existing `isinstance(data, dict)` guard and returns a 400.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript
