@@ -309,3 +309,25 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update transcript
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** i need to add @jwt_required to protect the message routes. before writing code, what does flask-jwt-extended's @jwt_required decorator do and how do i access the authenticated user's info inside the route
+
+**Claude:** Explained that `@jwt_required()` validates the `Authorization: Bearer <token>` header (checks signature and expiry, returns 401/422 automatically on failure) and loads the decoded identity into request context. `get_jwt_identity()` returns whatever was passed as `identity` to `create_access_token()`. `get_jwt()` returns the full decoded claims dict. Noted that `@jwt_required()` requires parentheses in flask-jwt-extended v4+ (v3 used no parens).
+
+---
+
+**Sarah:** add @jwt_required() to all five message routes (GET /messages, POST /messages, DELETE /messages/<id>, POST /messages/<id>/forward, POST /messages/<id>/revoke). in GET /messages use get_jwt_identity() to get the current user's id and return a placeholder that shows their id. leave the other routes as stubs for now
+
+**Claude:** Updated `server/app/messages/routes.py` — added `from flask_jwt_extended import jwt_required, get_jwt_identity` import, applied `@jwt_required()` to all five routes, and updated `get_messages` to call `get_jwt_identity()` and return `{'user_id': current_user_id, 'messages': []}` 200. Other four routes left as stubs.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update the transcript in docs
