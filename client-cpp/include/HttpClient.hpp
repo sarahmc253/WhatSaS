@@ -24,9 +24,9 @@ public:
     HttpClient(const HttpClient&)            = delete;
     HttpClient& operator=(const HttpClient&) = delete;
 
-    // Movable
-    HttpClient(HttpClient&&)            = default;
-    HttpClient& operator=(HttpClient&&) = default;
+    // Movable — manual to prevent double WSACleanup (source must be zeroed)
+    HttpClient(HttpClient&& other) noexcept;
+    HttpClient& operator=(HttpClient&& other) noexcept;
 
     // Perform HTTP GET request over HTTPS with optional SSL cert verification
     HttpResponse get(const std::string& url, bool verifyCert = true) const;
