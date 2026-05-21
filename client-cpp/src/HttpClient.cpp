@@ -7,9 +7,7 @@
 #include <iostream>
 #include <memory>
 
-// ============================================================================
 // RAII wrappers for OpenSSL SSL* and raw SOCKET
-// ============================================================================
 
 struct SslDeleter   { void operator()(SSL*    s) const { if (s) SSL_free(s); } };
 struct SocketDeleter {
@@ -21,17 +19,13 @@ struct SocketDeleter {
 using UniqueSSL    = std::unique_ptr<SSL,    SslDeleter>;
 using UniqueSocket = std::unique_ptr<SOCKET, SocketDeleter>;
 
-// ============================================================================
 // SSL_CTX deleter (declared in HttpClient.hpp, implemented here)
-// ============================================================================
 
 void HttpClient::SslCtxDeleter::operator()(SSL_CTX* ctx) const {
     if (ctx) SSL_CTX_free(ctx);
 }
 
-// ============================================================================
 // Constructor / destructor / move
-// ============================================================================
 
 HttpClient::HttpClient() : wsaInitialized_(false), ctx_(nullptr) {
     WSADATA wsaData;
@@ -69,9 +63,7 @@ HttpClient& HttpClient::operator=(HttpClient&& other) noexcept {
     return *this;
 }
 
-// ============================================================================
 // Public API
-// ============================================================================
 
 HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
     if (!wsaInitialized_ || !ctx_) {
@@ -105,11 +97,16 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
         return {0, "", e ? ERR_error_string(e, nullptr) : "SSL_write incomplete", false};
     }
 
+    static constexpr std::size_t MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+
     std::string raw;
     char buf[4096];
     int n;
     while ((n = SSL_read(ssl.get(), buf, sizeof(buf))) > 0) {
         raw.append(buf, n);
+        if (raw.size() > MAX_RESPONSE_BYTES) {
+            return {0, "", "Response exceeded size limit", false};
+        }
     }
 
     // n == 0 is a clean TLS close_notify — normal end of response
