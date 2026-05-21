@@ -142,6 +142,15 @@ HttpResponse HttpClient::post(const std::string& url,
         return {0, "", parsed.error, false};
     }
 
+    // CRLF in path or Content-Type would inject arbitrary headers (RFC 7230 §3.2).
+    // Validated here rather than in buildPostRequest so we can return a proper error.
+    auto hasCrlf = [](const std::string& s) {
+        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
+    };
+    if (hasCrlf(parsed.path) || hasCrlf(contentType)) {
+        return {0, "", "Invalid header value: CRLF in path or Content-Type", false};
+    }
+
     return doRequest(parsed.host, parsed.port,
                      buildPostRequest(parsed, body, contentType), verifyCert);
 }
