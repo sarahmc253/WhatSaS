@@ -2,9 +2,10 @@
 #define CLIENT_HPP
 
 #include "HttpClient.hpp"
+#include <atomic>
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 // High-level messaging client: manages AES-256-GCM encryption and HTTP transport.
 // The caller is responsible for deriving aesKey via HKDF (future task).
@@ -28,11 +29,16 @@ public:
     HttpResponse getMessages() const;
 
 private:
-    std::string          baseUrl_;
-    std::string          senderId_;
-    std::vector<uint8_t> aesKey_;   // 32 bytes; caller derives via HKDF
-    bool                 verifyCert_;
-    HttpClient           http_;
+    std::string              baseUrl_;
+    std::string              senderId_;
+    std::vector<uint8_t>     aesKey_;        // 32 bytes; caller derives via HKDF
+    bool                     verifyCert_;
+    HttpClient               http_;
+    // Counter-based nonce: base XOR'd with an incrementing value per message.
+    // Avoids 96-bit birthday collision risk of purely random nonces when many
+    // messages are sent under the same key.
+    mutable std::atomic<uint64_t> nonceCounter_;
+    unsigned char                 nonceBase_[12];  // AES-256-GCM nonce is always 12 bytes (96 bits)
 };
 
 #endif // CLIENT_HPP

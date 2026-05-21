@@ -3,21 +3,10 @@
 
 #include <sodium.h>
 #include <stdexcept>
+#include <cstring>
 #include <ctime>
 #include <string>
 #include <vector>
-
-// Canonical AD — no spaces, exact key order. Both sides must reconstruct this
-// string identically; any deviation breaks the AEAD tag verification.
-static std::string buildAd(const std::string& senderId,
-                            const std::string& recipientId,
-                            const std::string& msgId,
-                            std::time_t ts) {
-    return "{\"sender_id\":\"" + jsonEscape(senderId) +
-           "\",\"recipient_id\":\"" + jsonEscape(recipientId) +
-           "\",\"message_id\":\"" + jsonEscape(msgId) +
-           "\",\"timestamp\":" + std::to_string(static_cast<long long>(ts)) + "}";
-}
 
 Client::Client(const std::string& baseUrl,
                const std::string& senderId,
@@ -27,7 +16,8 @@ Client::Client(const std::string& baseUrl,
       senderId_(senderId),
       aesKey_(std::move(aesKey)),
       verifyCert_(verifyCert),
-      http_() {
+      http_(),
+      nonceCounter_(0) {
     if (aesKey_.size() != crypto_aead_aes256gcm_KEYBYTES) {
         throw std::invalid_argument(
             "AES-256-GCM key must be exactly 32 bytes, got " +
@@ -42,12 +32,22 @@ Client::Client(const std::string& baseUrl,
         throw std::runtime_error(
             "AES-256-GCM unavailable: hardware AES-NI required");
     }
+    // Random base nonce, XOR'd with a per-message counter to guarantee uniqueness
+    // under the same key. Purely random 96-bit nonces have a 50% collision
+    // probability after 2^48 messages (birthday bound); the counter eliminates this.
+    randombytes_buf(nonceBase_, sizeof(nonceBase_));
 }
 
 HttpResponse Client::sendMessage(const std::string& recipientId,
                                  const std::string& plaintext) const {
-    unsigned char nonce[crypto_aead_aes256gcm_NPUBBYTES];
-    randombytes_buf(nonce, sizeof(nonce));
+    // Derive nonce: XOR the random base with an 8-byte little-endian counter.
+    // Counter occupies the first 8 bytes; upper 4 bytes remain from the base.
+    unsigned char nonce[12];
+    std::memcpy(nonce, nonceBase_, 12);
+    uint64_t count = nonceCounter_.fetch_add(1, std::memory_order_relaxed);
+    for (int i = 0; i < 8; ++i) {
+        nonce[i] ^= static_cast<unsigned char>((count >> (8 * i)) & 0xFF);
+    }
 
     const std::string msgId = generateMsgId();
     const std::time_t ts    = std::time(nullptr);

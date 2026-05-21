@@ -4,6 +4,7 @@
 #include <sodium.h>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <string>
 
 // Escape a string for use as a JSON string value (RFC 8259 §7).
@@ -46,10 +47,23 @@ static inline std::string b64Encode(const unsigned char* data, std::size_t len) 
 static inline std::string generateMsgId() {
     unsigned char raw[16];
     randombytes_buf(raw, sizeof(raw));
-    std::string hex(32, '\0');
+    // sodium_bin2hex writes 2*len + 1 bytes (null-terminated); allocate 33, resize to 32.
+    std::string hex(33, '\0');
     sodium_bin2hex(&hex[0], 33, raw, sizeof(raw));
     hex.resize(32);
     return hex;
+}
+
+// Build canonical associated data JSON — no spaces, exact key order.
+// Both sides must reconstruct this string identically for AEAD tag verification.
+static inline std::string buildAd(const std::string& senderId,
+                                   const std::string& recipientId,
+                                   const std::string& msgId,
+                                   std::time_t ts) {
+    return "{\"sender_id\":\"" + jsonEscape(senderId) +
+           "\",\"recipient_id\":\"" + jsonEscape(recipientId) +
+           "\",\"message_id\":\"" + jsonEscape(msgId) +
+           "\",\"timestamp\":" + std::to_string(static_cast<long long>(ts)) + "}";
 }
 
 #endif // CRYPTO_UTILS_HPP
