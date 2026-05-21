@@ -6,6 +6,7 @@
 #include <openssl/err.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
 
 #include "tls_connect.hpp"
 
@@ -66,12 +67,20 @@ SSL* performTlsHandshake(SSL_CTX* ctx,
     // SNI extension: tells the server which certificate to send
     SSL_set_tlsext_host_name(ssl, hostname.c_str());
 
-    // Hostname verification: CN/SAN in the cert must match hostname
-    SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
-    if (SSL_set1_host(ssl, hostname.c_str()) != 1) {
-        SSL_free(ssl);
-        errorOut = "SSL_set1_host failed";
-        return nullptr;
+    if (verifyCert) {
+        // Override ctx-level SSL_VERIFY_PEER on this SSL object — keeps verifyCert=false
+        // working without mutating the shared SSL_CTX
+        SSL_set_verify(ssl, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+        // Hostname verification: CN/SAN in the cert must match hostname
+        SSL_set_hostflags(ssl, X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS);
+        if (SSL_set1_host(ssl, hostname.c_str()) != 1) {
+            SSL_free(ssl);
+            errorOut = "SSL_set1_host failed";
+            return nullptr;
+        }
+    } else {
+        // Disable cert verification for this connection only
+        SSL_set_verify(ssl, SSL_VERIFY_NONE, nullptr);
     }
 
     if (SSL_connect(ssl) != 1) {
