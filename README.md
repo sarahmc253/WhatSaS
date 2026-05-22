@@ -16,6 +16,19 @@ WhatSaS/
 └── docs/            # Design documents and reports
 ```
 
+## Setup & Installation
+
+### Python dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Covers the server and the `crypto-library` package. Key cryptographic dependencies:
+
+- **`cryptography`** — PyCA's cryptography library; provides X25519 key exchange and HPKE primitives. Actively maintained, audited, and the de-facto standard for Python cryptography.
+- **`argon2-cffi`** — Python bindings for the reference Argon2 implementation. Argon2id is the OWASP-recommended password hashing and key-derivation algorithm; this binding uses the same audited C library as the reference spec.
+
 ## Key Dates
 
 | Milestone | Date |
