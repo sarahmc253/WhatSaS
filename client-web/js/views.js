@@ -126,15 +126,9 @@ function renderRegister(container, navigate) {
         msg.className = msg.textContent = '';
 
         try {
-            // TODO: generate an X25519 key pair, derive KEK via Argon2id, and
-            //       HPKE-wrap the private key before registration so the server
-            //       stores only the encrypted key material.
-            await api.register(
-                document.getElementById('r-username').value.trim(),
-                document.getElementById('r-email').value.trim(),
-                document.getElementById('r-password').value,
-                { x25519_public_key: '', hpke_wrapped_private_key: '', argon2id_kek_salt: '' }
-            );
+            // TODO: generate X25519 key pair, derive KEK via Argon2id, HPKE-wrap
+            //       the private key, then call api.register() with real key material.
+            throw new Error('Registration is not yet implemented — key generation and HPKE wrapping are pending');
             msg.className = 'success-msg';
             msg.textContent = 'Account created — redirecting to sign in…';
             setTimeout(() => renderLogin(container, navigate), 1600);
@@ -276,6 +270,12 @@ export function renderCompose(container, navigate) {
 
     const form = document.getElementById('compose-form');
     const msg  = document.getElementById('compose-msg');
+
+    // Sending is blocked until E2E encryption is implemented
+    const sendBtn = form.querySelector('button[type="submit"]');
+    sendBtn.disabled = true;
+    msg.className = 'error-msg';
+    msg.textContent = 'Sending is temporarily unavailable while end-to-end encryption is being set up.';
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
