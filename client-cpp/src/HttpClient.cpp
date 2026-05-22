@@ -63,36 +63,27 @@ HttpClient& HttpClient::operator=(HttpClient&& other) noexcept {
     return *this;
 }
 
-// Public API
+// Private: shared TCP → TLS → write → read → parse pipeline
 
-HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
-    if (!wsaInitialized_ || !ctx_) {
-        return {0, "", "HttpClient not initialized", false};
-    }
-
-    ERR_clear_error();
-
-    ParsedUrl parsed = parseUrl(url);
-    if (!parsed.error.empty()) {
-        return {0, "", parsed.error, false};
-    }
-
+HttpResponse HttpClient::doRequest(const std::string& host,
+                                   const std::string& port,
+                                   const std::string& requestStr,
+                                   bool verifyCert) const {
     std::string err;
-    SOCKET fd = connectTcp(parsed.host, parsed.port, err);
+    SOCKET fd = connectTcp(host, port, err);
     if (fd == INVALID_SOCKET) {
         return {0, "", err, false};
     }
     UniqueSocket sock(new SOCKET(fd));
 
-    SSL* sslRaw = performTlsHandshake(ctx_.get(), fd, parsed.host, verifyCert, err);
+    SSL* sslRaw = performTlsHandshake(ctx_.get(), fd, host, verifyCert, err);
     if (!sslRaw) {
         return {0, "", err, false};
     }
     UniqueSSL ssl(sslRaw);
 
-    std::string req = buildGetRequest(parsed);
-    if (SSL_write(ssl.get(), req.data(), static_cast<int>(req.size()))
-            != static_cast<int>(req.size())) {
+    if (SSL_write(ssl.get(), requestStr.data(), static_cast<int>(requestStr.size()))
+            != static_cast<int>(requestStr.size())) {
         unsigned long e = ERR_get_error();
         return {0, "", e ? ERR_error_string(e, nullptr) : "SSL_write incomplete", false};
     }
@@ -109,8 +100,7 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
         }
     }
 
-    // n == 0 is a clean TLS close_notify — normal end of response
-    // n < 0 is a real error — do not attempt to parse whatever we received
+    // n == 0: clean TLS close_notify — normal end; n < 0: real SSL error
     if (n < 0) {
         int sslErr = SSL_get_error(ssl.get(), n);
         if (sslErr != SSL_ERROR_ZERO_RETURN) {
@@ -120,4 +110,47 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
     }
 
     return parseResponse(raw);
+}
+
+// Public API
+
+HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
+    if (!wsaInitialized_ || !ctx_) {
+        return {0, "", "HttpClient not initialized", false};
+    }
+    ERR_clear_error();
+
+    ParsedUrl parsed = parseUrl(url);
+    if (!parsed.error.empty()) {
+        return {0, "", parsed.error, false};
+    }
+
+    return doRequest(parsed.host, parsed.port, buildGetRequest(parsed), verifyCert);
+}
+
+HttpResponse HttpClient::post(const std::string& url,
+                              const std::string& body,
+                              const std::string& contentType,
+                              bool verifyCert) const {
+    if (!wsaInitialized_ || !ctx_) {
+        return {0, "", "HttpClient not initialized", false};
+    }
+    ERR_clear_error();
+
+    ParsedUrl parsed = parseUrl(url);
+    if (!parsed.error.empty()) {
+        return {0, "", parsed.error, false};
+    }
+
+    // CRLF in path or Content-Type would inject arbitrary headers (RFC 7230 §3.2).
+    // Validated here rather than in buildPostRequest so we can return a proper error.
+    auto hasCrlf = [](const std::string& s) {
+        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
+    };
+    if (hasCrlf(parsed.path) || hasCrlf(contentType)) {
+        return {0, "", "Invalid header value: CRLF in path or Content-Type", false};
+    }
+
+    return doRequest(parsed.host, parsed.port,
+                     buildPostRequest(parsed, body, contentType), verifyCert);
 }

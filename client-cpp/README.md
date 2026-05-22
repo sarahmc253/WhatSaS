@@ -1,31 +1,23 @@
 # WhatSaS C++ Client
 
-Secure messaging client built in C++17 using libsodium (AES-256-GCM + X25519), libcurl (HTTPS), and SQLite3 (local message store).
+Secure messaging client in C++17. Uses raw BSD sockets (Winsock2) + OpenSSL for HTTPS, libsodium for E2EE encryption (AES-256-GCM), and SQLite3 for local message storage.
 
 ## Prerequisites
 
-This project builds with CMake on Windows via MSYS2 (ucrt64 toolchain).
-
-### 1. Install MSYS2
-
-Download and install from https://www.msys2.org/. Open the **UCRT64** shell.
-
-### 2. Install dependencies
+MSYS2 with the ucrt64 toolchain. Open the **UCRT64** shell and install:
 
 ```sh
 pacman -S mingw-w64-ucrt-x86_64-cmake \
           mingw-w64-ucrt-x86_64-ninja \
           mingw-w64-ucrt-x86_64-gcc \
-          mingw-w64-ucrt-x86_64-curl \
+          mingw-w64-ucrt-x86_64-openssl \
           mingw-w64-ucrt-x86_64-libsodium \
           mingw-w64-ucrt-x86_64-sqlite3
 ```
 
 ## Build
 
-From the `client-cpp` directory in PowerShell or the MSYS2 UCRT64 shell:
-
-```sh
+```powershell
 cmake -B build
 cmake --build build
 ```
@@ -36,23 +28,52 @@ cmake --build build
 .\build\sas-client.exe
 ```
 
+## Tests
+
+```powershell
+# Offline TCP tests (no internet required)
+.\build\test_tcp.exe
+
+# HTTPS/TLS tests (internet required)
+.\build\test_http.exe --network
+
+# CTest — offline only by default
+ctest --test-dir build
+
+# CTest — include network tests
+ctest --test-dir build -L network
+```
+
 ## Project structure
 
 ```text
 client-cpp/
-  include/
-    User.hpp          — user identity and Curve25519 public key
-    Message.hpp       — encrypted message payload (ciphertext, nonce, IDs, timestamp)
-    MessageStore.hpp  — in-memory store: std::vector (primary) + std::map (recipient index)
-    Conversation.hpp  — conversation state between two users
-    Client.hpp        — network layer (libcurl HTTPS + libsodium E2EE)
-  src/
+  include/                      — public headers
+    User.hpp                    — user identity + Curve25519 public key
+    Message.hpp                 — immutable encrypted message (ciphertext, nonce, IDs, timestamp)
+    MessageStore.hpp            — dual-index store: std::vector + std::map
+    HttpClient.hpp              — HTTPS GET client (raw sockets + OpenSSL TLS)
+    Conversation.hpp            — conversation state (scaffold)
+    Client.hpp                  — high-level network + encryption layer (scaffold)
+  src/                          — implementation
     User.cpp
     Message.cpp
     MessageStore.cpp
-    Conversation.cpp
-    Client.cpp
+    HttpClient.cpp              — orchestration: connects TCP, TLS, HTTP modules
+    tcp_connect.hpp             — internal: raw TCP connect with 5s timeout
+    tls_connect.hpp / .cpp      — internal: TLS handshake, Windows CA store, cert validation
+    http_response.hpp / .cpp    — internal: URL parser, HTTP framing, chunked decoder
+    Conversation.cpp            — scaffold
+    Client.cpp                  — scaffold
     main.cpp
+  tests/
+    test_helpers.hpp            — CHECK_EQ / CHECK_TRUE macros
+    test_main.cpp               — test runner
+    test_message.cpp            — Message class tests
+    test_user.cpp               — User class tests
+    test_store.cpp              — MessageStore tests
+    test_tcp.cpp                — raw TCP socket tests (offline)
+    test_http.cpp               — HTTPS GET tests (--network)
   CMakeLists.txt
   README.md
 ```
@@ -60,16 +81,32 @@ client-cpp/
 ## Cryptography
 
 | Primitive | Algorithm | Library |
-|---|---|---|
-| Symmetric encryption | AES-256-GCM (AEAD) | libsodium via `crypto_aead_aes256gcm_*` |
-| Key derivation | HKDF-SHA256 | libsodium via `crypto_kdf_hkdf_sha256_*` |
-| Authenticated encryption | AEAD with associated data (sender_id + recipient_id + timestamp) | libsodium |
-| Key exchange | X25519 Elliptic Curve Diffie-Hellman | libsodium via `crypto_box_*` and `crypto_scalarmult_*` |
-| Random nonce | 12-byte CSPRNG (AES-256-GCM requirement) | libsodium `randombytes_buf` |
-| Transport | HTTPS/TLS | libcurl with mandatory certificate validation |
+|-----------|-----------|---------|
+| Symmetric encryption | AES-256-GCM (AEAD) | libsodium `crypto_aead_aes256gcm_*` |
+| Key exchange | X25519 ECDH + HPKE RFC 9180 | libsodium `crypto_scalarmult_*`, `crypto_box_*` |
+| Key derivation | HKDF-SHA256 | libsodium `crypto_kdf_hkdf_sha256_*` |
+| Password hashing | Argon2id | libsodium `crypto_pwhash_*` |
+| Random nonces | 12-byte CSPRNG | libsodium `randombytes_buf` |
+| Transport | HTTPS/TLS 1.2+ | Raw OpenSSL (libssl + libcrypto) |
+| Cert validation | System CA store | Windows `CertOpenSystemStoreA` + OpenSSL X509 |
 
-**Notes on libsodium:**
-- libsodium provides `crypto_aead_aes256gcm_*` for AES-256-GCM encryption/decryption
-- X25519 key exchange is available via `crypto_box_*` (public key cryptography) and `crypto_scalarmult_*` (raw scalar multiplication)
-- For HPKE RFC 9180 mode, manual implementation of HPKE is required; libsodium does not provide HPKE directly
-- All cryptographic functions use constant-time operations to prevent timing attacks
+**Notes:**
+- HPKE RFC 9180 (`DHKEM(X25519, HKDF-SHA256)`) requires manual implementation — libsodium provides the primitives but not HPKE directly
+- TLS certificate chain is validated against the Windows system root CA store
+- Hostname verification enforced via `SSL_set1_host` — connections are rejected on CN/SAN mismatch
+- Plain HTTP is rejected — this client is HTTPS only
+
+## Manual TLS verification
+
+Cross-check the client's cert validation against the reference tool:
+
+```sh
+# Valid cert — expect: Verify return code: 0 (ok)
+openssl s_client -connect sas.theburkenator.com:443 -verify 5
+
+# Expired cert — expect: Verify return code: 10 (certificate has expired)
+openssl s_client -connect expired.badssl.com:443 -verify 5
+
+# Hostname mismatch — expect: Verify return code: 62 (hostname mismatch)
+openssl s_client -connect wrong.host.badssl.com:443 -verify_hostname wrong.host.badssl.com
+```
