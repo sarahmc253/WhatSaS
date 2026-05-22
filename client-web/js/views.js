@@ -27,6 +27,14 @@ function formatDate(ts) {
     return isNaN(d) ? '' : d.toLocaleString();
 }
 
+// ── Crypto ────────────────────────────────────────────────────────────────
+
+// TODO: fetch recipient's x25519_public_key and encrypt with HPKE.
+// eslint-disable-next-line no-unused-vars
+async function encryptForRecipient(_recipientUsername, _plaintext) {
+    throw new Error('encryptForRecipient is not yet implemented — plaintext must not be sent');
+}
+
 // ── Login view ────────────────────────────────────────────────────────────
 export function renderLogin(container, navigate) {
     container.innerHTML = `
@@ -212,12 +220,12 @@ async function handleAction(btn, inboxBody) {
         switch (action) {
             case 'delete':
                 await api.deleteMessage(id);
-                inboxBody.querySelector(`.message-card[data-id="${id}"]`)?.remove();
+                btn.closest('.message-card')?.remove();
                 break;
 
             case 'revoke':
                 await api.revokeMessage(id);
-                inboxBody.querySelector(`.message-card[data-id="${id}"]`)?.remove();
+                btn.closest('.message-card')?.remove();
                 break;
 
             case 'forward':
@@ -253,11 +261,6 @@ export function renderCompose(container, navigate) {
                 </div>
                 <div class="form-group">
                     <label for="c-body">Message</label>
-                    <!--
-                        TODO: before calling sendMessage(), fetch the recipient's
-                        x25519_public_key and encrypt this content with HPKE so
-                        only they can decrypt it server-side.
-                    -->
                     <textarea id="c-body" placeholder="Write your message…" required></textarea>
                 </div>
                 <div class="compose-actions">
@@ -291,7 +294,8 @@ export function renderCompose(container, navigate) {
         }
 
         try {
-            await api.sendMessage({ recipient, content });
+            const encryptedPayload = await encryptForRecipient(recipient, content);
+            await api.sendMessage({ recipient, content: encryptedPayload });
             msg.className = 'success-msg';
             msg.textContent = 'Message sent!';
             form.reset();

@@ -7,7 +7,7 @@
  *     it does, which this module surfaces as a thrown Error.
  */
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = window.location.origin;
 const TOKEN_KEY = 'whatsas_token';
 
 // ── Token helpers ─────────────────────────────────────────────────────────
@@ -50,12 +50,17 @@ export async function login(username, password) {
     const data = await request('POST', '/auth/login', {
         body: { username, password }
     });
+    if (!data.token) throw new Error('Login succeeded but no token was returned');
     setToken(data.token);
     // Return full payload — caller may need key material for E2E crypto
     return data;
 }
 
 export async function register(username, email, password, cryptoPayload) {
+    const { x25519_public_key, hpke_wrapped_private_key, argon2id_kek_salt } = cryptoPayload ?? {};
+    if (!x25519_public_key || !hpke_wrapped_private_key || !argon2id_kek_salt) {
+        throw new Error('Registration blocked: E2E crypto material is not yet implemented');
+    }
     return request('POST', '/auth/register', {
         body: { username, email, password, ...cryptoPayload }
     });
