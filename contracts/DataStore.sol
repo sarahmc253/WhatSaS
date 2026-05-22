@@ -9,7 +9,7 @@ contract DataStore {
         address recorder;
     }
 
-    mapping(uint256 => HashRecord) public records;
+    mapping(uint256 => HashRecord) private records;
     uint256 public recordCount;
 
     event DataStored(
@@ -19,9 +19,8 @@ contract DataStore {
         address indexed recorder
     );
 
-    function storeData(string calldata data) external returns (uint256 recordId) {
+    function storeData(bytes32 dataHash) external returns (uint256 recordId) {
         recordId = recordCount;
-        bytes32 dataHash = keccak256(abi.encodePacked(data));
 
         records[recordId] = HashRecord({
             hash: dataHash,
@@ -39,8 +38,8 @@ contract DataStore {
         return (r.hash, r.timestamp, r.recorder);
     }
 
-    function verifyData(uint256 recordId, string calldata data) external view returns (bool) {
+    function verifyData(uint256 recordId, bytes32 dataHash) external view returns (bool) {
         require(recordId < recordCount, "Record does not exist");
-        return records[recordId].hash == keccak256(abi.encodePacked(data));
+        return records[recordId].hash == dataHash;
     }
 }
