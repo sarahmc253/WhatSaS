@@ -31,8 +31,11 @@ cmake --build build
 ## Tests
 
 ```powershell
-# Offline TCP tests (no internet required)
+# Offline TCP socket tests (no internet required)
 .\build\test_tcp.exe
+
+# Offline crypto unit tests (no internet required)
+.\build\test_client.exe
 
 # HTTPS/TLS tests (internet required)
 .\build\test_http.exe --network
@@ -52,19 +55,20 @@ client-cpp/
     User.hpp                    — user identity + Curve25519 public key
     Message.hpp                 — immutable encrypted message (ciphertext, nonce, IDs, timestamp)
     MessageStore.hpp            — dual-index store: std::vector + std::map
-    HttpClient.hpp              — HTTPS GET client (raw sockets + OpenSSL TLS)
+    HttpClient.hpp              — HTTPS GET + POST client (raw sockets + OpenSSL TLS)
+    Client.hpp                  — high-level encryption + network layer (AES-256-GCM)
     Conversation.hpp            — conversation state (scaffold)
-    Client.hpp                  — high-level network + encryption layer (scaffold)
   src/                          — implementation
     User.cpp
     Message.cpp
     MessageStore.cpp
-    HttpClient.cpp              — orchestration: connects TCP, TLS, HTTP modules
+    HttpClient.cpp              — orchestration: doRequest(), get(), post()
+    Client.cpp                  — sendMessage(), getMessages()
     tcp_connect.hpp             — internal: raw TCP connect with 5s timeout
     tls_connect.hpp / .cpp      — internal: TLS handshake, Windows CA store, cert validation
-    http_response.hpp / .cpp    — internal: URL parser, HTTP framing, chunked decoder
+    http_response.hpp / .cpp    — internal: URL parser, GET/POST HTTP framing, chunked decoder
+    crypto_utils.hpp            — internal: jsonEscape, b64Encode, generateMsgId, buildAd
     Conversation.cpp            — scaffold
-    Client.cpp                  — scaffold
     main.cpp
   tests/
     test_helpers.hpp            — CHECK_EQ / CHECK_TRUE macros
@@ -74,6 +78,7 @@ client-cpp/
     test_store.cpp              — MessageStore tests
     test_tcp.cpp                — raw TCP socket tests (offline)
     test_http.cpp               — HTTPS GET tests (--network)
+    test_client.cpp             — AES-256-GCM crypto tests (offline)
   CMakeLists.txt
   README.md
 ```
@@ -83,18 +88,24 @@ client-cpp/
 | Primitive | Algorithm | Library |
 |-----------|-----------|---------|
 | Symmetric encryption | AES-256-GCM (AEAD) | libsodium `crypto_aead_aes256gcm_*` |
-| Key exchange | X25519 ECDH + HPKE RFC 9180 | libsodium `crypto_scalarmult_*`, `crypto_box_*` |
-| Key derivation | HKDF-SHA256 | libsodium `crypto_kdf_hkdf_sha256_*` |
-| Password hashing | Argon2id | libsodium `crypto_pwhash_*` |
-| Random nonces | 12-byte CSPRNG | libsodium `randombytes_buf` |
+| Nonce generation | Counter-XOR-base (96-bit, unique per key) | libsodium `randombytes_buf` + `std::atomic` |
+| Associated data | Canonical JSON, bound into AEAD tag | Manual (no spaces, fixed key order) |
+| Message ID | 16 CSPRNG bytes → 32 hex chars | libsodium `randombytes_buf` + `sodium_bin2hex` |
+| Base64 encoding | RFC 4648 standard | libsodium `sodium_bin2base64` |
+| Key exchange | X25519 ECDH + HPKE RFC 9180 (pending Day 7) | libsodium `crypto_scalarmult_*` |
+| Key derivation | HKDF-SHA256 (pending) | libsodium `crypto_kdf_hkdf_sha256_*` |
+| Password hashing | Argon2id (pending) | libsodium `crypto_pwhash_*` |
 | Transport | HTTPS/TLS 1.2+ | Raw OpenSSL (libssl + libcrypto) |
 | Cert validation | System CA store | Windows `CertOpenSystemStoreA` + OpenSSL X509 |
 
 **Notes:**
-- HPKE RFC 9180 (`DHKEM(X25519, HKDF-SHA256)`) requires manual implementation — libsodium provides the primitives but not HPKE directly
-- TLS certificate chain is validated against the Windows system root CA store
-- Hostname verification enforced via `SSL_set1_host` — connections are rejected on CN/SAN mismatch
-- Plain HTTP is rejected — this client is HTTPS only
+- AES-256-GCM requires hardware AES-NI (Intel/AMD); `Client` constructor throws `std::runtime_error` if unavailable
+- Nonce scheme: `nonceBase_` (CSPRNG, set once at construction) XOR'd with an atomic counter — unique for 2^64 messages per key, eliminating birthday collision risk of purely random nonces
+- Associated data (sender_id, recipient_id, message_id, timestamp) is bound into the AEAD tag but not encrypted — any tampering causes decryption to fail
+- HPKE RFC 9180 (`DHKEM(X25519, HKDF-SHA256)`) is a Day 7 task; `kem_output` and `sender_ephemeral_pk` fields in POST JSON are empty placeholders until then
+- TLS certificate chain validated against the Windows system root CA store
+- Hostname verification enforced via `SSL_set1_host` — connections rejected on CN/SAN mismatch
+- Plain HTTP rejected — this client is HTTPS only
 
 ## Manual TLS verification
 
