@@ -242,6 +242,7 @@ async function handleAction(btn, inboxBody) {
 
 // ── Compose view ──────────────────────────────────────────────────────────
 export function renderCompose(container, navigate) {
+    const encryptionReady = false; // flip to true once E2E crypto is implemented
     container.innerHTML = `
         <div class="compose-header">
             <button class="btn btn-secondary" id="btn-back">← Back</button>
@@ -279,6 +280,8 @@ export function renderCompose(container, navigate) {
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (!encryptionReady) return;
+
         const btn = form.querySelector('button[type="submit"]');
         btn.disabled = true;
         msg.className = msg.textContent = '';
@@ -303,7 +306,7 @@ export function renderCompose(container, navigate) {
             msg.className = 'error-msg';
             msg.textContent = err.message;
         } finally {
-            btn.disabled = false;
+            btn.disabled = !encryptionReady;
         }
     });
 }
