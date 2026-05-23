@@ -48,10 +48,11 @@ static void testEncryptDecryptRoundTrip() {
     check("blob is nonce(12) + pt + tag(16)",
           blob.size() == crypto_aead_aes256gcm_NPUBBYTES + pt.size() + crypto_aead_aes256gcm_ABYTES);
 
-    std::vector<uint8_t> recovered = decryptAes256Gcm(key, blob, ad);
-    check("decrypt returns non-empty result", !recovered.empty());
+    auto recovered = decryptAes256Gcm(key, blob, ad);
+    check("decrypt returns non-empty result", recovered.has_value() && !recovered->empty());
     check("recovered plaintext matches",
-          std::string(reinterpret_cast<const char*>(recovered.data()), recovered.size()) == pt);
+          recovered.has_value() &&
+          std::string(reinterpret_cast<const char*>(recovered->data()), recovered->size()) == pt);
 }
 
 static void testWrongKeyFails() {
@@ -65,8 +66,8 @@ static void testWrongKeyFails() {
     std::vector<uint8_t> blob = encryptAes256Gcm(keyA, "secret", ad);
     check("encrypt with keyA succeeds", !blob.empty());
 
-    std::vector<uint8_t> result = decryptAes256Gcm(keyB, blob, ad);
-    check("decrypt with keyB returns empty", result.empty());
+    auto result = decryptAes256Gcm(keyB, blob, ad);
+    check("decrypt with keyB returns empty", !result.has_value());
 }
 
 static void testAdTamperFails() {
@@ -83,8 +84,8 @@ static void testAdTamperFails() {
     check("encrypt succeeds (precondition)", !blob.empty());
     if (blob.empty()) return;
 
-    std::vector<uint8_t> result = decryptAes256Gcm(key, blob, tamperedAd);
-    check("tampered AD causes authentication failure", result.empty());
+    auto result = decryptAes256Gcm(key, blob, tamperedAd);
+    check("tampered AD causes authentication failure", !result.has_value());
 }
 
 static void testCsprngNoncesAreUnique() {
@@ -115,8 +116,8 @@ static void testShortBlobRejected() {
     std::vector<uint8_t> key(crypto_aead_aes256gcm_KEYBYTES, 0x01);
     // nonce(12) + tag(16) = 28 minimum; supply only 27 bytes
     std::vector<uint8_t> tooShort(27, 0x00);
-    std::vector<uint8_t> result = decryptAes256Gcm(key, tooShort, "ad");
-    check("too-short blob returns empty", result.empty());
+    auto result = decryptAes256Gcm(key, tooShort, "ad");
+    check("too-short blob returns empty", !result.has_value());
 }
 
 static void testBase64Length() {

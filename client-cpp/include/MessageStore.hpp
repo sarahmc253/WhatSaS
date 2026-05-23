@@ -36,14 +36,23 @@ private:
     static const std::vector<Message> empty_;
 };
 
-// Derive the canonical peer key for a message: the ID of the other party
-// from the local user's perspective. Both directions of alice<->bob map to
-// the same key regardless of which side is the local user.
-// Canonical form: min(senderId, recipientId) + "|" + max(senderId, recipientId)
+// Derive the canonical peer key for a message: both directions of alice<->bob
+// map to the same key. Components are percent-encoded so IDs containing '|'
+// or '%' cannot collide with the delimiter.
 inline std::string peerKey(const std::string& senderId, const std::string& recipientId) {
-    return (senderId < recipientId)
-        ? senderId + "|" + recipientId
-        : recipientId + "|" + senderId;
+    auto escape = [](const std::string& id) {
+        std::string out;
+        out.reserve(id.size());
+        for (unsigned char c : id) {
+            if (c == '%') out += "%25";
+            else if (c == '|') out += "%7C";
+            else out += static_cast<char>(c);
+        }
+        return out;
+    };
+    std::string a = escape(senderId);
+    std::string b = escape(recipientId);
+    return (a < b) ? a + "|" + b : b + "|" + a;
 }
 
 #endif // MESSAGESTORE_HPP

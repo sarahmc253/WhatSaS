@@ -1,7 +1,7 @@
 #ifndef CONVERSATION_HPP
 #define CONVERSATION_HPP
 
-#include "../src/message_crypto.hpp"
+#include "DecryptedMessage.hpp"
 #include <string>
 #include <vector>
 

@@ -72,8 +72,8 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
         return -1;
     }
     std::size_t arrStart = body.find('[', arrPos) + 1;
-    std::size_t arrEnd   = body.rfind(']');
-    if (arrEnd == std::string::npos || arrEnd <= arrStart) {
+    std::size_t arrEnd   = body.find(']', arrStart);
+    if (arrEnd == std::string::npos) {
         std::cerr << "[receiveMessages] malformed messages array\n";
         return -1;
     }

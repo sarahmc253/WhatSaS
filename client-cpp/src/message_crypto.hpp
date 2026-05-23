@@ -1,21 +1,13 @@
 #ifndef MESSAGE_CRYPTO_HPP
 #define MESSAGE_CRYPTO_HPP
 
+#include "../include/DecryptedMessage.hpp"
 #include "../include/Message.hpp"
 #include "crypto_utils.hpp"
 #include <ctime>
 #include <optional>
 #include <string>
 #include <vector>
-
-// A message after successful AES-256-GCM decryption — ready for display or storage.
-struct DecryptedMessage {
-    std::string messageId;
-    std::string senderId;
-    std::string recipientId;
-    std::string plaintext;
-    std::time_t timestamp;
-};
 
 // Output of encryptMessage — the base64-encoded fields for the server JSON body.
 struct EncryptedBlob {
@@ -72,8 +64,9 @@ static inline std::optional<DecryptedMessage> decryptMessage(
     noncePlusCt.insert(noncePlusCt.end(),
                        msg.getCiphertext().begin(), msg.getCiphertext().end());
 
-    const std::vector<uint8_t> ptBytes = decryptAes256Gcm(aesKey, noncePlusCt, ad);
-    if (ptBytes.empty()) return std::nullopt;
+    auto ptOpt = decryptAes256Gcm(aesKey, noncePlusCt, ad);
+    if (!ptOpt) return std::nullopt;
+    const std::vector<uint8_t>& ptBytes = *ptOpt;
 
     DecryptedMessage dm;
     dm.messageId   = msg.getMessageId();

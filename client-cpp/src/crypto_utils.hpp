@@ -63,19 +63,30 @@ static inline std::vector<uint8_t> b64Decode(const std::string& encoded) {
 }
 
 // Extract the string value for a given key from a flat JSON object.
-// Handles RFC 8259 escape sequences. Returns nullopt on missing key or malformed input.
+// Accepts optional whitespace between ':' and the opening '"' (RFC 7159 §2).
+// Returns nullopt on missing key, unterminated string, or unrecognised escape.
 static inline std::optional<std::string> parseJsonString(
     const std::string& json, const std::string& key)
 {
-    std::string needle = "\"" + key + "\":\"";
+    // Match "key": (with optional whitespace before opening quote)
+    std::string needle = "\"" + key + "\":";
     auto pos = json.find(needle);
     if (pos == std::string::npos) return std::nullopt;
     pos += needle.size();
 
+    // Skip optional whitespace
+    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
+                                  json[pos] == '\n' || json[pos] == '\r')) ++pos;
+
+    // Expect opening quote
+    if (pos >= json.size() || json[pos] != '"') return std::nullopt;
+    ++pos;
+
     std::string result;
+    bool closed = false;
     while (pos < json.size()) {
         char c = json[pos++];
-        if (c == '"') break;
+        if (c == '"') { closed = true; break; }
         if (c == '\\') {
             if (pos >= json.size()) return std::nullopt;
             char esc = json[pos++];
@@ -98,6 +109,8 @@ static inline std::optional<std::string> parseJsonString(
             result += c;
         }
     }
+    // Unterminated string — never found a closing '"'
+    if (!closed) return std::nullopt;
     return result;
 }
 
@@ -184,10 +197,10 @@ static inline std::vector<uint8_t> encryptAes256Gcm(
 }
 
 // Decrypt a blob produced by encryptAes256Gcm (nonce || ciphertext+tag).
-// Returns plaintext bytes on success, empty vector on authentication failure
-// or malformed input.
+// Returns nullopt on authentication failure or malformed input.
+// Returns an empty vector on successful decryption of empty plaintext.
 // key — same key used to encrypt; ad — must match exactly or decryption fails.
-static inline std::vector<uint8_t> decryptAes256Gcm(
+static inline std::optional<std::vector<uint8_t>> decryptAes256Gcm(
     const std::vector<uint8_t>& key,
     const std::vector<uint8_t>& noncePlusCt,
     const std::string& ad)
@@ -195,8 +208,8 @@ static inline std::vector<uint8_t> decryptAes256Gcm(
     constexpr std::size_t nonceLen = crypto_aead_aes256gcm_NPUBBYTES;  // 12
     constexpr std::size_t tagLen   = crypto_aead_aes256gcm_ABYTES;     // 16
 
-    if (key.size() != crypto_aead_aes256gcm_KEYBYTES) return {};
-    if (noncePlusCt.size() < nonceLen + tagLen) return {};
+    if (key.size() != crypto_aead_aes256gcm_KEYBYTES) return std::nullopt;
+    if (noncePlusCt.size() < nonceLen + tagLen) return std::nullopt;
 
     const unsigned char* nonce = noncePlusCt.data();
     const unsigned char* ct    = noncePlusCt.data() + nonceLen;
@@ -209,7 +222,7 @@ static inline std::vector<uint8_t> decryptAes256Gcm(
         ct, ctLen,
         reinterpret_cast<const unsigned char*>(ad.data()), ad.size(),
         nonce, key.data());
-    if (rc != 0) return {};
+    if (rc != 0) return std::nullopt;
     pt.resize(ptLen);
     return pt;
 }
