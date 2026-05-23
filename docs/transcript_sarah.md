@@ -403,3 +403,19 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update docs/transcript with this conversation
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in anchor.py, after send_raw_transaction store the tx hash and mark messages as anchored immediately without waiting for receipt. add a second scheduled job that runs every 2 minutes to find blockchain_records where block_number is NULL, fetch the receipt, and update block_number and block_timestamp if confirmed.
+
+**Claude:** Split anchoring into two phases. In `_run`: removed `wait_for_transaction_receipt` and `get_block` calls; the `blockchain_records` INSERT now writes `NULL, NULL` for `block_number`/`block_timestamp`; messages are linked to the record immediately after `send_raw_transaction`. Added `_confirm_lock` and a new `confirm_pending`/`_confirm_run` pair: `_confirm_run` queries `blockchain_records WHERE block_number IS NULL`, calls `get_transaction_receipt` (non-blocking — returns `None` if still pending), and on a confirmed receipt fetches the block and updates `block_number` and `block_timestamp` in a separate commit. Updated `__init__.py` to import `confirm_pending` and register `_scheduled_confirm` as a second APScheduler job on a 2-minute interval alongside the existing 5-minute anchor job.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript in docs

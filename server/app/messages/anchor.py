@@ -16,6 +16,7 @@ with open(_ABI_PATH) as _f:
     _ABI = json.load(_f)
 
 _lock = threading.Lock()
+_confirm_lock = threading.Lock()
 
 
 def _connect():
@@ -126,11 +127,7 @@ def _run(db, user_id):
             signed = account.sign_transaction(tx)
             raw_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             nonce += 1
-            receipt = w3.eth.wait_for_transaction_receipt(raw_hash, timeout=120)
-            block = w3.eth.get_block(receipt['blockNumber'])
             tx_hash_hex = '0x' + raw_hash.hex()
-            block_number = receipt['blockNumber']
-            block_timestamp = datetime.fromtimestamp(block['timestamp'], tz=timezone.utc)
         except Exception:
             logger.exception('Chain tx failed for conversation (%s, %s)', conv_a, conv_b)
             continue
@@ -142,9 +139,9 @@ def _run(db, user_id):
                 """
                 INSERT INTO blockchain_records
                     (id, merkle_root, conv_a, conv_b, tx_hash, block_number, block_timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, NULL, NULL)
                 """,
-                (record_id, root, conv_a, conv_b, tx_hash_hex, block_number, block_timestamp),
+                (record_id, root, conv_a, conv_b, tx_hash_hex),
             )
             placeholders = ','.join(['%s'] * len(ids))
             cursor.execute(
@@ -155,5 +152,79 @@ def _run(db, user_id):
         except Exception:
             db.rollback()
             logger.exception('DB update failed after anchor for conversation (%s, %s)', conv_a, conv_b)
+        finally:
+            cursor.close()
+
+
+def confirm_pending():
+    """Check unconfirmed blockchain_records and update block_number/block_timestamp on receipt.
+
+    Must be called within a Flask application context.
+    """
+    if not _confirm_lock.acquire(blocking=False):
+        logger.debug('confirm_pending already running, skipping')
+        return
+
+    try:
+        db = _connect()
+        try:
+            _confirm_run(db)
+        finally:
+            db.close()
+    except Exception:
+        logger.exception('confirm_pending failed')
+    finally:
+        _confirm_lock.release()
+
+
+def _confirm_run(db):
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            'SELECT id, tx_hash FROM blockchain_records WHERE block_number IS NULL'
+        )
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    if not rows:
+        return
+
+    cfg = current_app.config
+    w3 = Web3(Web3.HTTPProvider(cfg['WEB3_RPC_URL']))
+
+    for row in rows:
+        try:
+            receipt = w3.eth.get_transaction_receipt(row['tx_hash'])
+        except Exception:
+            logger.exception('Receipt fetch failed for tx %s', row['tx_hash'])
+            continue
+
+        if receipt is None:
+            continue
+
+        try:
+            block = w3.eth.get_block(receipt['blockNumber'])
+            block_number = receipt['blockNumber']
+            block_timestamp = datetime.fromtimestamp(block['timestamp'], tz=timezone.utc)
+        except Exception:
+            logger.exception('Block fetch failed for tx %s', row['tx_hash'])
+            continue
+
+        cursor = db.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE blockchain_records
+                SET block_number = %s, block_timestamp = %s
+                WHERE id = %s
+                """,
+                (block_number, block_timestamp, row['id']),
+            )
+            db.commit()
+            logger.info('Confirmed tx %s at block %s', row['tx_hash'], block_number)
+        except Exception:
+            db.rollback()
+            logger.exception('DB update failed for blockchain_record %s', row['id'])
         finally:
             cursor.close()

@@ -72,14 +72,19 @@ def create_app():
         # In debug mode the reloader forks a child process; only start the scheduler
         # in the child (WERKZEUG_RUN_MAIN=true) to avoid two schedulers running.
         if not app.debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-            from .messages.anchor import anchor_pending
+            from .messages.anchor import anchor_pending, confirm_pending
 
             def _scheduled_anchor():
                 with app.app_context():
                     anchor_pending()
 
+            def _scheduled_confirm():
+                with app.app_context():
+                    confirm_pending()
+
             scheduler = BackgroundScheduler()
             scheduler.add_job(_scheduled_anchor, 'interval', minutes=5)
+            scheduler.add_job(_scheduled_confirm, 'interval', minutes=2)
             scheduler.start()
             app.scheduler = scheduler
 
