@@ -4,6 +4,8 @@ import re
 import sys
 from pathlib import Path
 
+import requests
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "crypto-library"))
 
 from keypair import KeyPair
@@ -30,10 +32,9 @@ def register_user(username: str, password: str, server_url: str, auth_token: str
 
         KeyPublisher(server_url).publish_public_key(username, auth_token, keypair.public_key_bytes())
 
-    except (ValueError, OSError) as e:
+    except (ValueError, OSError, requests.exceptions.RequestException) as e:
         logger.exception("Registration failed for user %r: %s", username, e)
-        if key_path.exists():
-            key_path.unlink()
+        key_path.unlink(missing_ok=True)
         return False
 
     return True
