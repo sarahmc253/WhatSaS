@@ -2,9 +2,11 @@
 #define CRYPTO_UTILS_HPP
 
 #include <sodium.h>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -42,6 +44,86 @@ static inline std::string b64Encode(const unsigned char* data, std::size_t len) 
     sodium_bin2base64(&out[0], bufLen, data, len, sodium_base64_VARIANT_ORIGINAL);
     out.resize(std::strlen(out.c_str()));
     return out;
+}
+
+// Decode standard base64 (RFC 4648) into bytes.
+// Returns empty vector if the input is not valid base64.
+static inline std::vector<uint8_t> b64Decode(const std::string& encoded) {
+    std::vector<uint8_t> out(encoded.size());
+    std::size_t outLen = 0;
+    if (sodium_base642bin(
+            out.data(), out.size(),
+            encoded.c_str(), encoded.size(),
+            nullptr, &outLen, nullptr,
+            sodium_base64_VARIANT_ORIGINAL) != 0) {
+        return {};
+    }
+    out.resize(outLen);
+    return out;
+}
+
+// Extract the string value for a given key from a flat JSON object.
+// Handles RFC 8259 escape sequences. Returns nullopt on missing key or malformed input.
+static inline std::optional<std::string> parseJsonString(
+    const std::string& json, const std::string& key)
+{
+    std::string needle = "\"" + key + "\":\"";
+    auto pos = json.find(needle);
+    if (pos == std::string::npos) return std::nullopt;
+    pos += needle.size();
+
+    std::string result;
+    while (pos < json.size()) {
+        char c = json[pos++];
+        if (c == '"') break;
+        if (c == '\\') {
+            if (pos >= json.size()) return std::nullopt;
+            char esc = json[pos++];
+            switch (esc) {
+                case '"':  result += '"';  break;
+                case '\\': result += '\\'; break;
+                case '/':  result += '/';  break;
+                case 'b':  result += '\b'; break;
+                case 'f':  result += '\f'; break;
+                case 'n':  result += '\n'; break;
+                case 'r':  result += '\r'; break;
+                case 't':  result += '\t'; break;
+                case 'u':
+                    if (pos + 4 > json.size()) return std::nullopt;
+                    pos += 4;
+                    break;
+                default: return std::nullopt;
+            }
+        } else {
+            result += c;
+        }
+    }
+    return result;
+}
+
+// Extract an integer value for a given key from a flat JSON object.
+// Returns nullopt on missing key or non-integer value.
+static inline std::optional<long long> parseJsonInt(
+    const std::string& json, const std::string& key)
+{
+    std::string needle = "\"" + key + "\":";
+    auto pos = json.find(needle);
+    if (pos == std::string::npos) return std::nullopt;
+    pos += needle.size();
+    while (pos < json.size() && json[pos] == ' ') ++pos;
+    if (pos >= json.size()) return std::nullopt;
+
+    std::size_t start = pos;
+    if (json[pos] == '-') ++pos;
+    if (pos >= json.size() || !std::isdigit(static_cast<unsigned char>(json[pos])))
+        return std::nullopt;
+    while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) ++pos;
+
+    try {
+        return std::stoll(json.substr(start, pos - start));
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 // Generate a 32-char lowercase hex string from 16 CSPRNG bytes.

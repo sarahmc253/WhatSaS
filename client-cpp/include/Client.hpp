@@ -1,7 +1,9 @@
 #ifndef CLIENT_HPP
 #define CLIENT_HPP
 
+#include "Conversation.hpp"
 #include "HttpClient.hpp"
+#include "MessageStore.hpp"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -27,6 +29,12 @@ public:
     // GET baseUrl + "/messages"
     HttpResponse getMessages() const;
 
+    // Fetch messages from server, parse JSON, decode base64.
+    // Each valid raw Message is stored in store (keyed by canonical peer).
+    // Each successfully decrypted message is stored in conv.
+    // Returns count of successfully decrypted messages, or -1 on HTTP/parse failure.
+    int receiveMessages(MessageStore& store, Conversation& conv) const;
+
 private:
     std::string          baseUrl_;
     std::string          senderId_;
@@ -36,5 +44,9 @@ private:
     bool                 verifyCert_;
     HttpClient           http_;
 };
+
+// Print all decrypted messages in conv to stdout as:
+//   [YYYY-MM-DD HH:MM:SS] senderId: plaintext
+void printConversation(const Conversation& conv);
 
 #endif // CLIENT_HPP
