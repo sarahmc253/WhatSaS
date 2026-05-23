@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_user(username: str, password: str, server_url: str, auth_token: str) -> bool:
-    if not re.fullmatch(r"[A-Za-z0-9_.‐-]{1,64}", username):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", username):
         raise ValueError("Invalid username: only letters, numbers, underscores, dots and hyphens are allowed (max 64 characters)")
     if not auth_token:
         raise ValueError("auth_token must not be empty")
