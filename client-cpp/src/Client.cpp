@@ -3,7 +3,6 @@
 
 #include <sodium.h>
 #include <stdexcept>
-#include <cstring>
 #include <ctime>
 #include <string>
 #include <vector>
@@ -16,8 +15,7 @@ Client::Client(const std::string& baseUrl,
       senderId_(senderId),
       aesKey_(std::move(aesKey)),
       verifyCert_(verifyCert),
-      http_(),
-      nonceCounter_(0) {
+      http_() {
     if (aesKey_.size() != crypto_aead_aes256gcm_KEYBYTES) {
         throw std::invalid_argument(
             "AES-256-GCM key must be exactly 32 bytes, got " +
@@ -32,41 +30,25 @@ Client::Client(const std::string& baseUrl,
         throw std::runtime_error(
             "AES-256-GCM unavailable: hardware AES-NI required");
     }
-    // Random base nonce, XOR'd with a per-message counter to guarantee uniqueness
-    // under the same key. Purely random 96-bit nonces have a 50% collision
-    // probability after 2^48 messages (birthday bound); the counter eliminates this.
-    randombytes_buf(nonceBase_, sizeof(nonceBase_));
 }
 
 HttpResponse Client::sendMessage(const std::string& recipientId,
                                  const std::string& plaintext) const {
-    // Derive nonce: XOR the random base with an 8-byte little-endian counter.
-    // Counter occupies the first 8 bytes; upper 4 bytes remain from the base.
-    unsigned char nonce[12];
-    std::memcpy(nonce, nonceBase_, 12);
-    uint64_t count = nonceCounter_.fetch_add(1, std::memory_order_relaxed);
-    for (int i = 0; i < 8; ++i) {
-        nonce[i] ^= static_cast<unsigned char>((count >> (8 * i)) & 0xFF);
-    }
-
     const std::string msgId = generateMsgId();
     const std::time_t ts    = std::time(nullptr);
     const std::string ad    = buildAd(senderId_, recipientId, msgId, ts);
 
-    std::vector<uint8_t> ct(plaintext.size() + crypto_aead_aes256gcm_ABYTES);
-    unsigned long long ctLen = 0;
-    int rc = crypto_aead_aes256gcm_encrypt(
-        ct.data(), &ctLen,
-        reinterpret_cast<const unsigned char*>(plaintext.data()), plaintext.size(),
-        reinterpret_cast<const unsigned char*>(ad.data()), ad.size(),
-        nullptr, nonce, aesKey_.data());
-    if (rc != 0) {
+    // encryptAes256Gcm draws a fresh CSPRNG nonce on every call and returns
+    // nonce (12 bytes) || ciphertext+tag as a single blob.
+    const std::vector<uint8_t> blob = encryptAes256Gcm(aesKey_, plaintext, ad);
+    if (blob.empty()) {
         return {0, "", "AES-256-GCM encryption failed", false};
     }
-    ct.resize(ctLen);
 
-    const std::string ctB64    = b64Encode(ct.data(), ct.size());
-    const std::string nonceB64 = b64Encode(nonce, sizeof(nonce));
+    // Split blob back into nonce and ciphertext for the JSON payload.
+    constexpr std::size_t nonceLen = crypto_aead_aes256gcm_NPUBBYTES;  // 12
+    const std::string nonceB64 = b64Encode(blob.data(), nonceLen);
+    const std::string ctB64    = b64Encode(blob.data() + nonceLen, blob.size() - nonceLen);
 
     // kem_output and sender_ephemeral_pk are HPKE fields; empty until HPKE is added.
     const std::string jsonBody =

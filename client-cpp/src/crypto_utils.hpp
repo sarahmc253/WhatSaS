@@ -6,6 +6,7 @@
 #include <cstring>
 #include <ctime>
 #include <string>
+#include <vector>
 
 // Escape a string for use as a JSON string value (RFC 8259 §7).
 // Caller wraps the result in double-quotes.
@@ -64,6 +65,71 @@ static inline std::string buildAd(const std::string& senderId,
            "\",\"recipient_id\":\"" + jsonEscape(recipientId) +
            "\",\"message_id\":\"" + jsonEscape(msgId) +
            "\",\"timestamp\":" + std::to_string(static_cast<long long>(ts)) + "}";
+}
+
+// Encrypt plaintext with AES-256-GCM. A fresh 12-byte nonce is drawn from the
+// CSPRNG on every call; it is prepended to the returned blob so the receiver
+// has everything needed to decrypt.
+//
+// Returns nonce (12 bytes) || ciphertext+tag, or empty vector on failure.
+// key — exactly 32 bytes; caller derives via HKDF (or passes a temp key for now).
+// ad  — associated data bound into the AEAD tag; construct with buildAd().
+static inline std::vector<uint8_t> encryptAes256Gcm(
+    const std::vector<uint8_t>& key,
+    const std::string& plaintext,
+    const std::string& ad)
+{
+    if (key.size() != crypto_aead_aes256gcm_KEYBYTES) return {};
+
+    unsigned char nonce[crypto_aead_aes256gcm_NPUBBYTES];
+    randombytes_buf(nonce, sizeof(nonce));  // fresh CSPRNG nonce every call
+
+    std::vector<uint8_t> ct(plaintext.size() + crypto_aead_aes256gcm_ABYTES);
+    unsigned long long ctLen = 0;
+    int rc = crypto_aead_aes256gcm_encrypt(
+        ct.data(), &ctLen,
+        reinterpret_cast<const unsigned char*>(plaintext.data()), plaintext.size(),
+        reinterpret_cast<const unsigned char*>(ad.data()), ad.size(),
+        nullptr, nonce, key.data());
+    if (rc != 0) return {};
+    ct.resize(ctLen);
+
+    std::vector<uint8_t> out;
+    out.reserve(sizeof(nonce) + ct.size());
+    out.insert(out.end(), nonce, nonce + sizeof(nonce));
+    out.insert(out.end(), ct.begin(), ct.end());
+    return out;
+}
+
+// Decrypt a blob produced by encryptAes256Gcm (nonce || ciphertext+tag).
+// Returns plaintext bytes on success, empty vector on authentication failure
+// or malformed input.
+// key — same key used to encrypt; ad — must match exactly or decryption fails.
+static inline std::vector<uint8_t> decryptAes256Gcm(
+    const std::vector<uint8_t>& key,
+    const std::vector<uint8_t>& noncePlusCt,
+    const std::string& ad)
+{
+    constexpr std::size_t nonceLen = crypto_aead_aes256gcm_NPUBBYTES;  // 12
+    constexpr std::size_t tagLen   = crypto_aead_aes256gcm_ABYTES;     // 16
+
+    if (key.size() != crypto_aead_aes256gcm_KEYBYTES) return {};
+    if (noncePlusCt.size() < nonceLen + tagLen) return {};
+
+    const unsigned char* nonce = noncePlusCt.data();
+    const unsigned char* ct    = noncePlusCt.data() + nonceLen;
+    std::size_t ctLen = noncePlusCt.size() - nonceLen;
+
+    std::vector<uint8_t> pt(ctLen);
+    unsigned long long ptLen = 0;
+    int rc = crypto_aead_aes256gcm_decrypt(
+        pt.data(), &ptLen, nullptr,
+        ct, ctLen,
+        reinterpret_cast<const unsigned char*>(ad.data()), ad.size(),
+        nonce, key.data());
+    if (rc != 0) return {};
+    pt.resize(ptLen);
+    return pt;
 }
 
 #endif // CRYPTO_UTILS_HPP
