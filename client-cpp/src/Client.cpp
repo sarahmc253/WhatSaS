@@ -136,7 +136,13 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
                           << *messageId << "\n";
                 continue;
             }
-            conv.addMessage(std::move(*dm));
+
+            // 9. Only add to conv if this message belongs to that peer conversation.
+            // The peer is whoever is not the local user (senderId_).
+            const std::string& peer = (*senderId == senderId_) ? *recipientId : *senderId;
+            if (peer == conv.getPeerId()) {
+                conv.addMessage(std::move(*dm));
+            }
             ++successCount;
         } catch (const std::invalid_argument& e) {
             std::cerr << "[receiveMessages] invalid message fields: "
