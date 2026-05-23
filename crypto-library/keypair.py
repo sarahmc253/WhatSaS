@@ -12,3 +12,7 @@ class KeyPair:
     def private_key_bytes(self) -> bytes:
         # Never log or transmit the raw private key — pass it only to the HPKE wrapping step
         return self._private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+
+    @classmethod
+    def generate(cls) -> "KeyPair":
+        return cls()
