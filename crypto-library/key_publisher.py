@@ -18,5 +18,6 @@ class KeyPublisher:
             },
             headers={"Authorization": f"Bearer {auth_token}"},
             verify=True,
+            timeout=(3.05, 10),
         )
         resp.raise_for_status()

@@ -67,8 +67,9 @@ class EncryptedPrivateKey:
 
 def save_to_file(encrypted: EncryptedPrivateKey, path: "str | Path") -> None:
     p = Path(path)
-    p.write_text(json.dumps(encrypted.to_dict(), indent=2), encoding="utf-8")
-    os.chmod(p, 0o600)
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(encrypted.to_dict(), indent=2))
 
 
 def load_from_file(path: "str | Path") -> EncryptedPrivateKey:
