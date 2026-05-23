@@ -161,7 +161,7 @@ void printConversation(const Conversation& conv) {
     for (const auto& dm : messages) {
         char buf[20];
         buf[0] = '\0';
-        std::time_t ts = dm.timestamp;
+        const std::time_t ts = dm.timestamp;
         if (std::tm* t = std::localtime(&ts)) {
             std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", t);
         }

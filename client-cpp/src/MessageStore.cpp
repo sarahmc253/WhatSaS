@@ -1,5 +1,6 @@
 #include "MessageStore.hpp"
 #include <algorithm>
+#include <map>
 
 const std::vector<Message> MessageStore::empty_{};
 
@@ -31,3 +32,11 @@ std::vector<Message> MessageStore::getSortedMessages() const {
 }
 
 std::size_t MessageStore::size() const { return messages_.size(); }
+
+std::map<std::string, std::size_t> MessageStore::getSenderFrequencies() const {
+    std::map<std::string, std::size_t> freq;
+    for (const Message& m : messages_) {
+        freq[m.getSenderId()]++;
+    }
+    return freq;
+}

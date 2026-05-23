@@ -2,6 +2,10 @@
 #define CONVERSATION_HPP
 
 #include "DecryptedMessage.hpp"
+#include <algorithm>
+#include <cstddef>
+#include <iterator>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,9 +24,16 @@ public:
 
     const std::string& getPeerId() const;
 
+    // Count messages in this conversation sent by senderId.
+    std::size_t countMessagesFromSender(const std::string& senderId) const;
+
+    // Copy all messages sent by senderId, in insertion order.
+    std::vector<DecryptedMessage> getMessagesFromSender(const std::string& senderId) const;
+
 private:
     std::string peerId_;
     std::vector<DecryptedMessage> messages_;
+    std::set<std::string> seenIds_;
 };
 
 #endif // CONVERSATION_HPP
