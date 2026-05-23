@@ -117,19 +117,27 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
             continue;
         }
 
-        // 5. Base64-decode nonce and ciphertext (returns empty on invalid input)
+        // 5. Reject messages that do not involve the local user — must be sender or recipient.
+        // This check happens before any storage, decryption, or conversation assignment.
+        if (*senderId != senderId_ && *recipientId != senderId_) {
+            std::cerr << "[receiveMessages] skipping: local user not a participant: "
+                      << *messageId << "\n";
+            continue;
+        }
+
+        // 6. Base64-decode nonce and ciphertext (returns empty on invalid input)
         std::vector<uint8_t> nonce = b64Decode(*nonceB64);
         std::vector<uint8_t> ct    = b64Decode(*ctB64);
 
-        // 6. Construct Message — throws std::invalid_argument if nonce != 12 or ct < 16
+        // 7. Construct Message — throws std::invalid_argument if nonce != 12 or ct < 16
         try {
             Message msg(*messageId, *senderId, *recipientId, ct, nonce,
                         static_cast<std::time_t>(*tsOpt));
 
-            // 7. Store raw encrypted message, keyed by canonical peer
+            // 8. Store raw encrypted message, keyed by canonical peer
             store.addMessage(msg, peerKey(*senderId, *recipientId));
 
-            // 8. Decrypt via message_crypto; pass result to Conversation
+            // 9. Decrypt via message_crypto; pass result to Conversation
             auto dm = decryptMessage(aesKey_, msg);
             if (!dm) {
                 std::cerr << "[receiveMessages] decryption failed: "
@@ -137,7 +145,7 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
                 continue;
             }
 
-            // 9. Only add to conv if this message belongs to that peer conversation.
+            // 10. Only add to conv if this message belongs to that peer conversation.
             // The peer is whoever is not the local user (senderId_).
             const std::string& peer = (*senderId == senderId_) ? *recipientId : *senderId;
             if (peer == conv.getPeerId()) {
@@ -161,7 +169,7 @@ void printConversation(const Conversation& conv) {
     for (const auto& dm : messages) {
         char buf[20];
         buf[0] = '\0';
-        std::time_t ts = dm.timestamp;
+        const std::time_t ts = dm.timestamp;
         if (std::tm* t = std::localtime(&ts)) {
             std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", t);
         }
