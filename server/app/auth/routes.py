@@ -1,10 +1,13 @@
-from flask import Blueprint, request, jsonify, current_app
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
-from flask_jwt_extended import create_access_token
+import threading
 import uuid
 from datetime import datetime, timezone
+
 import mysql.connector
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+from flask import Blueprint, request, jsonify, current_app
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+
 from .. import get_db
 
 # Argon2id params (explicit to ensure stability across library versions):
@@ -44,7 +47,7 @@ def register():
 
     password_hash = ph.hash(data['password'])
     # Hash format: $argon2id$v=19$m=...,t=...,p=...$<base64-salt>$<base64-hash>
-    argon2id_salt = password_hash.split('$')[4]
+    password_salt = password_hash.split('$')[4]
 
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -55,14 +58,14 @@ def register():
         cursor.execute(
             """
             INSERT INTO users
-                (id, username, email, argon2id_server_hash, argon2id_server_salt,
+                (id, username, email, password_hash, password_salt,
                  x25519_public_key, hpke_wrapped_private_key, argon2id_kek_salt,
                  tofu_key_pinned_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 user_id, data['username'], data['email'],
-                password_hash, argon2id_salt,
+                password_hash, password_salt,
                 data['x25519_public_key'], data['hpke_wrapped_private_key'],
                 data['argon2id_kek_salt'], now,
             ),
@@ -98,7 +101,7 @@ def login():
     try:
         cursor.execute(
             """
-            SELECT id, username, argon2id_server_hash,
+            SELECT id, username, password_hash,
                    hpke_wrapped_private_key, argon2id_kek_salt, x25519_public_key
             FROM users
             WHERE username = %s
@@ -119,11 +122,11 @@ def login():
         return jsonify({'error': 'Invalid credentials'}), 401
 
     try:
-        ph.verify(user['argon2id_server_hash'], data['password'])
+        ph.verify(user['password_hash'], data['password'])
     except VerifyMismatchError:
         return jsonify({'error': 'Invalid credentials'}), 401
 
-    if ph.check_needs_rehash(user['argon2id_server_hash']):
+    if ph.check_needs_rehash(user['password_hash']):
         new_hash = ph.hash(data['password'])
         new_salt = new_hash.split('$')[4]
         cursor = db.cursor()
@@ -131,7 +134,7 @@ def login():
             cursor.execute(
                 """
                 UPDATE users
-                SET argon2id_server_hash = %s, argon2id_server_salt = %s
+                SET password_hash = %s, password_salt = %s
                 WHERE id = %s
                 """,
                 (new_hash, new_salt, user['id']),
@@ -154,3 +157,22 @@ def login():
         'argon2id_kek_salt': user['argon2id_kek_salt'],
         'x25519_public_key': user['x25519_public_key'],
     }), 200
+
+
+@auth_bp.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    if current_app.config.get('ANCHORING_ENABLED'):
+        from ..messages.anchor import anchor_pending
+        user_id = get_jwt_identity()
+        app = current_app._get_current_object()
+        threading.Thread(
+            target=lambda: _anchor_in_context(app, user_id),
+            daemon=True,
+        ).start()
+    return jsonify({'message': 'Logged out'}), 200
+
+
+def _anchor_in_context(app, user_id):
+    with app.app_context():
+        anchor_pending(user_id)
