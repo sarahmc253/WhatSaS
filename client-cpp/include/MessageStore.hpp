@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -29,9 +30,12 @@ public:
 
     std::size_t size() const;
 
+    // Returns message count per senderId across all conversations, sorted alphabetically.
+    std::map<std::string, std::size_t> getSenderFrequencies() const;
+
 private:
     std::vector<Message>                        messages_;  // primary store, insertion order
-    std::map<std::string, std::vector<Message>> byPeer_;    // index: peerKey -> messages
+    std::unordered_map<std::string, std::vector<Message>> byPeer_;  // index: peerKey -> messages
 
     static const std::vector<Message> empty_;
 };
