@@ -331,3 +331,91 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update the transcript in docs
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** implement send_message in messages/routes.py. accept recipient_id, ciphertext, nonce, validate all three, insert into messages table with a uuid, sender_id from JWT and created_at then return the new message id. same patterns as auth/routes.py
+
+**Claude:** Read `auth/routes.py` and `messages/routes.py`. Added imports (`re`, `threading`, `uuid`, `datetime`, `mysql.connector`, `get_db`, `request`), a `_invalid_fields` helper matching the auth pattern, and a `SEND_FIELDS` list. Implemented `send_message`: validates all three fields, generates UUID, pulls `sender_id` from `get_jwt_identity()`, inserts into `messages` with `created_at`, catches FK violation (errno 1452) → 404, returns `{'id': message_id}` with 201.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** what are the tradeoffs of recording a blockchain entry per message vs batching
+
+**Claude:** Per-message recording gives an immediate tamper-evident audit trail with simple querying but costs scale linearly and chain latency blocks the send flow. Batching (Merkle root of N messages) dramatically reduces chain writes and decouples throughput from chain speed, but requires storing the tree, introduces an anchoring delay, and adds complexity around partial batches and crash recovery. Recommended batching with a fixed interval — accumulate a Merkle tree of message IDs/hashes on a short interval (e.g. every 30s or 1000 messages), anchor the root, and use the existing UUID per row as the leaf set. The tradeoff is that messages are not provably on-chain until the next anchor.
+
+---
+
+**Sarah:** if we batch on the server side, how does the verification page work independently of the server?
+
+**Claude:** It doesn't — that's the core tension. The verification page can read the chain root independently, but to verify a specific message it needs the Merkle proof, which can only come from whoever built the tree (the server). A compromised server could omit a message from the tree and never provide a proof. Outlined three approaches to close the gap: client-assisted batching (clients submit signed hashes the server can't produce), a public batch log (server publishes the full leaf list to an independently readable store before anchoring, so the verification page can reconstruct proofs itself), or per-message recording (fully trustless but expensive). Recommended the public batch log as the realistic middle ground.
+
+---
+
+**Sarah:** what if the client builds the merkle tree locally from its own ciphertexts and sends the root to the server instead
+
+**Claude:** Explained that this gives a cleaner trust model — the server can't tamper with tree construction — and fits the existing design since ciphertexts never leave the client decrypted. However the chain entry only commits to one client's outbox at a point in time and says nothing about delivery or receipt. Also, each client anchoring its own root doesn't solve the volume problem. Recommended a hybrid: clients send `hash(ciphertext)` alongside each message; server batches those client-originated hashes into the Merkle tree and anchors the root; clients store their leaf hash locally. Server still builds the aggregate tree but the leaves are client commitments — a server that drops a message produces a leaf that doesn't match the client's stored hash, detectable without trusting the server's proof.
+
+---
+
+**Sarah:** what are the tradeoffs of triggering the batch on a fixed timer vs on session end? beyond data loss if a session is interrupted
+
+**Claude:** Fixed timer gives predictable anchoring latency, works for background/server-to-server messages with no session concept, may waste writes on idle periods, and requires a scheduler. Session end produces semantically coherent batches with no wasted writes, but is ambiguous in multi-device contexts, creates unpredictable chain write timing (potential gas spikes at end of day), and leaks conversation-boundary metadata to the chain. Fixed timer is the safer default for reliability and metadata privacy. Recommended using session end as a supplementary trigger — flush pending messages on a clean logout but rely on the timer as the primary mechanism.
+
+---
+
+**Sarah:** in send_message, store the client-supplied content_hash field (keccak256 of ciphertext, computed by client) alongside the messages table. then add a separate function that runs every 5 minutes: fetch all unanchored content_hashes for each conversation, build a merkle root, call DataStore.storeData via web3.py and store the tx_hash against those messages. also trigger this flush on clean session end
+
+**Claude:** Read `contracts/DataStore.sol` and `contracts/abi.json`. Noted discrepancy: `storeData` takes `bytes32` in the `.sol` but `string` in the ABI. Proposed implementation across four files — `anchor.py` (new), `messages/routes.py`, `__init__.py`, `auth/routes.py` — with `_connect()` reading from `os.getenv()` directly.
+
+**Sarah:** [REJECTED] — `_connect()` is reading from `os.getenv` directly, bypassing the validated `app.config`. fix it to use `current_app.config` the same way `get_db()` does in `__init__.py`.
+
+**Claude:** Explained that `current_app` requires an active Flask application context, which background threads don't get automatically. Proposed using `current_app.config` in `_connect()`, and having all callers outside a request context push one via `with app.app_context()` — the scheduler job via a closure over `app`, and the logout flush thread via `current_app._get_current_object()` passed into the thread. Request-context callers (flush route) already have an app context and need no change.
+
+**Sarah:** the ABI is correct, it reflects the deployed contract on Sepolia. treat the ABI as the source of truth and proceed.
+
+**Claude:** Confirmed — `storeData` takes `string`, so the Merkle root is passed as a hex string (e.g. `"0xabcd..."`). Created `server/app/messages/anchor.py` with `_connect()` using `current_app.config`, `_merkle_root()` building a keccak256 binary tree (odd leaves duplicated), and `anchor_pending(user_id=None)` that fetches unanchored rows, groups by normalised conversation key (`LEAST`/`GREATEST` on IDs), submits one `storeData(root_hex)` tx per conversation with nonce incremented locally, and writes `anchor_tx_hash` back to the rows. A `threading.Lock` prevents concurrent runs. Updated `messages/routes.py` to add `content_hash` to `SEND_FIELDS`, validate it as a 64-char hex string, normalise to `0x` prefix, and store it in the INSERT. Added `POST /messages/flush` endpoint. Updated `__init__.py` to load `WEB3_RPC_URL`, `CONTRACT_ADDRESS`, `WALLET_PRIVATE_KEY` into `app.config` (optional — logs a warning and skips the scheduler if missing), and start an APScheduler `BackgroundScheduler` with a 5-minute interval guarded against double-start in Flask debug/reloader mode. Updated `auth/routes.py` to add `POST /auth/logout` which fires `anchor_pending(user_id)` in a daemon thread within a pushed app context.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update all column name references across the codebase to match the new schema. old names: argon2id_server_hash, argon2id_server_salt, aes_gcm_ciphertext, aes_gcm_nonce_96bit, hpke_kem_output, hpke_sender_ephemeral_pk, blockchain_tx_id. new names: password_hash, password_salt, ciphertext, nonce, kem_output, ephemeral_pk, blockchain_record_id
+
+**Claude:** Searched all non-venv files for the seven old names. Found hits only in `server/app/auth/routes.py` (the other five names had no code references yet). Updated `auth/routes.py`: renamed local variable `argon2id_salt` → `password_salt`, updated INSERT column names `argon2id_server_hash` → `password_hash` and `argon2id_server_salt` → `password_salt`, updated SELECT column name, replaced both `user['argon2id_server_hash']` dict accesses, and updated the rehash UPDATE SET clause. Left `docs/transcript_sarah.md` unchanged as it is historical record.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update anchor.py to write to the blockchain_records table instead of storing anchor_tx_hash directly on messages. after a successful chain tx, insert a row into blockchain_records with merkle_root, conv_a, conv_b, tx_hash, block_number, block_timestamp, then update blockchain_record_id on the anchored message rows to point to it
+
+**Claude:** Updated `anchor.py`: added `uuid` and `datetime`/`timezone` imports; replaced `anchor_tx_hash IS NULL` filter with `blockchain_record_id IS NULL` in both SELECT queries; after sending the tx, now calls `wait_for_transaction_receipt(timeout=120)` and `get_block()` to obtain `block_number` and `block_timestamp` before touching the DB; inserts a `blockchain_records` row with all seven fields, then updates `messages.blockchain_record_id` to point at it — both inside a single `db.commit()` so they succeed or fail atomically. Nonce is incremented immediately after `send_raw_transaction` (before the receipt wait) so subsequent conversations can be submitted without waiting for each confirmation.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript with this conversation
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in anchor.py, after send_raw_transaction store the tx hash and mark messages as anchored immediately without waiting for receipt. add a second scheduled job that runs every 2 minutes to find blockchain_records where block_number is NULL, fetch the receipt, and update block_number and block_timestamp if confirmed.
+
+**Claude:** Split anchoring into two phases. In `_run`: removed `wait_for_transaction_receipt` and `get_block` calls; the `blockchain_records` INSERT now writes `NULL, NULL` for `block_number`/`block_timestamp`; messages are linked to the record immediately after `send_raw_transaction`. Added `_confirm_lock` and a new `confirm_pending`/`_confirm_run` pair: `_confirm_run` queries `blockchain_records WHERE block_number IS NULL`, calls `get_transaction_receipt` (non-blocking — returns `None` if still pending), and on a confirmed receipt fetches the block and updates `block_number` and `block_timestamp` in a separate commit. Updated `__init__.py` to import `confirm_pending` and register `_scheduled_confirm` as a second APScheduler job on a 2-minute interval alongside the existing 5-minute anchor job.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript in docs
