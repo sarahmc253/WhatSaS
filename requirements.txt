@@ -7,3 +7,4 @@ mysql-connector-python>=9.7.0
 web3>=7.16.0
 python-dotenv>=1.2.2
 gunicorn>=26.0.0
+pytest
