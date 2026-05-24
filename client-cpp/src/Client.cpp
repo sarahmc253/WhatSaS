@@ -98,7 +98,17 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
         std::string messageId   = obj["message_id"];
         std::string nonceB64    = obj["nonce"];
         std::string ctB64       = obj["ciphertext"];
-        long long   ts          = obj["timestamp"];
+
+        // Extract timestamp inside try/catch: nlohmann stores large unsigned JSON integers
+        // as uint64_t internally and throws type_error on get<long long>() if the value
+        // does not fit (e.g. values > INT64_MAX sent by a malicious server).
+        long long ts;
+        try {
+            ts = obj["timestamp"].get<long long>();
+        } catch (const nlohmann::json::exception&) {
+            std::cerr << "[receiveMessages] skipping: timestamp unrepresentable as int64\n";
+            continue;
+        }
 
         // Reject timestamps that are negative or exceed what std::time_t can hold.
         // time_t may be 32-bit on some platforms; casting an out-of-range value is UB.
