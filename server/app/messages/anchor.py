@@ -221,7 +221,23 @@ def _confirm_run(db):
             continue
 
         if receipt['status'] != 1:
-            logger.warning('Tx %s reverted (status=%s), skipping DB update', row['tx_hash'], receipt['status'])
+            logger.warning('Tx %s reverted (status=%s), releasing messages for re-anchor', row['tx_hash'], receipt['status'])
+            cursor = db.cursor()
+            try:
+                cursor.execute(
+                    'UPDATE messages SET blockchain_record_id = NULL WHERE blockchain_record_id = %s',
+                    (row['id'],),
+                )
+                cursor.execute(
+                    'DELETE FROM blockchain_records WHERE id = %s',
+                    (row['id'],),
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception('Failed to release reverted record %s', row['id'])
+            finally:
+                cursor.close()
             continue
 
         try:
