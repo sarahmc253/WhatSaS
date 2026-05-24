@@ -8,8 +8,8 @@ Conversation::Conversation(std::string peerId)
     : peerId_(std::move(peerId)) {}
 
 void Conversation::addMessage(DecryptedMessage dm) {
-    if (seenIds_.find(dm.messageId) != seenIds_.end()) return;
     auto [it, inserted] = seenIds_.insert(dm.messageId);
+    if (!inserted) return;
     try {
         messages_.push_back(std::move(dm));
     } catch (...) {
