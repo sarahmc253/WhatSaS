@@ -180,42 +180,6 @@ static void testConversationDeduplication() {
     check("only one message stored after duplicate add", msgs.size() == 1);
 }
 
-static void testParseJsonString() {
-    printf("\nTest 8: parseJsonString extracts correct value\n");
-    std::string json = R"({"sender_id":"alice","recipient_id":"bob","timestamp":99})";
-
-    auto sender = parseJsonString(json, "sender_id");
-    check("sender_id extracted",   sender.has_value() && *sender == "alice");
-
-    auto recip = parseJsonString(json, "recipient_id");
-    check("recipient_id extracted", recip.has_value() && *recip == "bob");
-
-    auto missing = parseJsonString(json, "nonexistent");
-    check("missing key returns nullopt", !missing.has_value());
-
-    // Test escape handling
-    std::string jsonEsc = R"({"key":"val\"ue"})";
-    auto esc = parseJsonString(jsonEsc, "key");
-    check("escaped quote in value handled", esc.has_value() && *esc == "val\"ue");
-}
-
-static void testParseJsonInt() {
-    printf("\nTest 9: parseJsonInt extracts correct integer\n");
-    std::string json = R"({"timestamp":1234567890,"count":0,"neg":-5})";
-
-    auto ts = parseJsonInt(json, "timestamp");
-    check("timestamp extracted", ts.has_value() && *ts == 1234567890LL);
-
-    auto zero = parseJsonInt(json, "count");
-    check("zero extracted", zero.has_value() && *zero == 0LL);
-
-    auto neg = parseJsonInt(json, "neg");
-    check("negative value extracted", neg.has_value() && *neg == -5LL);
-
-    auto missing = parseJsonInt(json, "nonexistent");
-    check("missing key returns nullopt", !missing.has_value());
-}
-
 static void testB64DecodeRoundTrip() {
     printf("\nTest 10: b64Decode round-trips b64Encode\n");
     unsigned char raw[12];
@@ -252,8 +216,6 @@ int main() {
     testMessageConstructorRejectsShortCiphertext();
     testConversationSortOrder();
     testConversationDeduplication();
-    testParseJsonString();
-    testParseJsonInt();
     testB64DecodeRoundTrip();
     testB64DecodeRejectsInvalid();
 

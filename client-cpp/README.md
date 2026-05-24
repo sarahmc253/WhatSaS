@@ -12,7 +12,8 @@ pacman -S mingw-w64-ucrt-x86_64-cmake \
           mingw-w64-ucrt-x86_64-gcc \
           mingw-w64-ucrt-x86_64-openssl \
           mingw-w64-ucrt-x86_64-libsodium \
-          mingw-w64-ucrt-x86_64-sqlite3
+          mingw-w64-ucrt-x86_64-sqlite3 \
+          mingw-w64-ucrt-x86_64-nlohmann-json
 ```
 
 ## Build
@@ -57,17 +58,19 @@ client-cpp/
     MessageStore.hpp            — dual-index store: std::vector + std::map
     HttpClient.hpp              — HTTPS GET + POST client (raw sockets + OpenSSL TLS)
     Client.hpp                  — high-level encryption + network layer (AES-256-GCM)
-    Conversation.hpp            — conversation state (scaffold)
+    DecryptedMessage.hpp        — plain struct: messageId, senderId, recipientId, plaintext, timestamp
+    Conversation.hpp            — decrypted message organiser for a single peer; printConversation()
   src/                          — implementation
     User.cpp
     Message.cpp
     MessageStore.cpp
     HttpClient.cpp              — orchestration: doRequest(), get(), post()
-    Client.cpp                  — sendMessage(), getMessages()
+    Client.cpp                  — sendMessage(), getMessages(), receiveMessages()
+    message_crypto.hpp          — internal: encryptMessage(), decryptMessage() (message-level AEAD)
     tcp_connect.hpp             — internal: raw TCP connect with 5s timeout
     tls_connect.hpp / .cpp      — internal: TLS handshake, Windows CA store, cert validation
     http_response.hpp / .cpp    — internal: URL parser, GET/POST HTTP framing, chunked decoder
-    crypto_utils.hpp            — internal: jsonEscape, b64Encode, generateMsgId, buildAd
+    crypto_utils.hpp            — internal: b64Encode, b64Decode, generateMsgId, buildAd (ordered_json)
     Conversation.cpp            — scaffold
     main.cpp
   tests/
@@ -79,6 +82,7 @@ client-cpp/
     test_tcp.cpp                — raw TCP socket tests (offline)
     test_http.cpp               — HTTPS GET tests (--network)
     test_client.cpp             — AES-256-GCM crypto tests (offline)
+    test_conversation.cpp       — Conversation + message_crypto offline tests
   CMakeLists.txt
   README.md
 ```
@@ -89,7 +93,7 @@ client-cpp/
 |-----------|-----------|---------|
 | Symmetric encryption | AES-256-GCM (AEAD) | libsodium `crypto_aead_aes256gcm_*` |
 | Nonce generation | Counter-XOR-base (96-bit, unique per key) | libsodium `randombytes_buf` + `std::atomic` |
-| Associated data | Canonical JSON, bound into AEAD tag | Manual (no spaces, fixed key order) |
+| Associated data | Canonical JSON, bound into AEAD tag | nlohmann `ordered_json` (guaranteed key insertion order) |
 | Message ID | 16 CSPRNG bytes → 32 hex chars | libsodium `randombytes_buf` + `sodium_bin2hex` |
 | Base64 encoding | RFC 4648 standard | libsodium `sodium_bin2base64` |
 | Key exchange | X25519 ECDH + HPKE RFC 9180 (pending Day 7) | libsodium `crypto_scalarmult_*` |

@@ -45,8 +45,4 @@ private:
     HttpClient           http_;
 };
 
-// Print all decrypted messages in conv to stdout as:
-//   [YYYY-MM-DD HH:MM:SS] senderId: plaintext
-void printConversation(const Conversation& conv);
-
 #endif // CLIENT_HPP
