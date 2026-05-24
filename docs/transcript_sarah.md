@@ -331,3 +331,63 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update the transcript in docs
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** The /revoke endpoint is a stub. Implement it: check the requester owns the message, then delete the forwarded copy from the DB (not the original), and return 403 if they don't own it.
+
+**Claude:** Explored codebase, found stub at `server/app/messages/routes.py` lines 27–30. Asked how forwarded messages are stored in the DB.
+
+**Sarah:** Same messages table, flagged by `original_message_id`. `sender_id` is the forwarder (owner).
+
+**Claude:** Proposed implementing revoke by querying `messages WHERE id = %s AND original_message_id IS NOT NULL`, checking `sender_id == current_user_id`, and deleting the row on success.
+
+**Sarah:** [REJECTED] — don't delete the row. Schema has `is_revoked` on `messages` and `revoked_at` on `message_access`. Set `is_revoked = 1` and `revoked_at = now()` instead.
+
+**Claude:** Updated implementation to soft-delete: `UPDATE messages SET is_revoked = 1` and `UPDATE message_access SET revoked_at = %s` in a single transaction with rollback on failure. Also added `from datetime import datetime, timezone` and `from .. import get_db` imports. Returns 404 if message not found, 403 if requester is not the sender.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** write a pytest test that registers two users, has user A send a message, then tries to GET that message as user B and asserts a 403 response
+
+**Claude:** Noted no existing test infrastructure. Identified that `GET /messages/<id>` route did not exist (required for 403 to be meaningful), and that the messages blueprint had a double url_prefix bug (`url_prefix='/messages'` + route decorators also starting with `/messages` made all routes accessible at `/messages/messages/...`). Asked Sarah to confirm the bug before fixing.
+
+---
+
+**Sarah:** you mentioned a url_prefix double slash bug. can you show me what it is before making any changes
+
+**Claude:** Explained that `__init__.py` registers the messages blueprint at `url_prefix='/messages'`, while every route decorator in `routes.py` also begins with `/messages`. Flask concatenates them, so all message routes were only reachable at `/messages/messages`, `/messages/messages/<id>`, etc. Showed that auth routes are not affected — auth route decorators use `/register` and `/login` (no `/auth` prefix), so concatenation produces the correct `/auth/register`, `/auth/login`. The bug was present since PR #6 (flask-routes, 20 May), when both files were introduced together.
+
+---
+
+**Sarah:** yes fix it pls. has this bug been here since the start? would any existing functionality like /login or /register have been affected?
+
+**Claude:** Confirmed the bug was introduced in commit `f23c333` (PR #6, 20 May 2026) — both `__init__.py` and `routes.py` landed in the same commit with the double prefix. `/login` and `/register` were not affected. Fixed by changing `url_prefix='/messages'` to `url_prefix=''` in `__init__.py`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** now write that test
+
+**Claude:** Added `GET /messages/<string:message_id>` route to `routes.py` with ownership check (`sender_id` or `recipient_id` must match JWT identity, else 403). Created `pytest.ini` (testpaths, pythonpath), `server/tests/__init__.py`, `server/tests/conftest.py` (dummy env vars + app/client fixtures), and `server/tests/test_messages.py`. Test registers alice and bob via mocked DB, logs both in using real auth endpoints with a precomputed argon2id hash in the mock row, user A sends a message via the stub endpoint, then user B GETs the message with a mock DB row showing user A as sender and a third party as recipient — asserts 403. Installed pytest into venv. Test passes.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** why are the argon2id parameters in the test lower than production. could this mask a bug where the wrong hash parameters are used?
+
+**Claude:** Checked both files — parameters were actually identical (not lower). However, the concern was valid: the test duplicated the `PasswordHasher(...)` constructor rather than importing the production `ph` instance. Because argon2 embeds parameters in the hash string, `ph.verify()` always uses the hash's own embedded params regardless of the verifier's constructor — so a parameter drift would never cause the test to fail. Fixed by replacing the duplicate constructor with `from server.app.auth.routes import ph as _ph`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript

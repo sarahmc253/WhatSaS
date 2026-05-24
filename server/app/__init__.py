@@ -51,6 +51,6 @@ def create_app():
     from .auth.routes import auth_bp
     from .messages.routes import messages_bp
     app.register_blueprint(auth_bp, url_prefix='/auth')
-    app.register_blueprint(messages_bp, url_prefix='/messages')
+    app.register_blueprint(messages_bp, url_prefix='')
 
     return app
