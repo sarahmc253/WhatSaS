@@ -160,6 +160,28 @@ static void testBuildAd() {
           adEvil.find("\"sender_id\":\"a\\\"b\\\\c\"") != std::string::npos);
 }
 
+static void testCiphertextTamperFails() {
+    printf("\nTest 10: Tampered ciphertext is rejected at receiver\n");
+    if (!aesAvailable()) { printf("[SKIP] AES-NI unavailable\n"); return; }
+
+    std::vector<uint8_t> key(crypto_aead_aes256gcm_KEYBYTES);
+    randombytes_buf(key.data(), key.size());
+
+    const std::string ad = buildAd("alice", "bob", "msg001", 1000000);
+    const std::string pt = "tamper me if you dare";
+
+    std::vector<uint8_t> blob = encryptAes256Gcm(key, pt, ad);
+    check("encrypt succeeds (precondition)", !blob.empty());
+    if (blob.empty()) return;
+
+    // Flip a bit in the ciphertext (byte after the 12-byte nonce prefix).
+    std::vector<uint8_t> tampered = blob;
+    tampered[crypto_aead_aes256gcm_NPUBBYTES] ^= 0xFF;
+
+    auto result = decryptAes256Gcm(key, tampered, ad);
+    check("tampered ciphertext rejected by AEAD tag verification", !result.has_value());
+}
+
 // ============================================================================
 
 int main() {
@@ -178,6 +200,7 @@ int main() {
     testBase64Length();
     testGenerateMsgId();
     testBuildAd();
+    testCiphertextTamperFails();
 
     printf("\n=== %d passed, %d failed ===\n", passed, failed);
     return (failed == 0) ? 0 : 1;
