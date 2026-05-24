@@ -198,7 +198,7 @@ def _confirm_run(db):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            'SELECT id, tx_hash FROM blockchain_records WHERE block_number IS NULL'
+            'SELECT id, tx_hash, revert_count FROM blockchain_records WHERE block_number IS NULL'
         )
         rows = cursor.fetchall()
     finally:
@@ -221,23 +221,45 @@ def _confirm_run(db):
             continue
 
         if receipt['status'] != 1:
-            logger.warning('Tx %s reverted (status=%s), releasing messages for re-anchor', row['tx_hash'], receipt['status'])
-            cursor = db.cursor()
-            try:
-                cursor.execute(
-                    'UPDATE messages SET blockchain_record_id = NULL WHERE blockchain_record_id = %s',
-                    (row['id'],),
+            new_count = row['revert_count'] + 1
+            if new_count > 3:
+                logger.warning(
+                    'Tx %s reverted %d times (status=%s), releasing messages for re-anchor',
+                    row['tx_hash'], new_count, receipt['status'],
                 )
-                cursor.execute(
-                    'DELETE FROM blockchain_records WHERE id = %s',
-                    (row['id'],),
+                cursor = db.cursor()
+                try:
+                    cursor.execute(
+                        'UPDATE messages SET blockchain_record_id = NULL WHERE blockchain_record_id = %s',
+                        (row['id'],),
+                    )
+                    cursor.execute(
+                        'DELETE FROM blockchain_records WHERE id = %s',
+                        (row['id'],),
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    logger.exception('Failed to release reverted record %s', row['id'])
+                finally:
+                    cursor.close()
+            else:
+                logger.warning(
+                    'Tx %s reverted (status=%s), revert_count now %d, leaving messages claimed',
+                    row['tx_hash'], receipt['status'], new_count,
                 )
-                db.commit()
-            except Exception:
-                db.rollback()
-                logger.exception('Failed to release reverted record %s', row['id'])
-            finally:
-                cursor.close()
+                cursor = db.cursor()
+                try:
+                    cursor.execute(
+                        'UPDATE blockchain_records SET revert_count = %s WHERE id = %s',
+                        (new_count, row['id']),
+                    )
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    logger.exception('Failed to increment revert_count for record %s', row['id'])
+                finally:
+                    cursor.close()
             continue
 
         try:
