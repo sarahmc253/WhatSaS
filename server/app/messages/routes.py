@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 
 import mysql.connector
 from flask import Blueprint, current_app, request, jsonify
-from .. import get_db
-
+from flask_jwt_extended import jwt_required, get_jwt_identity
 from .. import get_db
 from .anchor import anchor_pending
 
@@ -169,12 +168,12 @@ def forward_message(message_id):
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, content_hash, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, content_hash, created_at, original_message_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], content_hash, now,
+                data['ciphertext'], data['nonce'], content_hash, now, message_id,
             ),
         )
         db.commit()

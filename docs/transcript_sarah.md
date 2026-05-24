@@ -498,3 +498,47 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 - Returns `{ id: new_id }` 201 on success.
 
 **Sarah:** [APPROVED]
+
+---
+
+**Sarah:** remove all duplicate from .. import get_fb import in messages/routes.py
+
+**Claude:** Found two identical `from .. import get_db` lines (lines 8 and 10) in `server/app/messages/routes.py`. Removed the duplicate on line 10.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** jwt_required and get_jwt_identity are used in messages/routes.py but never imported. add them
+
+**Claude:** Added `from flask_jwt_extended import jwt_required, get_jwt_identity` to `server/app/messages/routes.py`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the forward insert doesnt set original_message_id so revoke can never find the row. fix the insert to include it
+
+**Claude:** Added `original_message_id` to the forward INSERT column list and passed `message_id` (the forwarded-from row's ID) as its value. This ensures the revoke endpoint's `WHERE original_message_id IS NOT NULL` filter matches forwarded rows.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the test posts an empty body to /messages but the endpoint now validates required fields so it returns 400 not 200. update the test to post a valid message payload with a mocked db
+
+**Claude:** Proposed updated test with `ciphertext: 'deadbeef'`, `nonce: 'cafebabe'`, `content_hash: 'a' * 64`.
+
+**Sarah:** [REJECTED] — does the /messages endpoint validate the format of ciphertext and nonce or only content_hash?
+
+**Claude:** Confirmed only `content_hash` is validated against `_HEX32_RE` (64-char hex). `ciphertext` and `nonce` are only checked to be non-empty strings via `_invalid_fields`, so any non-empty string passes.
+
+**Claude:** Updated `test_messages.py`: replaced empty body `{}` with a valid payload (`recipient_id`, `ciphertext`, `nonce`, `content_hash: 'a' * 64`), wrapped the POST in `patch('server.app.messages.routes.get_db', return_value=_db())`, and changed the assertion from 200 to 201.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript with all prompts and replies
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.

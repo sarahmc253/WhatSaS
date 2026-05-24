@@ -31,8 +31,8 @@ def _register(client, username, email):
             'email': email,
             'password': PASSWORD,
             'x25519_public_key': f'pk_{username}',
-            'hpke_wrapped_private_key': f'wpk_{username}',
-            'argon2id_kek_salt': f'kek_{username}',
+            'wrapped_private_key': f'wpk_{username}',
+            'kek_salt': f'kek_{username}',
         })
     assert r.status_code == 201, r.get_json()
 
@@ -41,9 +41,9 @@ def _login(client, username, user_id, pw_hash):
     with patch('server.app.auth.routes.get_db', return_value=_db({
         'id': user_id,
         'username': username,
-        'argon2id_server_hash': pw_hash,
-        'hpke_wrapped_private_key': f'wpk_{username}',
-        'argon2id_kek_salt': f'kek_{username}',
+        'password_hash': pw_hash,
+        'wrapped_private_key': f'wpk_{username}',
+        'kek_salt': f'kek_{username}',
         'x25519_public_key': f'pk_{username}',
     })):
         r = client.post('/auth/login', json={'username': username, 'password': PASSWORD})
@@ -58,13 +58,20 @@ def test_user_b_cannot_read_user_a_message(client):
     token_a = _login(client, 'alice', USER_A_ID, _HASH_A)
     token_b = _login(client, 'bob', USER_B_ID, _HASH_B)
 
-    # User A sends a message (endpoint is still a stub — no DB interaction yet).
-    r = client.post(
-        '/messages',
-        json={},
-        headers={'Authorization': f'Bearer {token_a}'},
-    )
-    assert r.status_code == 200
+    # User A sends a message with a valid payload; DB is mocked.
+    valid_payload = {
+        'recipient_id': USER_B_ID,
+        'ciphertext': 'deadbeef',
+        'nonce': 'cafebabe',
+        'content_hash': 'a' * 64,
+    }
+    with patch('server.app.messages.routes.get_db', return_value=_db()):
+        r = client.post(
+            '/messages',
+            json=valid_payload,
+            headers={'Authorization': f'Bearer {token_a}'},
+        )
+    assert r.status_code == 201
 
     # DB shows user A owns the message; recipient is a third party, not user B.
     third_party_id = str(uuid.uuid4())
