@@ -3,11 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!--
-        NOTE: ES modules (type="module") require a real HTTP server.
-        Run with: python -m http.server 8080  (from client-web/)
-        or serve via the Flask static folder.
-    -->
     <title>WhatSaS</title>
     <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -25,6 +20,7 @@
     <!-- All views are rendered into this container by app.js -->
     <main id="app"></main>
 
+    <script src="node_modules/argon2-browser/dist/argon2-bundled.min.js"></script>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>
