@@ -80,6 +80,8 @@ def send_message():
 @messages_bp.route('/flush', methods=['POST'])
 @jwt_required()
 def flush():
+    if not current_app.config.get('ANCHORING_ENABLED'):
+        return jsonify({'error': 'Anchoring is not enabled'}), 503
     user_id = get_jwt_identity()
     app = current_app._get_current_object()
     threading.Thread(

@@ -66,7 +66,16 @@ export async function register(username, email, password, cryptoPayload) {
     });
 }
 
-export function logout() { clearToken(); }
+export function logout() {
+    const token = getToken();
+    if (token) {
+        fetch(`${BASE_URL}/auth/logout`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+        }).catch(() => {});
+    }
+    clearToken();
+}
 
 // ── Messages ──────────────────────────────────────────────────────────────
 export function getMessages() {

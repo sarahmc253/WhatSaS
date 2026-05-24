@@ -163,7 +163,6 @@ def login():
 @jwt_required()
 def logout():
     if current_app.config.get('ANCHORING_ENABLED'):
-        from ..messages.anchor import anchor_pending
         user_id = get_jwt_identity()
         app = current_app._get_current_object()
         threading.Thread(
@@ -174,5 +173,6 @@ def logout():
 
 
 def _anchor_in_context(app, user_id):
+    from ..messages.anchor import anchor_pending
     with app.app_context():
         anchor_pending(user_id)

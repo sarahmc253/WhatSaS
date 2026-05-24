@@ -116,7 +116,33 @@ def _run(db, user_id):
     for (conv_a, conv_b), msgs in conversations.items():
         root = _merkle_root([m['content_hash'] for m in msgs])
         ids = [m['id'] for m in msgs]
+        record_id = str(uuid.uuid4())
+        placeholders = ','.join(['%s'] * len(ids))
 
+        # Reserve rows before touching the chain so a concurrent scheduler run
+        # won't pick up the same messages (blockchain_record_id will be non-NULL).
+        cursor = db.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO blockchain_records
+                    (id, merkle_root, conv_a, conv_b, tx_hash, block_number, block_timestamp)
+                VALUES (%s, %s, %s, %s, NULL, NULL, NULL)
+                """,
+                (record_id, root, conv_a, conv_b),
+            )
+            cursor.execute(
+                f'UPDATE messages SET blockchain_record_id = %s WHERE id IN ({placeholders})',
+                (record_id, *ids),
+            )
+        except Exception:
+            db.rollback()
+            logger.exception('DB reserve failed for conversation (%s, %s)', conv_a, conv_b)
+            continue
+        finally:
+            cursor.close()
+
+        # Send chain tx; roll back the reservation on failure so messages can be retried.
         try:
             tx = contract.functions.storeData(root).build_transaction({
                 'from': account.address,
@@ -129,29 +155,20 @@ def _run(db, user_id):
             nonce += 1
             tx_hash_hex = '0x' + raw_hash.hex()
         except Exception:
-            logger.exception('Chain tx failed for conversation (%s, %s)', conv_a, conv_b)
+            db.rollback()
+            logger.exception('Chain tx failed for conversation (%s, %s), reservation rolled back', conv_a, conv_b)
             continue
 
-        record_id = str(uuid.uuid4())
         cursor = db.cursor()
         try:
             cursor.execute(
-                """
-                INSERT INTO blockchain_records
-                    (id, merkle_root, conv_a, conv_b, tx_hash, block_number, block_timestamp)
-                VALUES (%s, %s, %s, %s, %s, NULL, NULL)
-                """,
-                (record_id, root, conv_a, conv_b, tx_hash_hex),
-            )
-            placeholders = ','.join(['%s'] * len(ids))
-            cursor.execute(
-                f'UPDATE messages SET blockchain_record_id = %s WHERE id IN ({placeholders})',
-                (record_id, *ids),
+                'UPDATE blockchain_records SET tx_hash = %s WHERE id = %s',
+                (tx_hash_hex, record_id),
             )
             db.commit()
         except Exception:
             db.rollback()
-            logger.exception('DB update failed after anchor for conversation (%s, %s)', conv_a, conv_b)
+            logger.exception('DB commit failed for conversation (%s, %s)', conv_a, conv_b)
         finally:
             cursor.close()
 
@@ -201,6 +218,10 @@ def _confirm_run(db):
             continue
 
         if receipt is None:
+            continue
+
+        if receipt['status'] != 1:
+            logger.warning('Tx %s reverted (status=%s), skipping DB update', row['tx_hash'], receipt['status'])
             continue
 
         try:
