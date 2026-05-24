@@ -100,6 +100,12 @@ export class EncryptedPrivateKey {
     }
 
     static fromJSON(obj) {
+        const fields = ['salt', 'kek_nonce', 'wrapped_dek', 'dek_nonce', 'ciphertext'];
+        for (const field of fields) {
+            if (typeof obj?.[field] !== 'string') {
+                throw new Error(`EncryptedPrivateKey.fromJSON: missing or invalid field "${field}"`);
+            }
+        }
         return new EncryptedPrivateKey(
             fromB64(obj.salt),
             fromB64(obj.kek_nonce),
