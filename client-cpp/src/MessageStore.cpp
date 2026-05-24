@@ -3,10 +3,9 @@
 
 const std::vector<Message> MessageStore::empty_{};
 
-void MessageStore::addMessage(const Message& msg) {
+void MessageStore::addMessage(const Message& msg, const std::string& key) {
     messages_.push_back(msg);
-    // operator[] creates the bucket if this recipient has not been seen before
-    byRecipient_[msg.getRecipientId()].push_back(msg);
+    byPeer_[key].push_back(msg);
 }
 
 std::optional<Message> MessageStore::findMessage(const std::string& messageId) const {
@@ -17,9 +16,9 @@ std::optional<Message> MessageStore::findMessage(const std::string& messageId) c
     return it != messages_.end() ? std::optional<Message>(*it) : std::nullopt;
 }
 
-const std::vector<Message>& MessageStore::getMessagesFor(const std::string& recipientId) const {
-    auto it = byRecipient_.find(recipientId);
-    return it != byRecipient_.end() ? it->second : empty_;
+const std::vector<Message>& MessageStore::getMessagesFor(const std::string& key) const {
+    auto it = byPeer_.find(key);
+    return it != byPeer_.end() ? it->second : empty_;
 }
 
 std::vector<Message> MessageStore::getSortedMessages() const {

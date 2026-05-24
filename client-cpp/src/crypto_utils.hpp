@@ -2,38 +2,12 @@
 #define CRYPTO_UTILS_HPP
 
 #include <sodium.h>
-#include <cstdio>
+#include <nlohmann/json.hpp>
 #include <cstring>
 #include <ctime>
+#include <optional>
 #include <string>
 #include <vector>
-
-// Escape a string for use as a JSON string value (RFC 8259 §7).
-// Caller wraps the result in double-quotes.
-static inline std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\b': out += "\\b";  break;
-            case '\f': out += "\\f";  break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if (c < 0x20) {
-                    char buf[7];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out += static_cast<char>(c);
-                }
-        }
-    }
-    return out;
-}
 
 // Encode binary data as standard base64 (RFC 4648).
 static inline std::string b64Encode(const unsigned char* data, std::size_t len) {
@@ -41,6 +15,22 @@ static inline std::string b64Encode(const unsigned char* data, std::size_t len) 
     std::string out(bufLen, '\0');
     sodium_bin2base64(&out[0], bufLen, data, len, sodium_base64_VARIANT_ORIGINAL);
     out.resize(std::strlen(out.c_str()));
+    return out;
+}
+
+// Decode standard base64 (RFC 4648) into bytes.
+// Returns empty vector if the input is not valid base64.
+static inline std::vector<uint8_t> b64Decode(const std::string& encoded) {
+    std::vector<uint8_t> out(encoded.size());
+    std::size_t outLen = 0;
+    if (sodium_base642bin(
+            out.data(), out.size(),
+            encoded.c_str(), encoded.size(),
+            nullptr, &outLen, nullptr,
+            sodium_base64_VARIANT_ORIGINAL) != 0) {
+        return {};
+    }
+    out.resize(outLen);
     return out;
 }
 
@@ -55,16 +45,19 @@ static inline std::string generateMsgId() {
     return hex;
 }
 
-// Build canonical associated data JSON — no spaces, exact key order.
-// Both sides must reconstruct this string identically for AEAD tag verification.
+// Build canonical associated data JSON — ordered keys, no spaces.
+// Uses ordered_json to guarantee key insertion order is preserved on dump(),
+// since both encrypt and decrypt must reconstruct byte-for-byte identical AD.
 static inline std::string buildAd(const std::string& senderId,
                                    const std::string& recipientId,
                                    const std::string& msgId,
                                    std::time_t ts) {
-    return "{\"sender_id\":\"" + jsonEscape(senderId) +
-           "\",\"recipient_id\":\"" + jsonEscape(recipientId) +
-           "\",\"message_id\":\"" + jsonEscape(msgId) +
-           "\",\"timestamp\":" + std::to_string(static_cast<long long>(ts)) + "}";
+    nlohmann::ordered_json ad;
+    ad["sender_id"]    = senderId;
+    ad["recipient_id"] = recipientId;
+    ad["message_id"]   = msgId;
+    ad["timestamp"]    = static_cast<long long>(ts);
+    return ad.dump();
 }
 
 // Encrypt plaintext with AES-256-GCM. A fresh 12-byte nonce is drawn from the
@@ -102,10 +95,10 @@ static inline std::vector<uint8_t> encryptAes256Gcm(
 }
 
 // Decrypt a blob produced by encryptAes256Gcm (nonce || ciphertext+tag).
-// Returns plaintext bytes on success, empty vector on authentication failure
-// or malformed input.
+// Returns nullopt on authentication failure or malformed input.
+// Returns an empty vector on successful decryption of empty plaintext.
 // key — same key used to encrypt; ad — must match exactly or decryption fails.
-static inline std::vector<uint8_t> decryptAes256Gcm(
+static inline std::optional<std::vector<uint8_t>> decryptAes256Gcm(
     const std::vector<uint8_t>& key,
     const std::vector<uint8_t>& noncePlusCt,
     const std::string& ad)
@@ -113,8 +106,8 @@ static inline std::vector<uint8_t> decryptAes256Gcm(
     constexpr std::size_t nonceLen = crypto_aead_aes256gcm_NPUBBYTES;  // 12
     constexpr std::size_t tagLen   = crypto_aead_aes256gcm_ABYTES;     // 16
 
-    if (key.size() != crypto_aead_aes256gcm_KEYBYTES) return {};
-    if (noncePlusCt.size() < nonceLen + tagLen) return {};
+    if (key.size() != crypto_aead_aes256gcm_KEYBYTES) return std::nullopt;
+    if (noncePlusCt.size() < nonceLen + tagLen) return std::nullopt;
 
     const unsigned char* nonce = noncePlusCt.data();
     const unsigned char* ct    = noncePlusCt.data() + nonceLen;
@@ -127,7 +120,7 @@ static inline std::vector<uint8_t> decryptAes256Gcm(
         ct, ctLen,
         reinterpret_cast<const unsigned char*>(ad.data()), ad.size(),
         nonce, key.data());
-    if (rc != 0) return {};
+    if (rc != 0) return std::nullopt;
     pt.resize(ptLen);
     return pt;
 }
