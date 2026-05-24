@@ -9,6 +9,8 @@ Conversation::Conversation(std::string peerId)
 void Conversation::addMessage(DecryptedMessage dm) {
     if (seenIds_.find(dm.messageId) != seenIds_.end()) return;
     seenIds_.insert(dm.messageId);
+    if (seenIds_.find(dm.messageId) != seenIds_.end()) return;
+    seenIds_.insert(dm.messageId);
     messages_.push_back(std::move(dm));
 }
 
