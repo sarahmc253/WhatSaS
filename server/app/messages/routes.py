@@ -5,8 +5,6 @@ from datetime import datetime, timezone
 
 import mysql.connector
 from flask import Blueprint, current_app, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from datetime import datetime, timezone
 from .. import get_db
 
 from .. import get_db
