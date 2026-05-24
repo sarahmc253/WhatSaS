@@ -57,8 +57,8 @@ export async function login(username, password) {
 }
 
 export async function register(username, email, password, cryptoPayload) {
-    const { x25519_public_key, hpke_wrapped_private_key, argon2id_kek_salt } = cryptoPayload ?? {};
-    if (!x25519_public_key || !hpke_wrapped_private_key || !argon2id_kek_salt) {
+    const { x25519_public_key, wrapped_private_key, kek_salt } = cryptoPayload ?? {};
+    if (!x25519_public_key || !wrapped_private_key || !kek_salt) {
         throw new Error('Registration blocked: E2E crypto material is not yet implemented');
     }
     return request('POST', '/auth/register', {

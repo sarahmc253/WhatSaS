@@ -24,7 +24,7 @@ auth_bp = Blueprint('auth', __name__)
 
 REQUIRED_FIELDS = [
     'username', 'email', 'password',
-    'x25519_public_key', 'hpke_wrapped_private_key', 'argon2id_kek_salt',
+    'x25519_public_key', 'wrapped_private_key', 'kek_salt',
 ]
 
 def _invalid_fields(data, fields):
@@ -59,15 +59,15 @@ def register():
             """
             INSERT INTO users
                 (id, username, email, password_hash, password_salt,
-                 x25519_public_key, hpke_wrapped_private_key, argon2id_kek_salt,
+                 x25519_public_key, wrapped_private_key, kek_salt,
                  tofu_key_pinned_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 user_id, data['username'], data['email'],
                 password_hash, password_salt,
-                data['x25519_public_key'], data['hpke_wrapped_private_key'],
-                data['argon2id_kek_salt'], now,
+                data['x25519_public_key'], data['wrapped_private_key'],
+                data['kek_salt'], now,
             ),
         )
         db.commit()
@@ -102,7 +102,7 @@ def login():
         cursor.execute(
             """
             SELECT id, username, password_hash,
-                   hpke_wrapped_private_key, argon2id_kek_salt, x25519_public_key
+                   wrapped_private_key, kek_salt, x25519_public_key
             FROM users
             WHERE username = %s
             """,
@@ -153,8 +153,8 @@ def login():
 
     return jsonify({
         'token': token,
-        'hpke_wrapped_private_key': user['hpke_wrapped_private_key'],
-        'argon2id_kek_salt': user['argon2id_kek_salt'],
+        'wrapped_private_key': user['wrapped_private_key'],
+        'kek_salt': user['kek_salt'],
         'x25519_public_key': user['x25519_public_key'],
     }), 200
 
