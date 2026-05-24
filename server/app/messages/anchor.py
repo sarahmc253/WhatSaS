@@ -221,7 +221,7 @@ def _confirm_run(db):
             continue
 
         if receipt['status'] != 1:
-            new_count = row['revert_count'] + 1
+            new_count = (row['revert_count'] or 0) + 1
             if new_count > 3:
                 logger.warning(
                     'Tx %s reverted %d times (status=%s), releasing messages for re-anchor',
