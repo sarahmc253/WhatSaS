@@ -331,3 +331,42 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update the transcript in docs
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** Add a POST /forward endpoint to the Express server that accepts { messageId, recipientUsername } and returns 403 if the requester doesn't own the message.
+
+**Claude:** Noted the server is Flask not Express. Found the existing stub at `POST /messages/<string:message_id>/forward`. Read the messages table schema from git history — columns: `id`, `sender_id`, `recipient_id`, `ciphertext`, `nonce`, `content_hash`, `created_at`.
+
+---
+
+**Sarah:** Add a POST /forward route in Flask that accepts { messageId, recipientUsername } and returns 403 if the requester doesn't own the message.
+
+**Claude:** Proposed implementing the stub: parse `recipientUsername` from body, query `sender_id` from messages table, return 403 if it doesn't match `get_jwt_identity()`, verify recipient exists, then return 200 placeholder.
+
+**Sarah:** [REJECTED] — the forward endpoint validates ownership but never inserts the forwarded message into the DB. Add the INSERT before returning 200.
+
+**Claude:** Proposed fetching the original message's `ciphertext`, `nonce`, `content_hash` and copying them into a new messages row for the new recipient.
+
+**Sarah:** [REJECTED] — the forward endpoint copies the ciphertext directly but that ciphertext is encrypted to the original recipient's public key, not the new recipient's. Is this intentional or should the server be rejecting re-encryption entirely and leaving that to the client?
+
+**Claude:** Explained that copying ciphertext is cryptographically broken — the ciphertext is HPKE-sealed to the original recipient's X25519 key so the new recipient can't decrypt it. The correct design is for the client to decrypt locally and re-encrypt for the new recipient, then send the new payload to the server. The server accepts `{ recipientUsername, ciphertext, nonce, content_hash }` and inserts the new record, matching the same flow as `POST /messages`.
+
+---
+
+**Sarah:** yes [proceed with client-re-encrypts approach]
+
+**Claude:** Implemented `forward_message` in `server/app/messages/routes.py`:
+- Added imports: `re`, `uuid`, `datetime/timezone`, `mysql.connector`, `request`, `get_db`, plus `_HEX32_RE` regex and `_invalid_fields` helper (matching the pattern from `send_message`).
+- Validates body is a JSON object; requires `recipientUsername`, `ciphertext`, `nonce`, `content_hash`.
+- Validates `content_hash` is a 64-char hex string.
+- Queries `sender_id` from messages; returns 404 if not found, 403 if `sender_id != get_jwt_identity()`.
+- Looks up recipient by `recipientUsername`; returns 404 if not found.
+- Normalises `content_hash` to `0x`-prefixed, generates new UUID, inserts new messages row with client-supplied re-encrypted payload.
+- Returns `{ id: new_id }` 201 on success.
+
+**Sarah:** [APPROVED]
