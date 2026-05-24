@@ -172,9 +172,16 @@ static void testCiphertextTamperFails() {
 
     std::vector<uint8_t> blob = encryptAes256Gcm(key, pt, ad);
     check("encrypt succeeds (precondition)", !blob.empty());
-    if (blob.empty()) return;
 
-    // Flip a bit in the ciphertext (byte after the 12-byte nonce prefix).
+    constexpr std::size_t minLen =
+        crypto_aead_aes256gcm_NPUBBYTES + 1 + crypto_aead_aes256gcm_ABYTES;
+    if (blob.size() < minLen) {
+        printf("[FAIL] blob too short to contain ciphertext byte — skipping tamper\n");
+        ++failed;
+        return;
+    }
+
+    // Flip a byte in the ciphertext body (after the 12-byte nonce, before the 16-byte tag).
     std::vector<uint8_t> tampered = blob;
     tampered[crypto_aead_aes256gcm_NPUBBYTES] ^= 0xFF;
 
