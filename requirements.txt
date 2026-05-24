@@ -8,3 +8,4 @@ web3>=7.16.0
 python-dotenv>=1.2.2
 gunicorn>=26.0.0
 pytest
+apscheduler>=3.11.0
