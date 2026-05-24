@@ -92,7 +92,7 @@ client-cpp/
 | Primitive | Algorithm | Library |
 |-----------|-----------|---------|
 | Symmetric encryption | AES-256-GCM (AEAD) | libsodium `crypto_aead_aes256gcm_*` |
-| Nonce generation | Counter-XOR-base (96-bit, unique per key) | libsodium `randombytes_buf` + `std::atomic` |
+| Nonce generation | Fresh CSPRNG per message (96-bit) | libsodium `randombytes_buf` |
 | Associated data | Canonical JSON, bound into AEAD tag | nlohmann `ordered_json` (guaranteed key insertion order) |
 | Message ID | 16 CSPRNG bytes → 32 hex chars | libsodium `randombytes_buf` + `sodium_bin2hex` |
 | Base64 encoding | RFC 4648 standard | libsodium `sodium_bin2base64` |
@@ -104,7 +104,7 @@ client-cpp/
 
 **Notes:**
 - AES-256-GCM requires hardware AES-NI (Intel/AMD); `Client` constructor throws `std::runtime_error` if unavailable
-- Nonce scheme: `nonceBase_` (CSPRNG, set once at construction) XOR'd with an atomic counter — unique for 2^64 messages per key, eliminating birthday collision risk of purely random nonces
+- Nonce scheme: fresh 96-bit nonce drawn from `randombytes_buf` on every `encryptAes256Gcm` call — no counter, no state carried between messages
 - Associated data (sender_id, recipient_id, message_id, timestamp) is bound into the AEAD tag but not encrypted — any tampering causes decryption to fail
 - HPKE RFC 9180 (`DHKEM(X25519, HKDF-SHA256)`) is a Day 7 task; `kem_output` and `sender_ephemeral_pk` fields in POST JSON are empty placeholders until then
 - TLS certificate chain validated against the Windows system root CA store

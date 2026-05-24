@@ -3,6 +3,7 @@
 
 #include <sodium.h>
 #include <nlohmann/json.hpp>
+#include <limits>
 #include <stdexcept>
 #include <iostream>
 
@@ -98,6 +99,13 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
         std::string nonceB64    = obj["nonce"];
         std::string ctB64       = obj["ciphertext"];
         long long   ts          = obj["timestamp"];
+
+        // Reject timestamps that are negative or exceed what std::time_t can hold.
+        // time_t may be 32-bit on some platforms; casting an out-of-range value is UB.
+        if (ts < 0 || ts > static_cast<long long>(std::numeric_limits<std::time_t>::max())) {
+            std::cerr << "[receiveMessages] skipping: timestamp out of range: " << ts << "\n";
+            continue;
+        }
 
         // 4. Reject messages where local user is not a participant
         if (senderId != senderId_ && recipientId != senderId_) {
