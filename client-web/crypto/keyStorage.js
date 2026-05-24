@@ -107,25 +107,12 @@ export class EncryptedPrivateKey {
             }
         }
 
-        const salt       = fromB64(obj.salt);
-        const kekNonce   = fromB64(obj.kek_nonce);
-        const wrappedDek = fromB64(obj.wrapped_dek);
-        const dekNonce   = fromB64(obj.dek_nonce);
-        const ciphertext = fromB64(obj.ciphertext);
-
-        if (salt.byteLength !== 16)
-            throw new Error(`EncryptedPrivateKey.fromJSON: salt must be 16 bytes, got ${salt.byteLength}`);
-        if (kekNonce.byteLength !== 12)
-            throw new Error(`EncryptedPrivateKey.fromJSON: kek_nonce must be 12 bytes, got ${kekNonce.byteLength}`);
-        if (dekNonce.byteLength !== 12)
-            throw new Error(`EncryptedPrivateKey.fromJSON: dek_nonce must be 12 bytes, got ${dekNonce.byteLength}`);
-        // 32-byte DEK + 16-byte AES-GCM tag
-        if (wrappedDek.byteLength < 48)
-            throw new Error(`EncryptedPrivateKey.fromJSON: wrapped_dek too short (${wrappedDek.byteLength} bytes)`);
-        // 32-byte X25519 private key + 16-byte AES-GCM tag
-        if (ciphertext.byteLength < 48)
-            throw new Error(`EncryptedPrivateKey.fromJSON: ciphertext too short (${ciphertext.byteLength} bytes)`);
-
-        return new EncryptedPrivateKey(salt, kekNonce, wrappedDek, dekNonce, ciphertext);
+        return new EncryptedPrivateKey(
+            fromB64(obj.salt),
+            fromB64(obj.kek_nonce),
+            fromB64(obj.wrapped_dek),
+            fromB64(obj.dek_nonce),
+            fromB64(obj.ciphertext),
+        );
     }
 }
