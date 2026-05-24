@@ -2,40 +2,12 @@
 #define CRYPTO_UTILS_HPP
 
 #include <sodium.h>
-#include <cctype>
-#include <cstdio>
+#include <nlohmann/json.hpp>
 #include <cstring>
 #include <ctime>
 #include <optional>
 #include <string>
 #include <vector>
-
-// Escape a string for use as a JSON string value (RFC 8259 §7).
-// Caller wraps the result in double-quotes.
-static inline std::string jsonEscape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\b': out += "\\b";  break;
-            case '\f': out += "\\f";  break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:
-                if (c < 0x20) {
-                    char buf[7];
-                    std::snprintf(buf, sizeof(buf), "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out += static_cast<char>(c);
-                }
-        }
-    }
-    return out;
-}
 
 // Encode binary data as standard base64 (RFC 4648).
 static inline std::string b64Encode(const unsigned char* data, std::size_t len) {
@@ -62,83 +34,6 @@ static inline std::vector<uint8_t> b64Decode(const std::string& encoded) {
     return out;
 }
 
-// Extract the string value for a given key from a flat JSON object.
-// Accepts optional whitespace between ':' and the opening '"' (RFC 7159 §2).
-// Returns nullopt on missing key, unterminated string, or unrecognised escape.
-static inline std::optional<std::string> parseJsonString(
-    const std::string& json, const std::string& key)
-{
-    // Match "key": (with optional whitespace before opening quote)
-    std::string needle = "\"" + key + "\":";
-    auto pos = json.find(needle);
-    if (pos == std::string::npos) return std::nullopt;
-    pos += needle.size();
-
-    // Skip optional whitespace
-    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' ||
-                                  json[pos] == '\n' || json[pos] == '\r')) ++pos;
-
-    // Expect opening quote
-    if (pos >= json.size() || json[pos] != '"') return std::nullopt;
-    ++pos;
-
-    std::string result;
-    bool closed = false;
-    while (pos < json.size()) {
-        char c = json[pos++];
-        if (c == '"') { closed = true; break; }
-        if (c == '\\') {
-            if (pos >= json.size()) return std::nullopt;
-            char esc = json[pos++];
-            switch (esc) {
-                case '"':  result += '"';  break;
-                case '\\': result += '\\'; break;
-                case '/':  result += '/';  break;
-                case 'b':  result += '\b'; break;
-                case 'f':  result += '\f'; break;
-                case 'n':  result += '\n'; break;
-                case 'r':  result += '\r'; break;
-                case 't':  result += '\t'; break;
-                case 'u':
-                    if (pos + 4 > json.size()) return std::nullopt;
-                    pos += 4;
-                    break;
-                default: return std::nullopt;
-            }
-        } else {
-            result += c;
-        }
-    }
-    // Unterminated string — never found a closing '"'
-    if (!closed) return std::nullopt;
-    return result;
-}
-
-// Extract an integer value for a given key from a flat JSON object.
-// Returns nullopt on missing key or non-integer value.
-static inline std::optional<long long> parseJsonInt(
-    const std::string& json, const std::string& key)
-{
-    std::string needle = "\"" + key + "\":";
-    auto pos = json.find(needle);
-    if (pos == std::string::npos) return std::nullopt;
-    pos += needle.size();
-    while (pos < json.size() && json[pos] == ' ') ++pos;
-    if (pos >= json.size()) return std::nullopt;
-
-    std::size_t start = pos;
-    if (json[pos] == '-') ++pos;
-    if (pos >= json.size() || !std::isdigit(static_cast<unsigned char>(json[pos])))
-        return std::nullopt;
-    while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) ++pos;
-
-    try {
-        return std::stoll(json.substr(start, pos - start));
-    } catch (...) {
-        return std::nullopt;
-    }
-}
-
 // Generate a 32-char lowercase hex string from 16 CSPRNG bytes.
 static inline std::string generateMsgId() {
     unsigned char raw[16];
@@ -150,16 +45,19 @@ static inline std::string generateMsgId() {
     return hex;
 }
 
-// Build canonical associated data JSON — no spaces, exact key order.
-// Both sides must reconstruct this string identically for AEAD tag verification.
+// Build canonical associated data JSON — ordered keys, no spaces.
+// Uses ordered_json to guarantee key insertion order is preserved on dump(),
+// since both encrypt and decrypt must reconstruct byte-for-byte identical AD.
 static inline std::string buildAd(const std::string& senderId,
                                    const std::string& recipientId,
                                    const std::string& msgId,
                                    std::time_t ts) {
-    return "{\"sender_id\":\"" + jsonEscape(senderId) +
-           "\",\"recipient_id\":\"" + jsonEscape(recipientId) +
-           "\",\"message_id\":\"" + jsonEscape(msgId) +
-           "\",\"timestamp\":" + std::to_string(static_cast<long long>(ts)) + "}";
+    nlohmann::ordered_json ad;
+    ad["sender_id"]    = senderId;
+    ad["recipient_id"] = recipientId;
+    ad["message_id"]   = msgId;
+    ad["timestamp"]    = static_cast<long long>(ts);
+    return ad.dump();
 }
 
 // Encrypt plaintext with AES-256-GCM. A fresh 12-byte nonce is drawn from the

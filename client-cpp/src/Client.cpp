@@ -2,6 +2,7 @@
 #include "message_crypto.hpp"
 
 #include <sodium.h>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <iostream>
 
@@ -38,17 +39,17 @@ HttpResponse Client::sendMessage(const std::string& recipientId,
     }
 
     // kem_output and sender_ephemeral_pk are HPKE fields; empty until HPKE is added.
-    const std::string jsonBody =
-        "{\"sender_id\":\"" + jsonEscape(senderId_) + "\","
-        "\"recipient_id\":\"" + jsonEscape(recipientId) + "\","
-        "\"message_id\":\"" + jsonEscape(enc->messageId) + "\","
-        "\"nonce\":\"" + enc->nonceB64 + "\","
-        "\"ciphertext\":\"" + enc->ctB64 + "\","
-        "\"kem_output\":\"\","
-        "\"sender_ephemeral_pk\":\"\","
-        "\"timestamp\":" + std::to_string(static_cast<long long>(enc->timestamp)) + "}";
+    nlohmann::json body;
+    body["sender_id"]           = senderId_;
+    body["recipient_id"]        = recipientId;
+    body["message_id"]          = enc->messageId;
+    body["nonce"]               = enc->nonceB64;
+    body["ciphertext"]          = enc->ctB64;
+    body["kem_output"]          = "";
+    body["sender_ephemeral_pk"] = "";
+    body["timestamp"]           = static_cast<long long>(enc->timestamp);
 
-    return http_.post(baseUrl_ + "/messages", jsonBody, "application/json", verifyCert_);
+    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", verifyCert_);
 }
 
 HttpResponse Client::getMessages() const {
@@ -64,90 +65,78 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
         return -1;
     }
 
-    // 2. Locate the "messages" JSON array
-    const std::string& body = resp.body_;
-    auto arrPos = body.find("\"messages\":[");
-    if (arrPos == std::string::npos) {
-        std::cerr << "[receiveMessages] missing 'messages' array\n";
-        return -1;
-    }
-    std::size_t arrStart = body.find('[', arrPos) + 1;
-    std::size_t arrEnd   = body.find(']', arrStart);
-    if (arrEnd == std::string::npos) {
-        std::cerr << "[receiveMessages] malformed messages array\n";
+    // 2. Parse entire response body as JSON
+    nlohmann::json parsed;
+    try {
+        parsed = nlohmann::json::parse(resp.body_);
+    } catch (const nlohmann::json::parse_error&) {
+        std::cerr << "[receiveMessages] JSON parse error\n";
         return -1;
     }
 
-    // 3. Brace-depth object splitter — each top-level {...} is one message object
+    if (!parsed.contains("messages") || !parsed["messages"].is_array()) {
+        std::cerr << "[receiveMessages] missing or invalid 'messages' array\n";
+        return -1;
+    }
+
+    // 3. Iterate message objects — all fields from untrusted server
     int successCount = 0;
-    std::size_t pos = arrStart;
-    while (pos < arrEnd) {
-        while (pos < arrEnd && (body[pos] == ' ' || body[pos] == ',' ||
-                                body[pos] == '\n' || body[pos] == '\r' ||
-                                body[pos] == '\t')) ++pos;
-        if (pos >= arrEnd || body[pos] != '{') break;
-
-        int depth = 0;
-        std::size_t objStart = pos;
-        while (pos < arrEnd) {
-            if      (body[pos] == '{') ++depth;
-            else if (body[pos] == '}') { if (--depth == 0) { ++pos; break; } }
-            ++pos;
-        }
-        std::string obj = body.substr(objStart, pos - objStart);
-
-        // 4. Extract and validate fields — all data from untrusted server
-        auto senderId    = parseJsonString(obj, "sender_id");
-        auto recipientId = parseJsonString(obj, "recipient_id");
-        auto messageId   = parseJsonString(obj, "message_id");
-        auto nonceB64    = parseJsonString(obj, "nonce");
-        auto ctB64       = parseJsonString(obj, "ciphertext");
-        auto tsOpt       = parseJsonInt   (obj, "timestamp");
-
-        if (!senderId || !recipientId || !messageId ||
-            !nonceB64 || !ctB64 || !tsOpt) {
-            std::cerr << "[receiveMessages] skipping object: missing field(s)\n";
+    for (const auto& obj : parsed["messages"]) {
+        if (!obj.contains("sender_id")    || !obj["sender_id"].is_string()         ||
+            !obj.contains("recipient_id") || !obj["recipient_id"].is_string()      ||
+            !obj.contains("message_id")   || !obj["message_id"].is_string()        ||
+            !obj.contains("nonce")        || !obj["nonce"].is_string()             ||
+            !obj.contains("ciphertext")   || !obj["ciphertext"].is_string()        ||
+            !obj.contains("timestamp")    || !obj["timestamp"].is_number_integer()) {
+            std::cerr << "[receiveMessages] skipping: missing or wrong-type field\n";
             continue;
         }
 
-        // message_id must be exactly 32 lowercase hex chars
-        if (messageId->size() != 32 ||
-            messageId->find_first_not_of("0123456789abcdef") != std::string::npos) {
+        std::string senderId    = obj["sender_id"];
+        std::string recipientId = obj["recipient_id"];
+        std::string messageId   = obj["message_id"];
+        std::string nonceB64    = obj["nonce"];
+        std::string ctB64       = obj["ciphertext"];
+        long long   ts          = obj["timestamp"];
+
+        // 4. Reject messages where local user is not a participant
+        if (senderId != senderId_ && recipientId != senderId_) {
+            std::cerr << "[receiveMessages] skipping: local user not a participant: "
+                      << messageId << "\n";
+            continue;
+        }
+
+        // 5. message_id must be exactly 32 lowercase hex chars
+        if (messageId.size() != 32 ||
+            messageId.find_first_not_of("0123456789abcdef") != std::string::npos) {
             std::cerr << "[receiveMessages] invalid message_id format\n";
             continue;
         }
 
-        // 5. Reject messages that do not involve the local user — must be sender or recipient.
-        // This check happens before any storage, decryption, or conversation assignment.
-        if (*senderId != senderId_ && *recipientId != senderId_) {
-            std::cerr << "[receiveMessages] skipping: local user not a participant: "
-                      << *messageId << "\n";
-            continue;
-        }
-
         // 6. Base64-decode nonce and ciphertext (returns empty on invalid input)
-        std::vector<uint8_t> nonce = b64Decode(*nonceB64);
-        std::vector<uint8_t> ct    = b64Decode(*ctB64);
+        std::vector<uint8_t> nonce = b64Decode(nonceB64);
+        std::vector<uint8_t> ct    = b64Decode(ctB64);
 
         // 7. Construct Message — throws std::invalid_argument if nonce != 12 or ct < 16
         try {
-            Message msg(*messageId, *senderId, *recipientId, ct, nonce,
-                        static_cast<std::time_t>(*tsOpt));
+            Message msg(messageId, senderId, recipientId, ct, nonce,
+                        static_cast<std::time_t>(ts));
 
             // 8. Store raw encrypted message, keyed by canonical peer
-            store.addMessage(msg, peerKey(*senderId, *recipientId));
+            store.addMessage(msg, peerKey(senderId, recipientId));
 
             // 9. Decrypt via message_crypto; pass result to Conversation
             auto dm = decryptMessage(aesKey_, msg);
             if (!dm) {
                 std::cerr << "[receiveMessages] decryption failed: "
-                          << *messageId << "\n";
+                          << messageId << "\n";
                 continue;
             }
 
             // 10. Only add to conv if this message belongs to that peer conversation.
             // The peer is whoever is not the local user (senderId_).
-            const std::string& peer = (*senderId == senderId_) ? *recipientId : *senderId;
+            // Assumes user IDs use consistent casing (bob vs BOB) since peer comparison here is case sensitive.
+            const std::string& peer = (senderId == senderId_) ? recipientId : senderId;
             if (peer == conv.getPeerId()) {
                 conv.addMessage(std::move(*dm));
             }
@@ -160,19 +149,3 @@ int Client::receiveMessages(MessageStore& store, Conversation& conv) const {
     return successCount;
 }
 
-void printConversation(const Conversation& conv) {
-    auto messages = conv.getMessages();
-    if (messages.empty()) {
-        std::cout << "(no messages)\n";
-        return;
-    }
-    for (const auto& dm : messages) {
-        char buf[20];
-        buf[0] = '\0';
-        const std::time_t ts = dm.timestamp;
-        if (std::tm* t = std::localtime(&ts)) {
-            std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", t);
-        }
-        std::cout << "[" << buf << "] " << dm.senderId << ": " << dm.plaintext << "\n";
-    }
-}

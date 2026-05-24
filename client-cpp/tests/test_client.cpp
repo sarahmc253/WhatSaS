@@ -147,6 +147,14 @@ static void testBuildAd() {
     check("contains timestamp",    ad.find("\"timestamp\":9999")          != std::string::npos);
     check("no spaces",             ad.find(' ')                           == std::string::npos);
 
+    // Verify key order is deterministic (ordered_json insertion order preserved)
+    auto senderPos    = ad.find("sender_id");
+    auto recipientPos = ad.find("recipient_id");
+    auto msgIdPos     = ad.find("message_id");
+    auto tsPos        = ad.find("timestamp");
+    check("keys in canonical order: sender < recipient < message_id < timestamp",
+          senderPos < recipientPos && recipientPos < msgIdPos && msgIdPos < tsPos);
+
     std::string adEvil = buildAd("a\"b\\c", "bob", "id", 1);
     check("quotes in sender_id are escaped",
           adEvil.find("\"sender_id\":\"a\\\"b\\\\c\"") != std::string::npos);
