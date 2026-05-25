@@ -386,6 +386,22 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 
 ---
 
+**Sarah:** The /revoke endpoint is a stub. Implement it: check the requester owns the message, then delete the forwarded copy from the DB (not the original), and return 403 if they don't own it.
+
+**Claude:** Explored codebase, found stub at `server/app/messages/routes.py` lines 27–30. Asked how forwarded messages are stored in the DB.
+
+**Sarah:** Same messages table, flagged by `original_message_id`. `sender_id` is the forwarder (owner).
+
+**Claude:** Proposed implementing revoke by querying `messages WHERE id = %s AND original_message_id IS NOT NULL`, checking `sender_id == current_user_id`, and deleting the row on success.
+
+**Sarah:** [REJECTED] — don't delete the row. Schema has `is_revoked` on `messages` and `revoked_at` on `message_access`. Set `is_revoked = 1` and `revoked_at = now()` instead.
+
+**Claude:** Updated implementation to soft-delete: `UPDATE messages SET is_revoked = 1` and `UPDATE message_access SET revoked_at = %s` in a single transaction with rollback on failure. Also added `from datetime import datetime, timezone` and `from .. import get_db` imports. Returns 404 if message not found, 403 if requester is not the sender.
+
+**Sarah:** [APPROVED]
+
+---
+
 **Sarah:** update all column name references across the codebase to match the new schema. old names: argon2id_server_hash, argon2id_server_salt, aes_gcm_ciphertext, aes_gcm_nonce_96bit, hpke_kem_output, hpke_sender_ephemeral_pk, blockchain_tx_id. new names: password_hash, password_salt, ciphertext, nonce, kem_output, ephemeral_pk, blockchain_record_id
 
 **Claude:** Searched all non-venv files for the seven old names. Found hits only in `server/app/auth/routes.py` (the other five names had no code references yet). Updated `auth/routes.py`: renamed local variable `argon2id_salt` → `password_salt`, updated INSERT column names `argon2id_server_hash` → `password_hash` and `argon2id_server_salt` → `password_salt`, updated SELECT column name, replaced both `user['argon2id_server_hash']` dict accesses, and updated the rehash UPDATE SET clause. Left `docs/transcript_sarah.md` unchanged as it is historical record.
@@ -402,9 +418,37 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 
 ---
 
-**Sarah:** update docs/transcript with this conversation
+**Sarah:** write a pytest test that registers two users, has user A send a message, then tries to GET that message as user B and asserts a 403 response
 
-**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+**Claude:** Noted no existing test infrastructure. Identified that `GET /messages/<id>` route did not exist (required for 403 to be meaningful), and that the messages blueprint had a double url_prefix bug (`url_prefix='/messages'` + route decorators also starting with `/messages` made all routes accessible at `/messages/messages/...`). Asked Sarah to confirm the bug before fixing.
+
+---
+
+**Sarah:** you mentioned a url_prefix double slash bug. can you show me what it is before making any changes
+
+**Claude:** Explained that `__init__.py` registers the messages blueprint at `url_prefix='/messages'`, while every route decorator in `routes.py` also begins with `/messages`. Flask concatenates them, so all message routes were only reachable at `/messages/messages`, `/messages/messages/<id>`, etc. Showed that auth routes are not affected — auth route decorators use `/register` and `/login` (no `/auth` prefix), so concatenation produces the correct `/auth/register`, `/auth/login`. The bug was present since PR #6 (flask-routes, 20 May), when both files were introduced together.
+
+---
+
+**Sarah:** yes fix it pls. has this bug been here since the start? would any existing functionality like /login or /register have been affected?
+
+**Claude:** Confirmed the bug was introduced in commit `f23c333` (PR #6, 20 May 2026) — both `__init__.py` and `routes.py` landed in the same commit with the double prefix. `/login` and `/register` were not affected. Fixed by changing `url_prefix='/messages'` to `url_prefix=''` in `__init__.py`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** now write that test
+
+**Claude:** Added `GET /messages/<string:message_id>` route to `routes.py` with ownership check (`sender_id` or `recipient_id` must match JWT identity, else 403). Created `pytest.ini` (testpaths, pythonpath), `server/tests/__init__.py`, `server/tests/conftest.py` (dummy env vars + app/client fixtures), and `server/tests/test_messages.py`. Test registers alice and bob via mocked DB, logs both in using real auth endpoints with a precomputed argon2id hash in the mock row, user A sends a message via the stub endpoint, then user B GETs the message with a mock DB row showing user A as sender and a third party as recipient — asserts 403. Installed pytest into venv. Test passes.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** why are the argon2id parameters in the test lower than production. could this mask a bug where the wrong hash parameters are used?
+
+**Claude:** Checked both files — parameters were actually identical (not lower). However, the concern was valid: the test duplicated the `PasswordHasher(...)` constructor rather than importing the production `ph` instance. Because argon2 embeds parameters in the hash string, `ph.verify()` always uses the hash's own embedded params regardless of the verifier's constructor — so a parameter drift would never cause the test to fail. Fixed by replacing the duplicate constructor with `from server.app.auth.routes import ph as _ph`.
 
 **Sarah:** [APPROVED]
 
@@ -419,3 +463,82 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update transcript in docs
+
+---
+
+**Sarah:** Add a POST /forward endpoint to the Express server that accepts { messageId, recipientUsername } and returns 403 if the requester doesn't own the message.
+
+**Claude:** Noted the server is Flask not Express. Found the existing stub at `POST /messages/<string:message_id>/forward`. Read the messages table schema from git history — columns: `id`, `sender_id`, `recipient_id`, `ciphertext`, `nonce`, `content_hash`, `created_at`.
+
+---
+
+**Sarah:** Add a POST /forward route in Flask that accepts { messageId, recipientUsername } and returns 403 if the requester doesn't own the message.
+
+**Claude:** Proposed implementing the stub: parse `recipientUsername` from body, query `sender_id` from messages table, return 403 if it doesn't match `get_jwt_identity()`, verify recipient exists, then return 200 placeholder.
+
+**Sarah:** [REJECTED] — the forward endpoint validates ownership but never inserts the forwarded message into the DB. Add the INSERT before returning 200.
+
+**Claude:** Proposed fetching the original message's `ciphertext`, `nonce`, `content_hash` and copying them into a new messages row for the new recipient.
+
+**Sarah:** [REJECTED] — the forward endpoint copies the ciphertext directly but that ciphertext is encrypted to the original recipient's public key, not the new recipient's. Is this intentional or should the server be rejecting re-encryption entirely and leaving that to the client?
+
+**Claude:** Explained that copying ciphertext is cryptographically broken — the ciphertext is HPKE-sealed to the original recipient's X25519 key so the new recipient can't decrypt it. The correct design is for the client to decrypt locally and re-encrypt for the new recipient, then send the new payload to the server. The server accepts `{ recipientUsername, ciphertext, nonce, content_hash }` and inserts the new record, matching the same flow as `POST /messages`.
+
+---
+
+**Sarah:** yes [proceed with client-re-encrypts approach]
+
+**Claude:** Implemented `forward_message` in `server/app/messages/routes.py`:
+- Added imports: `re`, `uuid`, `datetime/timezone`, `mysql.connector`, `request`, `get_db`, plus `_HEX32_RE` regex and `_invalid_fields` helper (matching the pattern from `send_message`).
+- Validates body is a JSON object; requires `recipientUsername`, `ciphertext`, `nonce`, `content_hash`.
+- Validates `content_hash` is a 64-char hex string.
+- Queries `sender_id` from messages; returns 404 if not found, 403 if `sender_id != get_jwt_identity()`.
+- Looks up recipient by `recipientUsername`; returns 404 if not found.
+- Normalises `content_hash` to `0x`-prefixed, generates new UUID, inserts new messages row with client-supplied re-encrypted payload.
+- Returns `{ id: new_id }` 201 on success.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** remove all duplicate from .. import get_fb import in messages/routes.py
+
+**Claude:** Found two identical `from .. import get_db` lines (lines 8 and 10) in `server/app/messages/routes.py`. Removed the duplicate on line 10.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** jwt_required and get_jwt_identity are used in messages/routes.py but never imported. add them
+
+**Claude:** Added `from flask_jwt_extended import jwt_required, get_jwt_identity` to `server/app/messages/routes.py`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the forward insert doesnt set original_message_id so revoke can never find the row. fix the insert to include it
+
+**Claude:** Added `original_message_id` to the forward INSERT column list and passed `message_id` (the forwarded-from row's ID) as its value. This ensures the revoke endpoint's `WHERE original_message_id IS NOT NULL` filter matches forwarded rows.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the test posts an empty body to /messages but the endpoint now validates required fields so it returns 400 not 200. update the test to post a valid message payload with a mocked db
+
+**Claude:** Proposed updated test with `ciphertext: 'deadbeef'`, `nonce: 'cafebabe'`, `content_hash: 'a' * 64`.
+
+**Sarah:** [REJECTED] — does the /messages endpoint validate the format of ciphertext and nonce or only content_hash?
+
+**Claude:** Confirmed only `content_hash` is validated against `_HEX32_RE` (64-char hex). `ciphertext` and `nonce` are only checked to be non-empty strings via `_invalid_fields`, so any non-empty string passes.
+
+**Claude:** Updated `test_messages.py`: replaced empty body `{}` with a valid payload (`recipient_id`, `ciphertext`, `nonce`, `content_hash: 'a' * 64`), wrapped the POST in `patch('server.app.messages.routes.get_db', return_value=_db())`, and changed the assertion from 200 to 201.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript with all prompts and replies
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
