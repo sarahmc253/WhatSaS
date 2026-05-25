@@ -35,6 +35,7 @@ public:
     HttpResponse post(const std::string& url,
                       const std::string& body,
                       const std::string& contentType = "application/json",
+                      const std::string& authToken = "",
                       bool verifyCert = true) const;
 
 private:

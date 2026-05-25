@@ -131,6 +131,7 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
 HttpResponse HttpClient::post(const std::string& url,
                               const std::string& body,
                               const std::string& contentType,
+                              const std::string& authToken,
                               bool verifyCert) const {
     if (!wsaInitialized_ || !ctx_) {
         return {0, "", "HttpClient not initialized", false};
@@ -142,15 +143,14 @@ HttpResponse HttpClient::post(const std::string& url,
         return {0, "", parsed.error, false};
     }
 
-    // CRLF in path or Content-Type would inject arbitrary headers (RFC 7230 §3.2).
-    // Validated here rather than in buildPostRequest so we can return a proper error.
+    // CRLF in any header value would allow injection (RFC 7230 §3.2).
     auto hasCrlf = [](const std::string& s) {
         return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
     };
-    if (hasCrlf(parsed.path) || hasCrlf(contentType)) {
-        return {0, "", "Invalid header value: CRLF in path or Content-Type", false};
+    if (hasCrlf(parsed.path) || hasCrlf(contentType) || hasCrlf(authToken)) {
+        return {0, "", "Invalid header value: CRLF in path, Content-Type, or Authorization", false};
     }
 
     return doRequest(parsed.host, parsed.port,
-                     buildPostRequest(parsed, body, contentType), verifyCert);
+                     buildPostRequest(parsed, body, contentType, authToken), verifyCert);
 }

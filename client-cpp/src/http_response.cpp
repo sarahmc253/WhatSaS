@@ -57,14 +57,19 @@ std::string buildGetRequest(const ParsedUrl& u) {
 
 std::string buildPostRequest(const ParsedUrl& u,
                              const std::string& body,
-                             const std::string& contentType) {
+                             const std::string& contentType,
+                             const std::string& authToken) {
     std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
-    return "POST " + u.path + " HTTP/1.1\r\n"
-           "Host: " + hostHeader + "\r\n"
-           "Connection: close\r\n"
-           "Content-Type: " + contentType + "\r\n"
-           "Content-Length: " + std::to_string(body.size()) + "\r\n"
-           "\r\n" + body;
+    std::string req = "POST " + u.path + " HTTP/1.1\r\n"
+                      "Host: " + hostHeader + "\r\n"
+                      "Connection: close\r\n"
+                      "Content-Type: " + contentType + "\r\n"
+                      "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    if (!authToken.empty()) {
+        req += "Authorization: Bearer " + authToken + "\r\n";
+    }
+    req += "\r\n" + body;
+    return req;
 }
 
 // ============================================================================

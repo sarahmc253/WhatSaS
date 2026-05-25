@@ -1,5 +1,10 @@
 #include <iostream>
 #include <string>
+#include "AuthCLI.hpp"
+#include "../include/Auth.hpp"
+#include "../include/HttpClient.hpp"
+
+static const std::string BASE_URL = "https://localhost:5000";
 
 int main() {
 
@@ -67,11 +72,34 @@ WhatSaS client starting...
 
     std::cout << "\033[1;35m\n";
     if (choice == "1") {
-        std::cout << "        🌸 let's get you registered!\n";
+        std::cout << "        🌸 let's get you registered!\n\n\033[0m";
     } else {
-        std::cout << "        💖 welcome back!\n";
+        std::cout << "        💖 welcome back!\n\n\033[0m";
     }
-    std::cout << "\033[0m\n";
+
+    const auto creds = promptCredentials();
+
+    HttpClient http;
+    Auth auth;
+    try {
+        if (choice == "1") {
+            auth = Auth::registerUser(http, BASE_URL, creds.username, creds.password);
+            std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << creds.username << "~ 💖\n";
+        } else {
+            auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+            std::cout << "\033[1;35m\n        💖 logged in! welcome back, " << creds.username << "~ 🎀\n";
+        }
+
+        std::cout << "        🔑 session token received ✅\n\033[0m\n";
+
+    } catch (const std::runtime_error& e) {
+        std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m\n";
+        return 1;
+    }
+
+    // auth and http are both live here — pass auth.getToken() as the authToken
+    // argument to any subsequent http.post() calls, e.g.:
+    //   http.post(BASE_URL + "/api/messages", body, "application/json", auth.getToken())
 
     return 0;
 }

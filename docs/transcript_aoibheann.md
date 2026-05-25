@@ -461,3 +461,94 @@
 **Aoibheann:** in docs, can you make a transcript md file called transcript_aoibheann and add all of my prompts and your responses files
 
 **Claude:** Created this file.
+
+---
+
+**Aoibheann:** Can you create include/Auth.hpp in client-cpp. I need an Auth class that holds a JWT token as a private std::string and exposes getToken() and isLoggedIn() methods. No logic yet.
+
+**Claude:** Created `client-cpp/include/Auth.hpp`. `Auth` holds a private `std::string token_`. `getToken()` returns a const reference; `isLoggedIn()` returns `!token_.empty()`. No constructors declared — compiler-generated defaults are sufficient.
+
+---
+
+**Aoibheann:** Add a static login(HttpClient&, baseUrl, username, password) method to Auth.hpp that returns an Auth. Just the signature for now.
+
+**Claude:** Added `static Auth login(HttpClient&, const std::string& baseUrl, const std::string& username, const std::string& password)` to the public section of `Auth.hpp`.
+
+---
+
+**Aoibheann:** create src/Auth.cpp and implement the registerUser. Build a JSON body with username and password using nlohmann/json and POST it to /auth/register using HttpClient::post()
+
+**Claude:** Created `client-cpp/src/Auth.cpp`. `registerUser` builds a JSON body with `nlohmann::json`, calls `client.post(baseUrl + "/auth/register", body.dump())`, and throws `std::runtime_error` if the response is not ok.
+
+---
+
+**Aoibheann:** Parse the response from registerUser. Extract the JWT from the returned JSON and store it in the Auth object. Throw std::runtime_error if the request fails or the token is missing
+
+**Claude:** Added JSON parsing with `nlohmann::json::parse`. Checks that `parsed["token"]` exists and is a string; throws descriptively if not. Constructs a local `Auth auth`, sets `auth.token_`, and returns it. Also added `src/Auth.cpp` to `sas-client` sources in `CMakeLists.txt` to fix an IntelliSense error about `nlohmann/json.hpp` not being found.
+
+---
+
+**Aoibheann:** Is the same done for login in Auth.cpp? if not, make it with the same structure as registerUser but POST to auth/login instead
+
+**Claude:** Added `Auth::login` with identical structure to `registerUser` — builds the same JSON body, POSTs to `baseUrl + "/auth/login"`, parses the response, extracts the token, and throws on any failure.
+
+---
+
+**Aoibheann:** so how does this all fit into whats currently there?
+
+**Claude:** `Auth` is a standalone class — it only depends on `HttpClient` and `nlohmann/json`. It's not yet wired into `main.cpp`, which is currently an empty shell showing the banner. The intended flow is: `main.cpp` constructs an `HttpClient`, calls `Auth::registerUser` or `Auth::login`, stores the returned `Auth`, then passes `auth.getToken()` as a Bearer token in subsequent `HttpClient::post()` calls (which don't yet have an `authToken` parameter). Next steps are adding that parameter to `HttpClient::post()` and fleshing out `main.cpp` with a menu.
+
+---
+
+**Aoibheann:** Now, can you create src/AuthCLI.hpp with a promptCredentials() function that prompts for a username using std::getline and returns it
+
+**Claude:** Created `client-cpp/src/AuthCLI.hpp`. `promptCredentials()` is a single `inline` function that prints `"Username: "`, reads a line with `std::getline`, and returns the string.
+
+---
+
+**Aoibheann:** now, add password input to promptCredentials(). Use a loop with getchar to read it character by character without echoing to the terminal. Return both username and password
+
+**Claude:** Rewrote `AuthCLI.hpp`. Added a `Credentials` struct with `username` and `password` fields. Changed `promptCredentials()` to return `Credentials`. Password input is platform-branched: Windows uses `_getch()` from `<conio.h>` (no echo natively); Unix disables the `ECHO` flag via `termios` for the duration of the read then restores it. Both paths handle backspace with `\b \b` erasure and echo `*` per character. Special-key sequences (arrows, Fn keys) on Windows are consumed and skipped. Printable-only filter (`ch >= 32 && ch < 127`) drops control characters.
+
+---
+
+**Aoibheann:** update src/main.cpp to show a simple menu asking the user to choose register or login. Just read their choice for now and keep the styling cute and consistent to whats there already
+
+**Claude:** Added a box-drawing menu panel below the banner in bright magenta, with `[1] 🌸 register` and `[2] 💖 login` options. Reads choice with `std::getline` and loops with a gentle nudge (`💔 please enter 1 or 2`) until a valid input is given. Each branch prints a matching confirmation line.
+
+---
+
+**Aoibheann:** add a call to promptCredentials() in main.cpp based on the menu choice and print the username back, to confirm it works
+
+**Claude:** Added `#include "AuthCLI.hpp"`. After the menu branch, calls `promptCredentials()` and prints `"✅ got it — hello, <username>! 💌"` to confirm the credentials were received.
+
+---
+
+**Aoibheann:** now I want you to wire in the auth methods. Call Auth::registerUser or Auth::login based on the menu choice, using an HttpClient pointed at the base URL. Wrap it in try/catch for std::runtime_error
+
+**Claude:** Added `#include "../include/Auth.hpp"` and `#include "../include/HttpClient.hpp"` plus a `static const std::string BASE_URL`. Declared `Auth auth` before the try block. Inside try, branches on `choice` to call `Auth::registerUser` or `Auth::login` with the credentials and prints a success message. Catch block prints `e.what()` in red to stderr and returns 1.
+
+---
+
+**Aoibheann:** store the returned Auth object and print success with the username, or print the error message on failure
+
+**Claude:** Hoisted `HttpClient http` and `Auth auth` before the try block so both survive it. Both success branches now print the username. Error path prints `e.what()` directly — the Auth methods already include the HTTP status and reason in the message.
+
+---
+
+**Aoibheann:** Add an optional auth token parameter to HttpClient::post in HttpClient.hpp. Default it to an empty string
+
+**Claude:** Added `const std::string& authToken = ""` as a fourth parameter to `HttpClient::post()` in `HttpClient.hpp`, between `contentType` and `verifyCert`. Existing callers are unaffected.
+
+---
+
+**Aoibheann:** Update HttpClient.cpp to add an Authorization: Bearer header to the request if the token is not empty
+
+**Claude:** Updated `buildPostRequest` in `http_response.hpp` and `http_response.cpp` to accept an `authToken` parameter and append `Authorization: Bearer <token>\r\n` when non-empty, before the blank line separating headers from body. Updated `HttpClient::post()` in `HttpClient.cpp` to match the new signature, forward `authToken` to `buildPostRequest`, and extend the existing CRLF injection guard to cover the token.
+
+---
+
+**Aoibheann:** Update main.cpp to pass auth.getToken() into any subsequent HttpClient calls after successful login
+
+**Claude:** Moved `HttpClient http` before the try block so it stays alive for the full lifetime of main. Added a comment after the catch block showing the call pattern: `http.post(BASE_URL + "/api/messages", body, "application/json", auth.getToken())`.
+
