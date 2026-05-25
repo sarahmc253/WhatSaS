@@ -30,7 +30,7 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT id, sender_id, ciphertext, nonce, ephemeral_public_key, created_at
+            SELECT id, sender_id, ciphertext, nonce, ephemeral_pk, created_at
             FROM messages
             WHERE recipient_id = %s
             """,
