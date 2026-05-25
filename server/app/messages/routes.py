@@ -11,9 +11,7 @@ from .anchor import anchor_pending
 
 messages_bp = Blueprint('messages', __name__)
 
-SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'content_hash']
-
-_HEX32_RE = re.compile(r'^(0x)?[0-9a-fA-F]{64}$')
+SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']
 
 def _invalid_fields(data, fields):
     return [
@@ -53,11 +51,6 @@ def send_message():
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
-    if not _HEX32_RE.match(data['content_hash']):
-        return jsonify({'error': 'content_hash must be a 64-character hex string (keccak256)'}), 400
-
-    content_hash = data['content_hash'] if data['content_hash'].startswith('0x') else '0x' + data['content_hash']
-
     message_id = str(uuid.uuid4())
     sender_id = get_jwt_identity()
     now = datetime.now(timezone.utc)
@@ -67,12 +60,12 @@ def send_message():
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, content_hash, created_at)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 message_id, sender_id, data['recipient_id'],
-                data['ciphertext'], data['nonce'], content_hash, now,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now,
             ),
         )
         db.commit()

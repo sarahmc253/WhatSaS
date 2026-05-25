@@ -622,3 +622,65 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 **Sarah:** update docs/transcript
 
 **Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
+**Sarah:** in renderCompose in views.js, remove the encryptionReady = false block that disables the send button and shows the 'temporarily unavailable' message. we're implementing it now
+
+**Claude:** Removed the `const encryptionReady = false` variable, the block that disabled the send button and set the unavailable error message, the `if (!encryptionReady) return` guard in the submit handler, and changed `btn.disabled = !encryptionReady` in the `finally` block to `btn.disabled = false`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in views.js, import getUser and sendMessage from api.js
+
+**Claude:** Added `import { getUser, sendMessage } from './api.js';` below the existing `import * as api` line. Noted that `getUser` does not yet exist in `api.js` and offered to add it.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in the compose form submit handler in views.js after validating that recipient and content are not empty, call getUser(recipient) and throw a user-facing error if the user is not found or has no x25519_public_key
+
+**Claude:** Proposed the edit but it still called `encryptForRecipient`, which does not exist anywhere in the codebase.
+
+**Sarah:** [REJECTED] — you're still calling encryptForRecipient which doesn't exist. what are you planning to replace it with?
+
+**Claude:** Checked `client-web/js/` — no crypto module exists yet. Proposed using a `TODO` placeholder or passing `x25519_public_key` through as a parameter to whatever encrypt function gets written next.
+
+---
+
+**Sarah:** import encryptMessage from ../crypto/messageEncryption.js and use it directly. dont use a placeholder
+
+**Claude:** Added `import encryptMessage from '../crypto/messageEncryption.js';` and proposed calling `encryptMessage(content, recipientUser.x25519_public_key)`.
+
+**Sarah:** [REJECTED] — encryptMessage expects a CryptoKey as the second argument, but recipientUser.x25519_public_key is a base64 string from the server. how are you handling that conversion?
+
+**Claude:** Explained the inline `importKey` approach: decode base64 with `atob`, wrap in `Uint8Array`, call `crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, [])`, pass the resulting `CryptoKey` to `encryptMessage`.
+
+---
+
+**Sarah:** there's a getPublicKeyBytes helper in keypair.js but no import helper. add the inline importKey for the recipient's base64 public key directly in the submit handler as you described, then pass the resulting CryptoKey to encryptMessage
+
+**Claude:** Read `keypair.js` — confirmed `getPublicKeyBytes` exports raw bytes, consistent with the `atob` → `Uint8Array` → `importKey('raw', ...)` inverse. Read `messageEncryption.js` — confirmed it returns `{ ephemeralPublicKey: CryptoKey, nonce: Uint8Array, ciphertext: Uint8Array }`. Proposed the edit but stalled on two gaps: no keccak library for `content_hash`, and `ephemeral_pk` missing from the server INSERT (making decryption impossible).
+
+**Sarah:** [REJECTED] — encryptMessage returns { ephemeralPublicKey, nonce, ciphertext } as CryptoKey and Uint8Arrays but api.sendMessage needs hex strings. how are you converting them before the POST?
+
+**Claude:** Checked `package.json` (only `argon2-browser` — no keccak library) and the server `SEND_FIELDS` / INSERT. Flagged: (1) no keccak library available for `content_hash`; (2) `ephemeral_pk` is missing from both `SEND_FIELDS` and the INSERT, making recipient decryption impossible. Asked how to proceed on both.
+
+---
+
+**Sarah:** fix the server insert to include ephemeral_pk, drop content_hash from the required fields then write the hex conversions and call sendMessage with the correct payload
+
+**Claude:** In `server/app/messages/routes.py`: replaced `SEND_FIELDS` with `['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']`, removed `_HEX32_RE` and the `content_hash` validation block, updated the INSERT columns and bound values to use `ephemeral_pk` in place of `content_hash`. In `client-web/js/views.js`: submit handler now calls `getUser(recipient)`, throws `'Recipient not found or has no encryption key.'` if the user or key is missing, decodes `x25519_public_key` from base64 and imports it as a `CryptoKey` inline, calls `encryptMessage(content, recipientPublicKey)`, defines a `toHex` helper to convert `Uint8Array` to hex, exports `ephemeralPublicKey` to raw bytes, then calls `sendMessage({ recipient_id, ciphertext, nonce, ephemeral_pk })` with all four values as hex strings.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]

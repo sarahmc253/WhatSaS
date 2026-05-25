@@ -7,7 +7,8 @@
  */
 
 import * as api from './api.js';
-import { decryptMessage } from '../crypto/messageEncryption.js';
+import { getUser, sendMessage } from './api.js';
+import encryptMessage, { decryptMessage } from '../crypto/messageEncryption.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -275,7 +276,6 @@ async function handleAction(btn, inboxBody) {
 
 // ── Compose view ──────────────────────────────────────────────────────────
 export function renderCompose(container, navigate) {
-    const encryptionReady = false; // flip to true once E2E crypto is implemented
     container.innerHTML = `
         <div class="compose-header">
             <button class="btn btn-secondary" id="btn-back">← Back</button>
@@ -305,15 +305,8 @@ export function renderCompose(container, navigate) {
     const form = document.getElementById('compose-form');
     const msg  = document.getElementById('compose-msg');
 
-    // Sending is blocked until E2E encryption is implemented
-    const sendBtn = form.querySelector('button[type="submit"]');
-    sendBtn.disabled = true;
-    msg.className = 'error-msg';
-    msg.textContent = 'Sending is temporarily unavailable while end-to-end encryption is being set up.';
-
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        if (!encryptionReady) return;
 
         const btn = form.querySelector('button[type="submit"]');
         btn.disabled = true;
@@ -330,8 +323,25 @@ export function renderCompose(container, navigate) {
         }
 
         try {
-            const encryptedPayload = await encryptForRecipient(recipient, content);
-            await api.sendMessage({ recipient, content: encryptedPayload });
+            const recipientUser = await getUser(recipient);
+            if (!recipientUser?.x25519_public_key) {
+                throw new Error('Recipient not found or has no encryption key.');
+            }
+
+            const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
+            const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
+
+            const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(content, recipientPublicKey);
+
+            const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+            const ephemeralPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
+
+            await sendMessage({
+                recipient_id: recipientUser.id,
+                ciphertext:   toHex(ciphertext),
+                nonce:        toHex(nonce),
+                ephemeral_pk: toHex(ephemeralPkBytes),
+            });
             msg.className = 'success-msg';
             msg.textContent = 'Message sent!';
             form.reset();
@@ -339,7 +349,7 @@ export function renderCompose(container, navigate) {
             msg.className = 'error-msg';
             msg.textContent = err.message;
         } finally {
-            btn.disabled = !encryptionReady;
+            btn.disabled = false;
         }
     });
 }
