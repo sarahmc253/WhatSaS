@@ -69,23 +69,36 @@ void Client::loadPins() {
 }
 
 // Rewrites the entire file atomically: write to <path>.tmp, then rename over <path>.
-// This prevents a crash mid-write from leaving a corrupt pins file.
-void Client::savePins() const {
+// Returns true on success. On any failure the tmp file is removed and false is returned,
+// leaving the previous pins file intact.
+bool Client::savePins() const {
+    if (pinsPath_.empty()) return false;
     const std::string tmp = pinsPath_ + ".tmp";
-    std::ofstream f(tmp);
-    if (!f.is_open()) {
-        std::cerr << "[savePins] cannot write to " << tmp << "\n";
-        return;
+    {
+        std::ofstream f(tmp);
+        if (!f.is_open()) {
+            std::cerr << "[savePins] cannot write to " << tmp << "\n";
+            return false;
+        }
+        f << "# WhatSaS TOFU key pins — do not edit manually\n";
+        for (const auto& [userId, pk] : pinnedKeys_) {
+            f << userId << " " << b64Encode(pk.data(), pk.size()) << "\n";
+        }
+        // flush + close before rename so all bytes are on disk
+        f.flush();
+        if (!f.good()) {
+            std::cerr << "[savePins] write error for " << tmp << "\n";
+            std::remove(tmp.c_str());
+            return false;
+        }
     }
-    f << "# WhatSaS TOFU key pins — do not edit manually\n";
-    for (const auto& [userId, pk] : pinnedKeys_) {
-        f << userId << " " << b64Encode(pk.data(), pk.size()) << "\n";
-    }
-    f.close();
     // Atomic replace: on Windows std::rename overwrites the destination.
     if (std::rename(tmp.c_str(), pinsPath_.c_str()) != 0) {
         std::cerr << "[savePins] rename failed for " << pinsPath_ << "\n";
+        std::remove(tmp.c_str());
+        return false;
     }
+    return true;
 }
 
 HttpResponse Client::sendMessage(const std::string& recipientId,
@@ -288,12 +301,18 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
         return {};
     }
 
-    // TOFU pinning: pin on first fetch and persist; reject if key changes later.
+    // TOFU pinning: persist first, only accept the pin if the file write succeeded.
+    // Inserting into pinnedKeys_ before a successful save would let the session trust
+    // a key that won't survive a restart, creating an inconsistency between memory and disk.
     auto it = pinnedKeys_.find(userId);
     if (it == pinnedKeys_.end()) {
         pinnedKeys_[userId] = pk;
-        savePins();  // persist immediately so the pin survives a restart
-        std::cerr << "[fetchPeerPublicKey] TOFU: pinned and saved public key for " << userId << "\n";
+        if (!savePins()) {
+            pinnedKeys_.erase(userId);  // roll back — pin was not durably stored
+            std::cerr << "[fetchPeerPublicKey] pin not accepted: failed to persist for " << userId << "\n";
+            return {};
+        }
+        std::cerr << "[fetchPeerPublicKey] TOFU: pinned and persisted public key for " << userId << "\n";
     } else if (it->second != pk) {
         std::cerr << "[fetchPeerPublicKey] WARNING: public key for " << userId
                   << " differs from pinned key — possible key substitution attack. Rejecting.\n";

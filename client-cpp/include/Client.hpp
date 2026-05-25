@@ -80,8 +80,8 @@ private:
 
     // Load pins from pinsPath_ into pinnedKeys_. Called once at construction.
     void loadPins();
-    // Append a single new pin to pinsPath_ (called only when a new pin is added).
-    void savePins() const;
+    // Write all pins to disk. Returns true on success, false if the file could not be written.
+    bool savePins() const;
 };
 
 #endif // CLIENT_HPP
