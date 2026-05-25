@@ -7,6 +7,7 @@
  */
 
 import * as api from './api.js';
+import { decryptMessage } from '../crypto/messageEncryption.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -25,6 +26,17 @@ function formatDate(ts) {
     // Accept both Unix seconds (number) and ISO strings
     const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
     return isNaN(d) ? '' : d.toLocaleString();
+}
+
+// ── Helpers (crypto) ─────────────────────────────────────────────────────
+function hexToBytes(hex) {
+    if (hex.length % 2 !== 0) throw new Error('hexToBytes: odd-length hex string');
+    if (/[^0-9a-fA-F]/.test(hex)) throw new Error('hexToBytes: invalid hex character');
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
 }
 
 // ── Crypto ────────────────────────────────────────────────────────────────
@@ -174,9 +186,30 @@ export async function renderInbox(container, navigate) {
         return;
     }
 
+    async function tryDecrypt(msg) {
+        const privKey = api.getPrivateKey();
+        if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk) {
+            return '(encrypted)';
+        }
+        try {
+            const ciphertext  = hexToBytes(msg.ciphertext);
+            const nonce       = hexToBytes(msg.nonce);
+            const ephPubKey   = await crypto.subtle.importKey(
+                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+            );
+            return await decryptMessage(ciphertext, nonce, ephPubKey, privKey);
+        } catch {
+            return '(encrypted)';
+        }
+    }
+
+    const decrypted = await Promise.all(
+        messages.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
+    );
+
     body.innerHTML = `
         <div class="message-list">
-            ${messages.map(buildMessageCard).join('')}
+            ${decrypted.map(buildMessageCard).join('')}
         </div>`;
 
     body.querySelectorAll('[data-action]').forEach((btn) => {
