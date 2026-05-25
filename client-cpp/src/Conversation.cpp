@@ -2,14 +2,20 @@
 #include <algorithm>
 #include <ctime>
 #include <iostream>
+#include <iterator>
 
 Conversation::Conversation(std::string peerId)
     : peerId_(std::move(peerId)) {}
 
 void Conversation::addMessage(DecryptedMessage dm) {
-    for (const auto& m : messages_)
-        if (m.messageId == dm.messageId) return;
-    messages_.push_back(std::move(dm));
+    auto [it, inserted] = seenIds_.insert(dm.messageId);
+    if (!inserted) return;
+    try {
+        messages_.push_back(std::move(dm));
+    } catch (...) {
+        seenIds_.erase(it);
+        throw;
+    }
 }
 
 std::vector<DecryptedMessage> Conversation::getMessages() const {
@@ -23,6 +29,24 @@ std::vector<DecryptedMessage> Conversation::getMessages() const {
 
 const std::string& Conversation::getPeerId() const {
     return peerId_;
+}
+
+std::size_t Conversation::countMessagesFromSender(const std::string& senderId) const {
+    return static_cast<std::size_t>(
+        std::count_if(messages_.begin(), messages_.end(),
+            [&senderId](const DecryptedMessage& dm) {
+                return dm.senderId == senderId;
+            }));
+}
+
+std::vector<DecryptedMessage> Conversation::getMessagesFromSender(const std::string& senderId) const {
+    std::vector<DecryptedMessage> result;
+    std::copy_if(messages_.begin(), messages_.end(),
+        std::back_inserter(result),
+        [&senderId](const DecryptedMessage& dm) {
+            return dm.senderId == senderId;
+        });
+    return result;
 }
 
 void printConversation(const Conversation& conv) {
