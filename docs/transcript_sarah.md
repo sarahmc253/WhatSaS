@@ -607,6 +607,48 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 
 ---
 
+**Sarah:** rebase this branch onto main
+
+**Claude:** Ran `git rebase main` — reported "up to date". Fetched origin and ran `git rebase origin/main` instead, which surfaced conflicts (local `main` was stale).
+
+---
+
+**Sarah:** try again
+
+**Claude:** Confirmed merge base was `47e3c7a` but `origin/main` was at `b00bf02` (two new commits ahead). Ran `git fetch origin && git rebase origin/main`. Conflict in `docs/transcript_sarah.md` on commit `3414de5`: both branches added different transcript entries at the same location. Asked how to resolve.
+
+**Sarah:** keep mains first and then this branches
+
+**Claude:** Resolved first conflict (commit 3414de5): placed origin/main's entries (getuser / GET /users/:username creation) before the branch's entries (get_messages implementation). Resolved second conflict in the same commit (second transcript block). Continued rebase — commit `249c503` conflicted in both `client-web/js/views.js` and `docs/transcript_sarah.md`. In views.js: HEAD had `import { decryptMessage }`, branch had `import encryptMessage` (default) and `import { getUser, sendMessage }` — combined into `import encryptMessage, { decryptMessage }` plus the named api imports. In transcript: placed HEAD content (hexToBytes/tryDecrypt entries) first, then 249c503's compose/encrypt entries. Commit `26ff9e3` conflicted in views.js: branch changed `encryptMessage` from default to named export — resolved to `import { encryptMessage, decryptMessage }`. Rebase completed successfully.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** Make messages.ephemeral_pk NOT NULL to match the encrypted-message API contract. messages.ephemeral_pk is nullable in docs/schema.sql, but server/app/messages/routes.py enforces non-empty ephemeral_pk on /messages POST and returns it on /messages GET; additionally, a separate INSERT INTO messages path omits ephemeral_pk, which will persist NULL rows.
+
+**Claude:** Identified three changes needed: (1) `docs/schema.sql` line 123 — `ephemeral_pk` nullable. (2) forward route `_invalid_fields` check missing `ephemeral_pk`. (3) forward INSERT omits `ephemeral_pk`. Added `NOT NULL` to the schema column. Started to add `ephemeral_pk` alongside `content_hash` in the forward route validation.
+
+**Sarah:** [REJECTED] — remove content_hash entirely from the forward route validation and insert. replace it with ephemeral_pk only, matching the send route.
+
+**Claude:** Replaced `['recipientUsername', 'ciphertext', 'nonce', 'content_hash']` with `['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk']` in the forward route's `_invalid_fields` call, removed the `_HEX32_RE` regex check and the `content_hash` normalisation line, and updated the INSERT to use `ephemeral_pk` in place of `content_hash`. Confirmed no remaining `_HEX32_RE` or `content_hash` references in the file.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in the get_messages query in routes.py, add AND is_revoked=0 to the WHERE clause so revoked messages don't appear in the inbox
+
+**Claude:** Added `AND is_revoked = 0` to the `WHERE recipient_id = %s` clause in the `get_messages` query.
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
 **Sarah:** in hexToBytes in views.js, add a validation check that throws if the string contains any character outside 0-9a-fA-F before processing, so invalid hex fails loudly instead of silently producing zero bytes
 
 **Claude:** Added `/[^0-9a-fA-F]/` regex check immediately after the odd-length guard in `hexToBytes`. Throws `'hexToBytes: invalid hex character'` before the loop runs, so garbage input can't produce silent `0x00` bytes via `parseInt`'s `NaN`→`0` coercion.

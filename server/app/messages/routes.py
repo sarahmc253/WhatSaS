@@ -30,7 +30,7 @@ def get_messages():
             """
             SELECT id, sender_id, ciphertext, nonce, ephemeral_pk, created_at
             FROM messages
-            WHERE recipient_id = %s
+            WHERE recipient_id = %s AND is_revoked = 0
             """,
             (current_user_id,),
         )
@@ -134,12 +134,9 @@ def forward_message(message_id):
     if not isinstance(data, dict):
         return jsonify({'error': 'Request body must be a JSON object'}), 400
 
-    invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'content_hash'])
+    invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk'])
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
-
-    if not _HEX32_RE.match(data['content_hash']):
-        return jsonify({'error': 'content_hash must be a 64-character hex string (keccak256)'}), 400
 
     current_user_id = get_jwt_identity()
     db = get_db()
@@ -167,7 +164,6 @@ def forward_message(message_id):
     if recipient is None:
         return jsonify({'error': 'Recipient not found'}), 404
 
-    content_hash = data['content_hash'] if data['content_hash'].startswith('0x') else '0x' + data['content_hash']
     new_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
@@ -175,12 +171,12 @@ def forward_message(message_id):
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, content_hash, created_at, original_message_id)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, original_message_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], content_hash, now, message_id,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, message_id,
             ),
         )
         db.commit()

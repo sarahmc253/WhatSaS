@@ -120,7 +120,7 @@ CREATE TABLE `messages` (
   `ciphertext` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `nonce` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `kem_output` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  `ephemeral_pk` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `ephemeral_pk` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `associated_data` text COLLATE utf8mb4_unicode_ci,
   `is_revoked` tinyint(1) NOT NULL DEFAULT '0',
   `is_deleted_sender` tinyint(1) NOT NULL DEFAULT '0',
