@@ -561,6 +561,24 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 
 ---
 
+**Sarah:** add a getuser(username) function to api.js that calls GET /users/:username with auth and returns the response. we need it to fetch a recipient's x25519_public_key
+
+**Claude:** Checked for `GET /users/:username` in the Flask server before writing the client function. Found no such route — only `auth/routes.py` and `messages/routes.py` touch the `users` table. Asked Sarah to confirm whether the route needs to be created first.
+
+---
+
+**Sarah:** does GET /users/:username exist in the flask server or do we need to create it
+
+**Claude:** Confirmed it does not exist. Offered to create it.
+
+---
+
+**Sarah:** create a GET /users/<username> route in the Flask server that returns the user's id, username and x25519_public_key ONLY. require jwt auth. return 404 if the user doesnt exist
+
+**Claude:** Created `server/app/users/__init__.py` (empty) and `server/app/users/routes.py` with a `users_bp` blueprint. Route is `GET /<username>`, decorated with `@jwt_required()`, queries `id`, `username`, `x25519_public_key` from the `users` table, returns 404 if not found. Updated `server/app/__init__.py` to import and register `users_bp` at `url_prefix='/users'`.
+
+---
+
 **Sarah:** the get_messages route in server/app/messages/routes.py returns an empty list. implement it to query the database for all messages where recipient_id equals the current user's JWT identity, returning id, sender_id, ciphertext, nonce, ephemeral_public_key and created_at for each message
 
 **Claude:** Read `messages/routes.py` and identified the stub. Proposed querying `SELECT id, sender_id, ciphertext, nonce, ephemeral_public_key, created_at FROM messages WHERE recipient_id = %s` using a `dictionary=True` cursor, following the pattern from `get_message`.
@@ -576,6 +594,14 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 **Sarah:** yes
 
 **Claude:** Implemented `get_messages`: queries DB with `dictionary=True` cursor, `WHERE recipient_id = %s` parameterised with JWT identity, fetches all rows, returns `{'messages': rows}` 200.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
 
 **Sarah:** [APPROVED]
 
