@@ -552,3 +552,69 @@
 
 **Claude:** Moved `HttpClient http` before the try block so it stays alive for the full lifetime of main. Added a comment after the catch block showing the call pattern: `http.post(BASE_URL + "/api/messages", body, "application/json", auth.getToken())`.
 
+---
+
+**Aoibheann:** Update the registerUser signature in Auth.hpp to also accept email, x25519_public_key, wrapped_private_key and kek_salt as string parameters.
+
+**Claude:** Added `email`, `x25519PublicKey`, `wrappedPrivateKey`, and `kekSalt` as `const std::string&` parameters to `Auth::registerUser` in `Auth.hpp`. Also added `CMAKE_EXPORT_COMPILE_COMMANDS ON` to `CMakeLists.txt` to fix IntelliSense not finding `nlohmann/json.hpp` — requires a CMake re-run to generate `build/compile_commands.json`.
+
+---
+
+**Aoibheann:** Update the JSON body in registerUser in Auth.cpp to include the new fields: email, x25519_public_key, wrapped_private_key and kek_salt.
+
+**Claude:** Updated the `registerUser` implementation signature to match and added `body["email"]`, `body["x25519_public_key"]`, `body["wrapped_private_key"]`, and `body["kek_salt"]` to the JSON body using snake_case keys to match the server's expected field names.
+
+---
+
+**Aoibheann:** Fix the response handling in registerUser. The server returns 201 with a success message, no token. Remove the token extraction and just check for a 201 status code instead. Throw std::runtime_error if it gets anything else.
+
+**Claude:** Removed the JSON parsing and token extraction from `registerUser`. Replaced with a `statusCode_ != 201` check that throws `std::runtime_error` on failure. Returns `Auth{}` (empty token) on success — the caller is expected to call `login` separately to obtain a session token.
+
+---
+
+**Aoibheann:** Update the registerUser call in main.cpp to pass the new parameters. Use placeholder empty strings for x25519_public_key, wrapped_private_key and kek_salt for now since those will be wired in from the crypto flow later.
+
+**Claude:** Added `email` to the `Credentials` struct in `AuthCLI.hpp` and added an `"Email: "` prompt to `promptCredentials()` between username and password. Updated the `registerUser` call in `main.cpp` to pass `creds.email` and empty string placeholders for the three crypto fields, with named comments marking where the real values will come from.
+
+---
+
+**Aoibheann:** In Auth.cpp replace the resp.ok_ check in registerUser with a proper status code check. Success is statusCode_ between 200 and 299.
+
+**Claude:** Replaced `statusCode_ != 201` with `statusCode_ < 200 || statusCode_ > 299` in `registerUser`.
+
+---
+
+**Aoibheann:** Update the error message in registerUser to use resp.error_ if not empty, otherwise fall back to resp.body_.
+
+**Claude:** Added `const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_` and used `detail` in the thrown message. `resp.error_` carries transport-level failures; `resp.body_` carries the server's error payload on 4xx/5xx responses.
+
+---
+
+**Aoibheann:** Do the same two changes for login in Auth.cpp.
+
+**Claude:** Applied both changes to `login`: replaced `!resp.ok_` with the 200–299 range check, and used the same `detail` fallback pattern for the error message.
+
+---
+
+**Aoibheann:** In AuthCLI.hpp on the Unix path, also disable ICANON when disabling ECHO so keystrokes return immediately without waiting for Enter. Add VMIN=1 and VTIME=0 as well.
+
+**Claude:** Added `ICANON` to the `c_lflag` mask and set `c_cc[VMIN] = 1` and `c_cc[VTIME] = 0`. Without `ICANON`, the terminal stops line-buffering so `getchar()` returns each keystroke immediately rather than holding it until Enter.
+
+---
+
+**Aoibheann:** Wrap the tcgetattr and tcsetattr calls in AuthCLI.hpp in return value checks. Store whether the terminal was successfully changed in a bool called termiosApplied.
+
+**Claude:** Wrapped `tcgetattr` in an `if (... == 0)` check and set `termiosApplied = (tcsetattr(...) == 0)`. The restore call at the end already reads `if (termiosApplied) tcsetattr(...)`. If stdin isn't a tty (piped input in tests), the read loop still runs without no-echo mode.
+
+---
+
+**Aoibheann:** Only restore the terminal state in AuthCLI.hpp if termiosApplied is true.
+
+**Claude:** Already done — the restore call added in the previous step already reads `if (termiosApplied) tcsetattr(STDIN_FILENO, TCSANOW, &oldt)`. No change needed.
+
+---
+
+**Aoibheann:** In main.cpp, check the return value of std::getline in the menu loop. If it fails, print an error to stderr and return 1 so the program exits cleanly instead of hanging.
+
+**Claude:** Wrapped `std::getline` in `if (!std::getline(...))` and added `std::cerr` output plus `return 1` on failure. Without this the loop would spin indefinitely on a closed stdin (e.g. piped input or EOF).
+

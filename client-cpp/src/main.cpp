@@ -65,7 +65,10 @@ WhatSaS client starting...
 
     std::string choice;
     while (true) {
-        std::getline(std::cin, choice);
+        if (!std::getline(std::cin, choice)) {
+            std::cerr << "\033[1;31m\n        💔 input stream closed unexpectedly\n\033[0m\n";
+            return 1;
+        }
         if (choice == "1" || choice == "2") break;
         std::cout << "\033[1;35m        💔 please enter 1 or 2: \033[0m";
     }
@@ -83,7 +86,12 @@ WhatSaS client starting...
     Auth auth;
     try {
         if (choice == "1") {
-            auth = Auth::registerUser(http, BASE_URL, creds.username, creds.password);
+            auth = Auth::registerUser(http, BASE_URL,
+                                      creds.username, creds.password,
+                                      creds.email,
+                                      /*x25519PublicKey=*/"",
+                                      /*wrappedPrivateKey=*/"",
+                                      /*kekSalt=*/"");
             std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << creds.username << "~ 💖\n";
         } else {
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);

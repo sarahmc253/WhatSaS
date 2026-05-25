@@ -8,7 +8,11 @@ public:
     static Auth registerUser(HttpClient& client,
         const std::string& baseUrl,
         const std::string& username,
-        const std::string& password);
+        const std::string& password,
+        const std::string& email,
+        const std::string& x25519PublicKey,
+        const std::string& wrappedPrivateKey,
+        const std::string& kekSalt);
 
     static Auth login(HttpClient& client,
         const std::string& baseUrl,
