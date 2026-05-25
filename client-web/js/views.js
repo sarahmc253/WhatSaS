@@ -8,7 +8,7 @@
 
 import * as api from './api.js';
 import { getUser, sendMessage } from './api.js';
-import encryptMessage, { decryptMessage } from '../crypto/messageEncryption.js';
+import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
