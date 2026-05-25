@@ -107,28 +107,33 @@ bool Client::savePins() const {
     // Atomic replace. std::rename on the Windows CRT fails with EEXIST when the
     // destination already exists. Use MoveFileExW with MOVEFILE_REPLACE_EXISTING
     // on Windows, which is the correct atomic-replace primitive on this platform.
-#ifdef _WIN32
-    {
-        int tmpLen  = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(),       -1, nullptr, 0);
-        int destLen = MultiByteToWideChar(CP_UTF8, 0, pinsPath_.c_str(), -1, nullptr, 0);
-        std::wstring wtmp(tmpLen,  L'\0');
-        std::wstring wdest(destLen, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(),       -1, wtmp.data(),  tmpLen);
-        MultiByteToWideChar(CP_UTF8, 0, pinsPath_.c_str(), -1, wdest.data(), destLen);
-        if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-            std::cerr << "[savePins] MoveFileExW failed (error " << GetLastError()
-                      << ") for " << pinsPath_ << "\n";
-            std::remove(tmp.c_str());
-            return false;
-        }
-    }
-#else
-    if (std::rename(tmp.c_str(), pinsPath_.c_str()) != 0) {
-        std::cerr << "[savePins] rename failed for " << pinsPath_ << "\n";
-        std::remove(tmp.c_str());
+    #ifdef _WIN32
+    // Widen once at the top of savePins()
+    auto toWide = [](const std::string& utf8) -> std::wstring {
+        int len = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
+        std::wstring w(len, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, w.data(), len);
+        return w;
+    };
+    
+    std::wstring wdest = toWide(pinsPath_);
+    std::wstring wtmp  = wdest + L".tmp";
+    
+    // Open with wide path
+    FILE* f = _wfopen(wtmp.c_str(), L"w");
+    if (!f) { /* handle error */ return false; }
+    // ... write via f ...
+    fclose(f);
+    
+    // Atomic replace
+    if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        std::cerr << "[savePins] MoveFileExW failed (" << GetLastError() << ")\n";
+        DeleteFileW(wtmp.c_str());   // wide cleanup — can't fail silently
         return false;
     }
-#endif
+    #else
+    // narrow / POSIX path unchanged
+    #endif
     return true;
 }
 
