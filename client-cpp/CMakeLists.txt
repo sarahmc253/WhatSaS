@@ -22,6 +22,7 @@ include_directories(include ${SODIUM_INCLUDE})
 
 add_executable(sas-client
   src/main.cpp
+  src/Auth.cpp
   src/User.cpp
   src/Message.cpp
   src/MessageStore.cpp
