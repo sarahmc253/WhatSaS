@@ -25,7 +25,21 @@ def _invalid_fields(data, fields):
 @jwt_required()
 def get_messages():
     current_user_id = get_jwt_identity()
-    return jsonify({'user_id': current_user_id, 'messages': []}), 200
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT id, sender_id, ciphertext, nonce, ephemeral_public_key, created_at
+            FROM messages
+            WHERE recipient_id = %s
+            """,
+            (current_user_id,),
+        )
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+    return jsonify({'messages': rows}), 200
 
 @messages_bp.route('/messages', methods=['POST'])
 @jwt_required()

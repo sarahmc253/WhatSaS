@@ -558,3 +558,23 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 **Claude:** Created `whatsas.service` at project root with `User=student`, `WorkingDirectory=/home/student/WhatSaS`, `EnvironmentFile=/home/student/WhatSaS/.env`, gunicorn binding to `127.0.0.1:5000` with 2 workers, logs redirected to stdout/stderr (captured by journald), `Restart=on-failure`, `RestartSec=5`.
 
 **Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the get_messages route in server/app/messages/routes.py returns an empty list. implement it to query the database for all messages where recipient_id equals the current user's JWT identity, returning id, sender_id, ciphertext, nonce, ephemeral_public_key and created_at for each message
+
+**Claude:** Read `messages/routes.py` and identified the stub. Proposed querying `SELECT id, sender_id, ciphertext, nonce, ephemeral_public_key, created_at FROM messages WHERE recipient_id = %s` using a `dictionary=True` cursor, following the pattern from `get_message`.
+
+**Sarah:** will created_at from MySQL serialise correctly to JSON with jsonify or do we need to convert it to an ISO string first
+
+**Claude:** Flask 3.x uses `DefaultJSONProvider` which calls `.isoformat()` on `datetime` objects — no manual conversion needed. mysql-connector-python returns `datetime.datetime` for DATETIME/TIMESTAMP columns, which Flask serialises cleanly to ISO 8601.
+
+**Sarah:** you didnt answer. does flask's jsonify handle Python datetime objects from MySQL or will it throw a TypeError at runtime?
+
+**Claude:** Confirmed it will not throw. Flask 3.x's `DefaultJSONProvider.default()` explicitly handles `datetime` instances via `.isoformat()`. The MySQL connector returns `datetime.datetime` for those columns, so serialisation is automatic and correct.
+
+**Sarah:** yes
+
+**Claude:** Implemented `get_messages`: queries DB with `dictionary=True` cursor, `WHERE recipient_id = %s` parameterised with JWT identity, fetches all rows, returns `{'messages': rows}` 200.
+
+**Sarah:** [APPROVED]
