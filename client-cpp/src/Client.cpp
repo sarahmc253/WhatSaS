@@ -9,6 +9,9 @@
 #include <sstream>
 #include <stdexcept>
 #include <iostream>
+#ifdef _WIN32
+#  include <windows.h>
+#endif
 
 Client::Client(const std::string& baseUrl,
                const std::string& senderId,
@@ -92,12 +95,31 @@ bool Client::savePins() const {
             return false;
         }
     }
-    // Atomic replace: on Windows std::rename overwrites the destination.
+    // Atomic replace. std::rename on the Windows CRT fails with EEXIST when the
+    // destination already exists. Use MoveFileExW with MOVEFILE_REPLACE_EXISTING
+    // on Windows, which is the correct atomic-replace primitive on this platform.
+#ifdef _WIN32
+    {
+        int tmpLen  = MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(),       -1, nullptr, 0);
+        int destLen = MultiByteToWideChar(CP_UTF8, 0, pinsPath_.c_str(), -1, nullptr, 0);
+        std::wstring wtmp(tmpLen,  L'\0');
+        std::wstring wdest(destLen, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, tmp.c_str(),       -1, wtmp.data(),  tmpLen);
+        MultiByteToWideChar(CP_UTF8, 0, pinsPath_.c_str(), -1, wdest.data(), destLen);
+        if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            std::cerr << "[savePins] MoveFileExW failed (error " << GetLastError()
+                      << ") for " << pinsPath_ << "\n";
+            std::remove(tmp.c_str());
+            return false;
+        }
+    }
+#else
     if (std::rename(tmp.c_str(), pinsPath_.c_str()) != 0) {
         std::cerr << "[savePins] rename failed for " << pinsPath_ << "\n";
         std::remove(tmp.c_str());
         return false;
     }
+#endif
     return true;
 }
 
