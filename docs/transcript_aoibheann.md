@@ -578,13 +578,13 @@
 
 ---
 
-**Aoibheann:** In Auth.cpp replace the resp.ok_ check in registerUser with a proper status code check. Success is statusCode_ between 200 and 299.
+**Aoibheann:** In Auth.cpp replace the `resp.ok_` check in registerUser with a proper status code check. Success is `statusCode_` between 200 and 299.
 
 **Claude:** Replaced `statusCode_ != 201` with `statusCode_ < 200 || statusCode_ > 299` in `registerUser`.
 
 ---
 
-**Aoibheann:** Update the error message in registerUser to use resp.error_ if not empty, otherwise fall back to resp.body_.
+**Aoibheann:** Update the error message in registerUser to use `resp.error_` if not empty, otherwise fall back to `resp.body_`.
 
 **Claude:** Added `const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_` and used `detail` in the thrown message. `resp.error_` carries transport-level failures; `resp.body_` carries the server's error payload on 4xx/5xx responses.
 
