@@ -44,6 +44,26 @@ static void testConstructorKeyValidation() {
     }
 }
 
+static void testConstructorMismatchedKeypairRejected() {
+    printf("\nTest 1b: Constructor rejects mismatched sk/pk\n");
+    HpkeKeypair kp1 = hpkeGenerateKeypair();
+    HpkeKeypair kp2 = hpkeGenerateKeypair();
+    // kp1.sk paired with kp2.pk — correct sizes but not a valid keypair
+    bool threw = false;
+    try { Client c("https://example.com", "alice", kp1.sk, kp2.pk, ""); }
+    catch (const std::invalid_argument&) { threw = true; }
+    catch (...) {}
+    check("rejects sk from one keypair paired with pk from another", threw);
+
+    // Sanity: matched keypair must pass key validation (may still throw runtime_error
+    // for AES-NI unavailability in this environment, which is after key validation).
+    bool keyValidationPassed = false;
+    try { Client c("https://example.com", "alice", kp1.sk, kp1.pk, ""); keyValidationPassed = true; }
+    catch (const std::invalid_argument&) {}  // key mismatch — fail
+    catch (const std::runtime_error&) { keyValidationPassed = true; }  // AES-NI — key check passed
+    check("accepts a correctly matched keypair (key validation passes)", keyValidationPassed);
+}
+
 static void testEncryptDecryptRoundTrip() {
     printf("\nTest 2: encryptAes256Gcm / decryptAes256Gcm round-trip\n");
     if (!aesAvailable()) { printf("[SKIP] AES-NI unavailable\n"); return; }
@@ -210,6 +230,7 @@ int main() {
     printf("=== Client crypto tests (offline) ===\n");
 
     testConstructorKeyValidation();
+    testConstructorMismatchedKeypairRejected();
     testEncryptDecryptRoundTrip();
     testWrongKeyFails();
     testAdTamperFails();

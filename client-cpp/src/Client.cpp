@@ -39,6 +39,15 @@ Client::Client(const std::string& baseUrl,
     if (sodium_init() < 0) {
         throw std::runtime_error("libsodium initialisation failed");
     }
+    // Verify sk and pk are a matched X25519 keypair: derive pk from sk and compare.
+    {
+        unsigned char derived[crypto_scalarmult_BYTES];
+        if (crypto_scalarmult_base(derived, staticSk_.data()) != 0 ||
+            sodium_memcmp(derived, staticPk_.data(), 32) != 0) {
+            throw std::invalid_argument(
+                "staticSk and staticPk are not a matched X25519 keypair");
+        }
+    }
     if (crypto_aead_aes256gcm_is_available() == 0) {
         throw std::runtime_error(
             "AES-256-GCM unavailable: hardware AES-NI required");
