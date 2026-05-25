@@ -578,3 +578,21 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 **Claude:** Implemented `get_messages`: queries DB with `dictionary=True` cursor, `WHERE recipient_id = %s` parameterised with JWT identity, fetches all rows, returns `{'messages': rows}` 200.
 
 **Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in hexToBytes in views.js, add a validation check that throws if the string contains any character outside 0-9a-fA-F before processing, so invalid hex fails loudly instead of silently producing zero bytes
+
+**Claude:** Added `/[^0-9a-fA-F]/` regex check immediately after the odd-length guard in `hexToBytes`. Throws `'hexToBytes: invalid hex character'` before the loop runs, so garbage input can't produce silent `0x00` bytes via `parseInt`'s `NaN`→`0` coercion.
+
+---
+
+**Sarah:** in tryDecrypt in views.js, the server returns ephemeral_pk but the code reads msg.ephemeral_public_key. fix it to use msg.ephemeral_pk
+
+**Claude:** Updated both references in `tryDecrypt`: the guard check (`!msg.ephemeral_public_key` → `!msg.ephemeral_pk`) and the `importKey` call (`hexToBytes(msg.ephemeral_public_key)` → `hexToBytes(msg.ephemeral_pk)`).
+
+---
+
+**Sarah:** update docs/transcript
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.

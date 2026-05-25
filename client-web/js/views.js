@@ -31,6 +31,7 @@ function formatDate(ts) {
 // ── Helpers (crypto) ─────────────────────────────────────────────────────
 function hexToBytes(hex) {
     if (hex.length % 2 !== 0) throw new Error('hexToBytes: odd-length hex string');
+    if (/[^0-9a-fA-F]/.test(hex)) throw new Error('hexToBytes: invalid hex character');
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < bytes.length; i++) {
         bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
@@ -187,14 +188,14 @@ export async function renderInbox(container, navigate) {
 
     async function tryDecrypt(msg) {
         const privKey = api.getPrivateKey();
-        if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_public_key) {
+        if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk) {
             return '(encrypted)';
         }
         try {
             const ciphertext  = hexToBytes(msg.ciphertext);
             const nonce       = hexToBytes(msg.nonce);
             const ephPubKey   = await crypto.subtle.importKey(
-                'raw', hexToBytes(msg.ephemeral_public_key), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
             );
             return await decryptMessage(ciphertext, nonce, ephPubKey, privKey);
         } catch {
