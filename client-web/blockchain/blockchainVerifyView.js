@@ -126,12 +126,8 @@ async function handleFetch() {
 
     const txHash = txInput.value.trim();
 
-    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
-        setStatus(statusEl, 'error', 'Enter a valid 66-character hex transaction hash (starting with 0x).');
-        return;
-    }
-
-    // Clear previous fetch result before starting a new one
+    // Clear previous fetch result before any validation so stale state never
+    // lingers while the user corrects an invalid hash and retries.
     window._verifyState = null;
     stepVerify.hidden = true;
     onchainInfo.innerHTML = '';
@@ -139,6 +135,11 @@ async function handleFetch() {
     verifyResult.className = '';
     verifyResult.innerHTML = '';
     document.getElementById('v-content').value = '';
+
+    if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+        setStatus(statusEl, 'error', 'Enter a valid 66-character hex transaction hash (starting with 0x).');
+        return;
+    }
 
     setStatus(statusEl, 'loading', 'Querying Sepolia…');
     fetchBtn.disabled = true;
