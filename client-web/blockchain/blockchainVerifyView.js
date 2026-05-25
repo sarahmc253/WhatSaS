@@ -131,6 +131,15 @@ async function handleFetch() {
         return;
     }
 
+    // Clear previous fetch result before starting a new one
+    window._verifyState = null;
+    stepVerify.hidden = true;
+    onchainInfo.innerHTML = '';
+    const verifyResult = document.getElementById('verify-result');
+    verifyResult.className = '';
+    verifyResult.innerHTML = '';
+    document.getElementById('v-content').value = '';
+
     setStatus(statusEl, 'loading', 'Querying Sepolia…');
     fetchBtn.disabled = true;
 

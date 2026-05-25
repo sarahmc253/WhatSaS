@@ -301,7 +301,7 @@ textarea { resize: vertical; min-height: 120px; }
 .verify-info-value           { font-size: .9375rem; }
 
 .verify-hash {
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: SFMono-Regular, Consolas, monospace;
     font-size: .775rem;
     word-break: break-all;
     background: var(--border);
