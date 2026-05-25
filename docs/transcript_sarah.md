@@ -542,3 +542,19 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 **Sarah:** update docs/transcript with all prompts and replies
 
 **Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
+**Sarah:** Write a systemd service file to run the Flask app in server/run.py using gunicorn from the project venv at /home/student/WhatSaS/venv/bin/gunicorn. WorkingDirectory is /home/student/WhatSaS, run as user student, bind to 127.0.0.1:5000, and restart on failure.
+
+**Claude:** Proposed writing `whatsas.service` with `EnvironmentFile=/home/student/WhatSaS/.env` to load env vars.
+
+**Sarah:** Does systemd's EnvironmentFile handle quoted values in a .env file, and do any values in our .env need adjusting before this will work?
+
+**Claude:** Explained that `EnvironmentFile` handles simple `KEY=VALUE` pairs correctly — quotes are stripped, no shell substitution. Found one issue in `.env`: `FLASK_DEBUG=true ` has a trailing space on line 7. `python-dotenv` strips it when parsing the file itself, but `EnvironmentFile` does not — so systemd would set `FLASK_DEBUG` to `"true "` (with a trailing space), which would fail the `== 'true'` check in `run.py`. Recommended fixing to `FLASK_DEBUG=false` anyway since debug mode shouldn't run under gunicorn (Werkzeug reloader conflicts with gunicorn workers). All other values are compatible.
+
+**Sarah:** yes [proceed]
+
+**Claude:** Created `whatsas.service` at project root with `User=student`, `WorkingDirectory=/home/student/WhatSaS`, `EnvironmentFile=/home/student/WhatSaS/.env`, gunicorn binding to `127.0.0.1:5000` with 2 workers, logs redirected to stdout/stderr (captured by journald), `Restart=on-failure`, `RestartSec=5`.
+
+**Sarah:** [APPROVED]
