@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 User=student
-WorkingDirectory=/home/student/WhatSaS
+WorkingDirectory=/home/student/WhatSaS/server
 EnvironmentFile=/home/student/WhatSaS/.env
-ExecStart=/home/student/WhatSaS/venv/bin/gunicorn server.run:app \
+ExecStart=/home/student/WhatSaS/venv/bin/gunicorn run:app \
     --bind 127.0.0.1:5000 \
     --workers 2 \
     --access-logfile - \
