@@ -26,12 +26,15 @@
 class Client {
 public:
     // staticSk / staticPk — local user's long-term X25519 keypair (32 bytes each).
+    // pinsPath — path to the TOFU pin file (e.g. "~/.whatsas/pins.txt"). Created on
+    //   first use. Existing pins are loaded at construction and survive restarts.
     // Throws std::invalid_argument if either key is not exactly 32 bytes.
     // Throws std::runtime_error if AES-NI hardware acceleration is unavailable.
     Client(const std::string& baseUrl,
            const std::string& senderId,
            std::vector<uint8_t> staticSk,
            std::vector<uint8_t> staticPk,
+           const std::string& pinsPath,
            bool verifyCert = true);
 
     // Derive a per-message AES key via DHKEM, encrypt with AES-256-GCM,
@@ -71,8 +74,14 @@ private:
     std::vector<uint8_t> staticPk_;  // local long-term X25519 public key
     bool                 verifyCert_;
     HttpClient           http_;
+    std::string          pinsPath_;  // path to the on-disk TOFU pin file
     // TOFU key pins: userId → first-seen public key. mutable so const methods can update.
     mutable std::unordered_map<std::string, std::vector<uint8_t>> pinnedKeys_;
+
+    // Load pins from pinsPath_ into pinnedKeys_. Called once at construction.
+    void loadPins();
+    // Append a single new pin to pinsPath_ (called only when a new pin is added).
+    void savePins() const;
 };
 
 #endif // CLIENT_HPP

@@ -4,7 +4,9 @@
 
 #include <sodium.h>
 #include <nlohmann/json.hpp>
+#include <fstream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <iostream>
 
@@ -12,13 +14,15 @@ Client::Client(const std::string& baseUrl,
                const std::string& senderId,
                std::vector<uint8_t> staticSk,
                std::vector<uint8_t> staticPk,
+               const std::string& pinsPath,
                bool verifyCert)
     : baseUrl_(baseUrl),
       senderId_(senderId),
       staticSk_(std::move(staticSk)),
       staticPk_(std::move(staticPk)),
       verifyCert_(verifyCert),
-      http_() {
+      http_(),
+      pinsPath_(pinsPath) {
     if (staticSk_.size() != 32) {
         throw std::invalid_argument(
             "X25519 private key must be exactly 32 bytes, got " +
@@ -35,6 +39,52 @@ Client::Client(const std::string& baseUrl,
     if (crypto_aead_aes256gcm_is_available() == 0) {
         throw std::runtime_error(
             "AES-256-GCM unavailable: hardware AES-NI required");
+    }
+    loadPins();
+}
+
+// File format: one line per pin — "<userId> <base64(pk)>\n"
+// Lines starting with '#' are ignored. Malformed lines are skipped with a warning.
+void Client::loadPins() {
+    std::ifstream f(pinsPath_);
+    if (!f.is_open()) return;  // file doesn't exist yet — that's fine on first run
+    std::string line;
+    while (std::getline(f, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream ss(line);
+        std::string userId, pkB64;
+        if (!(ss >> userId >> pkB64)) {
+            std::cerr << "[loadPins] skipping malformed line in " << pinsPath_ << "\n";
+            continue;
+        }
+        std::vector<uint8_t> pk = b64Decode(pkB64);
+        if (pk.size() != 32) {
+            std::cerr << "[loadPins] skipping bad key for " << userId << "\n";
+            continue;
+        }
+        pinnedKeys_[userId] = std::move(pk);
+    }
+    std::cerr << "[loadPins] loaded " << pinnedKeys_.size()
+              << " pin(s) from " << pinsPath_ << "\n";
+}
+
+// Rewrites the entire file atomically: write to <path>.tmp, then rename over <path>.
+// This prevents a crash mid-write from leaving a corrupt pins file.
+void Client::savePins() const {
+    const std::string tmp = pinsPath_ + ".tmp";
+    std::ofstream f(tmp);
+    if (!f.is_open()) {
+        std::cerr << "[savePins] cannot write to " << tmp << "\n";
+        return;
+    }
+    f << "# WhatSaS TOFU key pins — do not edit manually\n";
+    for (const auto& [userId, pk] : pinnedKeys_) {
+        f << userId << " " << b64Encode(pk.data(), pk.size()) << "\n";
+    }
+    f.close();
+    // Atomic replace: on Windows std::rename overwrites the destination.
+    if (std::rename(tmp.c_str(), pinsPath_.c_str()) != 0) {
+        std::cerr << "[savePins] rename failed for " << pinsPath_ << "\n";
     }
 }
 
@@ -141,7 +191,24 @@ int Client::receiveMessages(MessageStore& store,
             continue;
         }
 
-        // 4. Extract and validate kem_output (ephemeral public key from sender).
+        // 4. Skip HPKE derivation for messages we sent — we are the sender, not the
+        //    intended receiver, so hpkeReceive with our own sk would be meaningless.
+        //    Store and count them but do not attempt decryption.
+        if (senderId == senderId_) {
+            std::vector<uint8_t> nonceSelf = b64Decode(nonceB64);
+            std::vector<uint8_t> ctSelf    = b64Decode(ctB64);
+            try {
+                Message msg(messageId, senderId, recipientId, ctSelf, nonceSelf,
+                            static_cast<std::time_t>(ts));
+                store.addMessage(msg, peerKey(senderId, recipientId));
+                ++successCount;
+            } catch (const std::invalid_argument& e) {
+                std::cerr << "[receiveMessages] own-message invalid fields: " << e.what() << "\n";
+            }
+            continue;
+        }
+
+        // 5. Extract and validate kem_output (ephemeral public key from sender).
         if (!obj.contains("kem_output") || !obj["kem_output"].is_string()) {
             std::cerr << "[receiveMessages] skipping: missing kem_output field: "
                       << messageId << "\n";
@@ -154,7 +221,8 @@ int Client::receiveMessages(MessageStore& store,
             continue;
         }
 
-        // 5. Re-derive the per-message AES key via DHKEM.
+        // 6. Re-derive the per-message AES key via DHKEM. Must pass HPKE auth before
+        //    storing — do not call store.addMessage until decryption succeeds.
         std::vector<uint8_t> aesKey = hpkeReceive(staticSk_, ephPk, senderPk);
         if (aesKey.empty()) {
             std::cerr << "[receiveMessages] HPKE receive failed (auth failure or low-order point): "
@@ -162,7 +230,7 @@ int Client::receiveMessages(MessageStore& store,
             continue;
         }
 
-        // 6. Base64-decode nonce and ciphertext.
+        // 7. Base64-decode nonce and ciphertext, construct Message, decrypt.
         std::vector<uint8_t> nonce = b64Decode(nonceB64);
         std::vector<uint8_t> ct    = b64Decode(ctB64);
 
@@ -170,18 +238,18 @@ int Client::receiveMessages(MessageStore& store,
             Message msg(messageId, senderId, recipientId, ct, nonce,
                         static_cast<std::time_t>(ts));
 
-            store.addMessage(msg, peerKey(senderId, recipientId));
-
-            auto dm = decryptMessage(aesKey, msg);
+            auto decrypted = decryptMessage(aesKey, msg);
             sodium_memzero(aesKey.data(), aesKey.size());
-            if (!dm) {
+            if (!decrypted) {
                 std::cerr << "[receiveMessages] decryption failed: " << messageId << "\n";
                 continue;
             }
 
-            const std::string& peer = (senderId == senderId_) ? recipientId : senderId;
-            if (peer == conv.getPeerId()) {
-                conv.addMessage(std::move(*dm));
+            // Only store and surface the message after successful auth + decryption.
+            store.addMessage(msg, peerKey(senderId, recipientId));
+
+            if (senderId == conv.getPeerId() || recipientId == conv.getPeerId()) {
+                conv.addMessage(std::move(*decrypted));
             }
             ++successCount;
         } catch (const std::invalid_argument& e) {
@@ -220,11 +288,12 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
         return {};
     }
 
-    // TOFU pinning: pin on first fetch; reject if key changes later.
+    // TOFU pinning: pin on first fetch and persist; reject if key changes later.
     auto it = pinnedKeys_.find(userId);
     if (it == pinnedKeys_.end()) {
         pinnedKeys_[userId] = pk;
-        std::cerr << "[fetchPeerPublicKey] TOFU: pinned public key for " << userId << "\n";
+        savePins();  // persist immediately so the pin survives a restart
+        std::cerr << "[fetchPeerPublicKey] TOFU: pinned and saved public key for " << userId << "\n";
     } else if (it->second != pk) {
         std::cerr << "[fetchPeerPublicKey] WARNING: public key for " << userId
                   << " differs from pinned key — possible key substitution attack. Rejecting.\n";

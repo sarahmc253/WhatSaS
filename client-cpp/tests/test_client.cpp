@@ -27,7 +27,7 @@ static void testConstructorKeyValidation() {
         std::vector<uint8_t> badKey(sz, 0xAB);
         bool threw = false;
         // Wrong-size sk with good pk
-        try { Client c("https://example.com", "alice", badKey, good.pk); }
+        try { Client c("https://example.com", "alice", badKey, good.pk, ""); }
         catch (const std::invalid_argument&) { threw = true; }
         catch (...) {}
         char label[80];
@@ -36,7 +36,7 @@ static void testConstructorKeyValidation() {
 
         // Good sk with wrong-size pk
         threw = false;
-        try { Client c("https://example.com", "alice", good.sk, badKey); }
+        try { Client c("https://example.com", "alice", good.sk, badKey, ""); }
         catch (const std::invalid_argument&) { threw = true; }
         catch (...) {}
         std::snprintf(label, sizeof(label), "rejects %zu-byte pk", sz);

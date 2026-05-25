@@ -42,9 +42,10 @@ static void testDhSymmetry() {
     int rc1 = crypto_scalarmult(dh_alice, alice.sk.data(), bob.pk.data());
     int rc2 = crypto_scalarmult(dh_bob,   bob.sk.data(),   alice.pk.data());
 
-    check("both DH ops succeed",    rc1 == 0 && rc2 == 0);
-    check("DH outputs are equal",
-          std::equal(dh_alice, dh_alice + 32, dh_bob));
+    check("both DH ops succeed", rc1 == 0 && rc2 == 0);
+    if (rc1 == 0 && rc2 == 0) {
+        check("DH outputs are equal", std::equal(dh_alice, dh_alice + 32, dh_bob));
+    }
 }
 
 // ============================================================================
@@ -151,9 +152,13 @@ static void testWrongRecipientPkFails() {
     auto sendResult = hpkeSend(alice.sk, carol.pk);
     if (!sendResult) { printf("[FAIL] hpkeSend failed\n"); ++failed; return; }
 
-    // Bob tries to receive using his own key
+    // Bob tries to receive using his own key — must produce a 32-byte key (derivation itself
+    // succeeds), but that key must differ from what Alice derived (wrong recipient DH).
     std::vector<uint8_t> bobKey = hpkeReceive(bob.sk, sendResult->ephPk, alice.pk);
-    check("Bob's derived key differs from Alice's (sent to Carol)", bobKey != sendResult->aesKey);
+    check("Bob derives a 32-byte key (hpkeReceive did not fail)", bobKey.size() == 32);
+    if (bobKey.size() == 32) {
+        check("Bob's key differs from Alice's (wrong recipient)", bobKey != sendResult->aesKey);
+    }
 
     auto enc = encryptMessage(sendResult->aesKey, "alice", "carol", "for carol only");
     check("encrypt succeeds", enc.has_value());
@@ -163,8 +168,8 @@ static void testWrongRecipientPkFails() {
     std::vector<uint8_t> ct    = b64Decode(enc->ctB64);
     Message msg(enc->messageId, "alice", "carol", ct, nonce, enc->timestamp);
 
-    auto dm = decryptMessage(bobKey, msg);
-    check("Bob cannot decrypt message intended for Carol", !dm.has_value());
+    auto bobDecrypt = decryptMessage(bobKey, msg);
+    check("Bob cannot decrypt message intended for Carol", !bobDecrypt.has_value());
 }
 
 // ============================================================================

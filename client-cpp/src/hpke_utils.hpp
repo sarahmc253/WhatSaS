@@ -16,7 +16,6 @@
 #include <sodium.h>
 #include <optional>
 #include <vector>
-#include <algorithm>
 
 static constexpr const char* HPKE_INFO = "WhatSaS-HPKE-v1";
 
@@ -29,11 +28,6 @@ struct HpkeSendResult {
     std::vector<uint8_t> aesKey;  // 32-byte derived AES-256 key — use once, then zeroize
     std::vector<uint8_t> ephPk;   // 32-byte ephemeral public key — send in kem_output field
 };
-
-// Returns true if all bytes of v are zero (low-order point check).
-static inline bool isAllZero(const std::vector<uint8_t>& v) {
-    return std::all_of(v.begin(), v.end(), [](uint8_t b){ return b == 0; });
-}
 
 // Generate a fresh X25519 keypair for a user's long-term identity.
 static inline HpkeKeypair hpkeGenerateKeypair() {
@@ -79,18 +73,20 @@ static inline std::optional<HpkeSendResult> hpkeSend(
     // Zeroize eph_sk immediately — not needed after this point.
     sodium_memzero(eph_sk, sizeof(eph_sk));
 
-    // 4. Low-order point check: a small-subgroup public key causes DH to output zero
-    //    regardless of the scalar, leaking no information about the private key but
+    // 4. Low-order point check directly on stack arrays — no heap copy, nothing to zeroize.
+    //    A small-subgroup public key causes DH to always output zero regardless of scalar,
     //    producing a trivially predictable shared secret.
-    std::vector<uint8_t> dh1v(dh1, dh1 + 32);
-    std::vector<uint8_t> dh2v(dh2, dh2 + 32);
-    if (isAllZero(dh1v) || isAllZero(dh2v)) {
-        sodium_memzero(dh1, sizeof(dh1));
-        sodium_memzero(dh2, sizeof(dh2));
-        return std::nullopt;
+    {
+        unsigned char zero[32] = {};
+        if (sodium_memcmp(dh1, zero, 32) == 0 || sodium_memcmp(dh2, zero, 32) == 0) {
+            sodium_memzero(dh1, sizeof(dh1));
+            sodium_memzero(dh2, sizeof(dh2));
+            return std::nullopt;
+        }
     }
 
-    // 5. IKM = DH1 || DH2 (64 bytes).
+    // 5. IKM = DH1 || DH2 (64 bytes). DH values are zeroized from the stack immediately
+    //    after being copied into ikm; ikm itself is zeroized after hkdfExtract consumes it.
     std::vector<uint8_t> ikm;
     ikm.reserve(64);
     ikm.insert(ikm.end(), dh1, dh1 + 32);
@@ -143,12 +139,13 @@ static inline std::vector<uint8_t> hpkeReceive(
         return {};
     }
 
-    std::vector<uint8_t> dh1v(dh1, dh1 + 32);
-    std::vector<uint8_t> dh2v(dh2, dh2 + 32);
-    if (isAllZero(dh1v) || isAllZero(dh2v)) {
-        sodium_memzero(dh1, sizeof(dh1));
-        sodium_memzero(dh2, sizeof(dh2));
-        return {};
+    {
+        unsigned char zero[32] = {};
+        if (sodium_memcmp(dh1, zero, 32) == 0 || sodium_memcmp(dh2, zero, 32) == 0) {
+            sodium_memzero(dh1, sizeof(dh1));
+            sodium_memzero(dh2, sizeof(dh2));
+            return {};
+        }
     }
 
     std::vector<uint8_t> ikm;
