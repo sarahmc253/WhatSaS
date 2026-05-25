@@ -1,5 +1,6 @@
 #include "../include/Client.hpp"
 #include "../src/crypto_utils.hpp"
+#include "../src/hpke_utils.hpp"
 #include <sodium.h>
 #include <stdio.h>
 #include <string>
@@ -21,14 +22,24 @@ static bool aesAvailable() { return crypto_aead_aes256gcm_is_available() != 0; }
 
 static void testConstructorKeyValidation() {
     printf("\nTest 1: Constructor rejects wrong-size keys\n");
+    HpkeKeypair good = hpkeGenerateKeypair();
     for (std::size_t sz : {0u, 16u, 31u, 33u, 64u}) {
-        std::vector<uint8_t> key(sz, 0xAB);
+        std::vector<uint8_t> badKey(sz, 0xAB);
         bool threw = false;
-        try { Client c("https://example.com", "alice", key); }
+        // Wrong-size sk with good pk
+        try { Client c("https://example.com", "alice", badKey, good.pk); }
         catch (const std::invalid_argument&) { threw = true; }
         catch (...) {}
-        char label[64];
-        std::snprintf(label, sizeof(label), "rejects %zu-byte key", sz);
+        char label[80];
+        std::snprintf(label, sizeof(label), "rejects %zu-byte sk", sz);
+        check(label, threw);
+
+        // Good sk with wrong-size pk
+        threw = false;
+        try { Client c("https://example.com", "alice", good.sk, badKey); }
+        catch (const std::invalid_argument&) { threw = true; }
+        catch (...) {}
+        std::snprintf(label, sizeof(label), "rejects %zu-byte pk", sz);
         check(label, threw);
     }
 }

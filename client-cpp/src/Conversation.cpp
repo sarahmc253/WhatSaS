@@ -49,6 +49,16 @@ std::vector<DecryptedMessage> Conversation::getMessagesFromSender(const std::str
     return result;
 }
 
+void Conversation::setPeerPublicKey(const std::vector<uint8_t>& pk) {
+    if (pk.size() != 32) {
+        throw std::invalid_argument("peerPublicKey must be exactly 32 bytes for Curve25519");
+    }
+    peerPublicKey_ = pk;
+}
+
+const std::vector<uint8_t>& Conversation::getPeerPublicKey() const { return peerPublicKey_; }
+bool Conversation::hasPeerPublicKey() const { return !peerPublicKey_.empty(); }
+
 void printConversation(const Conversation& conv) {
     auto messages = conv.getMessages();
     if (messages.empty()) {
