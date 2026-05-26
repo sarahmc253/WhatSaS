@@ -49,7 +49,7 @@ DROP TABLE IF EXISTS `blockchain_records`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `blockchain_records` (
   `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT (uuid()),
-  `tx_hash` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tx_hash` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `block_number` bigint unsigned DEFAULT NULL,
   `block_timestamp` timestamp NULL DEFAULT NULL,
   `recorded_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -118,12 +118,6 @@ export function getUser(username) {
     return request('GET', `/users/${encodeURIComponent(username)}`, { auth: true });
 }
 
-// ── Private key store (in-memory only — never persisted to storage) ───────
-let _sessionPrivateKey = null;
-export function setPrivateKey(key)  { _sessionPrivateKey = key; }
-export function getPrivateKey()     { return _sessionPrivateKey; }
-export function clearPrivateKey()   { _sessionPrivateKey = null; }
-
 export function sendMessage(payload) {
     return request('POST', '/messages', { body: payload, auth: true });
 }
