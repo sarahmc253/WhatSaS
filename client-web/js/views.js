@@ -256,12 +256,15 @@ async function handleAction(btn, inboxBody) {
                 btn.closest('.message-card')?.remove();
                 break;
 
-            case 'forward':
-                await api.forwardMessage(id);
+            case 'forward': {
+                const recipient = window.prompt('Forward to username:');
+                if (!recipient || !recipient.trim()) { btn.disabled = false; return; }
+                await api.forwardMessage(id, recipient.trim());
                 // Brief visual confirmation instead of a disruptive alert
                 btn.textContent = 'Forwarded!';
                 setTimeout(() => { btn.disabled = false; btn.textContent = 'Forward'; }, 1500);
                 return; // skip the re-enable at the bottom
+            }
         }
 
         // If no messages remain, show the empty state
