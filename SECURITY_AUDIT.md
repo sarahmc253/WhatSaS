@@ -1,3 +1,5 @@
+// We might need some info from here for the report
+
 # Security Audit — HTTP Security Headers
 
 **Project:** WhatSaS Secure Messaging  
