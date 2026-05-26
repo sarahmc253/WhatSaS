@@ -125,4 +125,45 @@ static inline std::optional<std::vector<uint8_t>> decryptAes256Gcm(
     return pt;
 }
 
+// HKDF-Extract: PRK = HMAC-SHA256(salt, ikm)  (RFC 5869 §2.2)
+// salt — any byte sequence used to randomise extraction; typically the ephemeral pk.
+// ikm  — input key material, e.g. concatenated DH outputs.
+// Returns a 32-byte pseudorandom key, or empty vector on libsodium error.
+static inline std::vector<uint8_t> hkdfExtract(const std::vector<uint8_t>& salt,
+                                                const std::vector<uint8_t>& ikm)
+{
+    crypto_auth_hmacsha256_state state;
+    if (crypto_auth_hmacsha256_init(&state, salt.data(), salt.size()) != 0)
+        return {};
+    if (crypto_auth_hmacsha256_update(&state, ikm.data(), ikm.size()) != 0)
+        return {};
+    std::vector<uint8_t> prk(crypto_auth_hmacsha256_BYTES);
+    if (crypto_auth_hmacsha256_final(&state, prk.data()) != 0)
+        return {};
+    return prk;
+}
+
+// HKDF-Expand: OKM = HMAC-SHA256(PRK, info || 0x01)  (RFC 5869 §2.3, single block)
+// Produces exactly 32 bytes — sufficient for one AES-256 key.
+// info — application-specific domain-separation string (e.g. "WhatSaS-HPKE-v1").
+// Returns empty vector on libsodium error.
+static inline std::vector<uint8_t> hkdfExpand32(const std::vector<uint8_t>& prk,
+                                                  const std::string& info)
+{
+    // T(1) = HMAC-SHA256(PRK, info || 0x01)
+    crypto_auth_hmacsha256_state state;
+    if (crypto_auth_hmacsha256_init(&state, prk.data(), prk.size()) != 0)
+        return {};
+    if (crypto_auth_hmacsha256_update(&state,
+            reinterpret_cast<const unsigned char*>(info.data()), info.size()) != 0)
+        return {};
+    const unsigned char counter = 0x01;
+    if (crypto_auth_hmacsha256_update(&state, &counter, 1) != 0)
+        return {};
+    std::vector<uint8_t> okm(crypto_auth_hmacsha256_BYTES);
+    if (crypto_auth_hmacsha256_final(&state, okm.data()) != 0)
+        return {};
+    return okm;
+}
+
 #endif // CRYPTO_UTILS_HPP

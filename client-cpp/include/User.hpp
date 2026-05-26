@@ -23,10 +23,16 @@ public:
     // Key may arrive after construction
     void setPublicKey(const std::vector<uint8_t>& key);
 
+    // Private key — only set for the local user. Always empty for remote peers.
+    void setPrivateKey(const std::vector<uint8_t>& sk);
+    const std::vector<uint8_t>& getPrivateKey() const;
+    bool hasPrivateKey() const;
+
 private:
     std::string          userId_;
     std::string          username_;
-    std::vector<uint8_t> publicKey_;  // 32 bytes (Curve25519); empty until set
+    std::vector<uint8_t> publicKey_;   // 32 bytes (Curve25519); empty until set
+    std::vector<uint8_t> privateKey_;  // 32 bytes; empty for remote peers
 };
 
 #endif // USER_HPP

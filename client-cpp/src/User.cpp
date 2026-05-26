@@ -30,3 +30,13 @@ void User::setPublicKey(const std::vector<uint8_t>& key) {
     }
     publicKey_ = key;
 }
+
+void User::setPrivateKey(const std::vector<uint8_t>& sk) {
+    if (sk.size() != 32) {
+        throw std::invalid_argument("privateKey must be exactly 32 bytes for Curve25519");
+    }
+    privateKey_ = sk;
+}
+
+const std::vector<uint8_t>& User::getPrivateKey() const { return privateKey_; }
+bool User::hasPrivateKey() const { return !privateKey_.empty(); }

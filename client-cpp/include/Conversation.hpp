@@ -4,6 +4,7 @@
 #include "DecryptedMessage.hpp"
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <set>
 #include <string>
@@ -24,6 +25,12 @@ public:
 
     const std::string& getPeerId() const;
 
+    // Peer's static X25519 public key — stored after first TOFU fetch from key registry.
+    // Used by Client::receiveMessages to call hpkeReceive without a per-message lookup.
+    void setPeerPublicKey(const std::vector<uint8_t>& pk);
+    const std::vector<uint8_t>& getPeerPublicKey() const;
+    bool hasPeerPublicKey() const;
+
     // Count messages in this conversation sent by senderId.
     std::size_t countMessagesFromSender(const std::string& senderId) const;
 
@@ -34,6 +41,7 @@ private:
     std::string peerId_;
     std::vector<DecryptedMessage> messages_;
     std::set<std::string> seenIds_;
+    std::vector<uint8_t> peerPublicKey_;  // 32 bytes; empty until setPeerPublicKey called
 };
 
 // Print all decrypted messages in conv to stdout as:
