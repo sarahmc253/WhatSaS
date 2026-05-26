@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="contract-address" content="0x8b1bd8b4662C02cB141A98dEb07B86a7f699b176">
+    <meta name="sepolia-rpc-url"  content="https://rpc.sepolia.org">
     <title>WhatSaS</title>
     <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.16.0/dist/ethers.umd.min.js"
+            integrity="sha384-id0TslbJZjX9r2IGNL8B1MyE0pjkF0h8S+5bc8YV+VE+AQ7N1aOlGKYy+Dy3CD0V"
+            crossorigin="anonymous"></script>
 </head>
 <body>
     <!-- Navbar is hidden until the user is authenticated -->
@@ -19,6 +24,11 @@
 
     <!-- All views are rendered into this container by app.js -->
     <main id="app"></main>
+
+    <!-- Public footer — visible to everyone, including unauthenticated users -->
+    <footer id="site-footer">
+        <a href="#verify" class="footer-link">Verify a message on-chain</a>
+    </footer>
 
     <script src="node_modules/argon2-browser/dist/argon2-bundled.min.js"></script>
     <script type="module" src="js/app.js"></script>

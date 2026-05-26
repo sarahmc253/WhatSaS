@@ -7,9 +7,11 @@
 
 import * as api   from './api.js';
 import { renderLogin, renderInbox, renderCompose } from './views.js';
+import { renderVerify } from '../blockchain/blockchainVerifyView.js';
 
 const appEl   = document.getElementById('app');
 const navbar  = document.getElementById('navbar');
+const footer  = document.getElementById('site-footer');
 
 // ── Navbar buttons ────────────────────────────────────────────────────────
 document.getElementById('nav-inbox').addEventListener('click',   () => navigate('inbox'));
@@ -28,12 +30,15 @@ async function route() {
     const view = location.hash.slice(1) || 'login';
 
     // Redirect unauthenticated users away from protected views
-    if (!api.isAuthenticated() && view !== 'login') {
+    // verify is public — no login required to check a message's on-chain record
+    const PUBLIC_VIEWS = new Set(['login', 'verify']);
+    if (!api.isAuthenticated() && !PUBLIC_VIEWS.has(view)) {
         navigate('login');
         return;
     }
 
     navbar.hidden = !api.isAuthenticated();
+    footer.hidden = view === 'verify';
 
     switch (view) {
         case 'login':
@@ -44,6 +49,9 @@ async function route() {
             break;
         case 'compose':
             renderCompose(appEl, navigate);
+            break;
+        case 'verify':
+            renderVerify(appEl);
             break;
         default:
             navigate(api.isAuthenticated() ? 'inbox' : 'login');
