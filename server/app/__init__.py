@@ -69,12 +69,14 @@ def create_app():
         # Safe to send from Flask — Gunicorn passes it through the TLS-terminating proxy.
         response.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains'
         # Pure JSON API: block all content types (scripts, frames, images) by default.
-        response.headers['Content-Security-Policy'] = "default-src 'none'"
++       response.headers['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none'"
         # Prevent this API being embedded in any iframe (clickjacking mitigation).
         response.headers['X-Frame-Options'] = 'DENY'
         # Prevent browsers MIME-sniffing a JSON response as HTML/script.
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
+    
+        
 
     from .auth.routes import auth_bp
     from .messages.routes import messages_bp
