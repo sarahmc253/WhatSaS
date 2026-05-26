@@ -118,6 +118,10 @@ export function getUser(username) {
     return request('GET', `/users/${encodeURIComponent(username)}`, { auth: true });
 }
 
+export function getMessage(id) {
+    return request('GET', `/messages/${id}`, { auth: true });
+}
+
 export function sendMessage(payload) {
     return request('POST', '/messages', { body: payload, auth: true });
 }
@@ -126,8 +130,8 @@ export function deleteMessage(id) {
     return request('DELETE', `/messages/${id}`, { auth: true });
 }
 
-export function forwardMessage(id) {
-    return request('POST', `/messages/${id}/forward`, { auth: true });
+export function forwardMessage(id, payload) {
+    return request('POST', `/messages/${id}/forward`, { body: payload, auth: true });
 }
 
 export function revokeMessage(id) {
