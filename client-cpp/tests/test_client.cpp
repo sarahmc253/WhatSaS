@@ -1,5 +1,6 @@
 #include "../include/Client.hpp"
 #include "../src/crypto_utils.hpp"
+#include "../src/hpke_utils.hpp"
 #include <sodium.h>
 #include <stdio.h>
 #include <string>
@@ -21,16 +22,46 @@ static bool aesAvailable() { return crypto_aead_aes256gcm_is_available() != 0; }
 
 static void testConstructorKeyValidation() {
     printf("\nTest 1: Constructor rejects wrong-size keys\n");
+    HpkeKeypair good = hpkeGenerateKeypair();
     for (std::size_t sz : {0u, 16u, 31u, 33u, 64u}) {
-        std::vector<uint8_t> key(sz, 0xAB);
+        std::vector<uint8_t> badKey(sz, 0xAB);
         bool threw = false;
-        try { Client c("https://example.com", "alice", key); }
+        // Wrong-size sk with good pk
+        try { Client c("https://example.com", "alice", badKey, good.pk, ""); }
         catch (const std::invalid_argument&) { threw = true; }
         catch (...) {}
-        char label[64];
-        std::snprintf(label, sizeof(label), "rejects %zu-byte key", sz);
+        char label[80];
+        std::snprintf(label, sizeof(label), "rejects %zu-byte sk", sz);
+        check(label, threw);
+
+        // Good sk with wrong-size pk
+        threw = false;
+        try { Client c("https://example.com", "alice", good.sk, badKey, ""); }
+        catch (const std::invalid_argument&) { threw = true; }
+        catch (...) {}
+        std::snprintf(label, sizeof(label), "rejects %zu-byte pk", sz);
         check(label, threw);
     }
+}
+
+static void testConstructorMismatchedKeypairRejected() {
+    printf("\nTest 1b: Constructor rejects mismatched sk/pk\n");
+    HpkeKeypair kp1 = hpkeGenerateKeypair();
+    HpkeKeypair kp2 = hpkeGenerateKeypair();
+    // kp1.sk paired with kp2.pk — correct sizes but not a valid keypair
+    bool threw = false;
+    try { Client c("https://example.com", "alice", kp1.sk, kp2.pk, ""); }
+    catch (const std::invalid_argument&) { threw = true; }
+    catch (...) {}
+    check("rejects sk from one keypair paired with pk from another", threw);
+
+    // Sanity: matched keypair must pass key validation (may still throw runtime_error
+    // for AES-NI unavailability in this environment, which is after key validation).
+    bool keyValidationPassed = false;
+    try { Client c("https://example.com", "alice", kp1.sk, kp1.pk, ""); keyValidationPassed = true; }
+    catch (const std::invalid_argument&) {}  // key mismatch — fail
+    catch (const std::runtime_error&) { keyValidationPassed = true; }  // AES-NI — key check passed
+    check("accepts a correctly matched keypair (key validation passes)", keyValidationPassed);
 }
 
 static void testEncryptDecryptRoundTrip() {
@@ -48,10 +79,11 @@ static void testEncryptDecryptRoundTrip() {
     check("blob is nonce(12) + pt + tag(16)",
           blob.size() == crypto_aead_aes256gcm_NPUBBYTES + pt.size() + crypto_aead_aes256gcm_ABYTES);
 
-    std::vector<uint8_t> recovered = decryptAes256Gcm(key, blob, ad);
-    check("decrypt returns non-empty result", !recovered.empty());
+    auto recovered = decryptAes256Gcm(key, blob, ad);
+    check("decrypt returns non-empty result", recovered.has_value() && !recovered->empty());
     check("recovered plaintext matches",
-          std::string(reinterpret_cast<const char*>(recovered.data()), recovered.size()) == pt);
+          recovered.has_value() &&
+          std::string(reinterpret_cast<const char*>(recovered->data()), recovered->size()) == pt);
 }
 
 static void testWrongKeyFails() {
@@ -65,8 +97,8 @@ static void testWrongKeyFails() {
     std::vector<uint8_t> blob = encryptAes256Gcm(keyA, "secret", ad);
     check("encrypt with keyA succeeds", !blob.empty());
 
-    std::vector<uint8_t> result = decryptAes256Gcm(keyB, blob, ad);
-    check("decrypt with keyB returns empty", result.empty());
+    auto result = decryptAes256Gcm(keyB, blob, ad);
+    check("decrypt with keyB returns empty", !result.has_value());
 }
 
 static void testAdTamperFails() {
@@ -83,8 +115,8 @@ static void testAdTamperFails() {
     check("encrypt succeeds (precondition)", !blob.empty());
     if (blob.empty()) return;
 
-    std::vector<uint8_t> result = decryptAes256Gcm(key, blob, tamperedAd);
-    check("tampered AD causes authentication failure", result.empty());
+    auto result = decryptAes256Gcm(key, blob, tamperedAd);
+    check("tampered AD causes authentication failure", !result.has_value());
 }
 
 static void testCsprngNoncesAreUnique() {
@@ -115,8 +147,8 @@ static void testShortBlobRejected() {
     std::vector<uint8_t> key(crypto_aead_aes256gcm_KEYBYTES, 0x01);
     // nonce(12) + tag(16) = 28 minimum; supply only 27 bytes
     std::vector<uint8_t> tooShort(27, 0x00);
-    std::vector<uint8_t> result = decryptAes256Gcm(key, tooShort, "ad");
-    check("too-short blob returns empty", result.empty());
+    auto result = decryptAes256Gcm(key, tooShort, "ad");
+    check("too-short blob returns empty", !result.has_value());
 }
 
 static void testBase64Length() {
@@ -146,9 +178,46 @@ static void testBuildAd() {
     check("contains timestamp",    ad.find("\"timestamp\":9999")          != std::string::npos);
     check("no spaces",             ad.find(' ')                           == std::string::npos);
 
+    // Verify key order is deterministic (ordered_json insertion order preserved)
+    auto senderPos    = ad.find("sender_id");
+    auto recipientPos = ad.find("recipient_id");
+    auto msgIdPos     = ad.find("message_id");
+    auto tsPos        = ad.find("timestamp");
+    check("keys in canonical order: sender < recipient < message_id < timestamp",
+          senderPos < recipientPos && recipientPos < msgIdPos && msgIdPos < tsPos);
+
     std::string adEvil = buildAd("a\"b\\c", "bob", "id", 1);
     check("quotes in sender_id are escaped",
           adEvil.find("\"sender_id\":\"a\\\"b\\\\c\"") != std::string::npos);
+}
+
+static void testCiphertextTamperFails() {
+    printf("\nTest 10: Tampered ciphertext is rejected at receiver\n");
+    if (!aesAvailable()) { printf("[SKIP] AES-NI unavailable\n"); return; }
+
+    std::vector<uint8_t> key(crypto_aead_aes256gcm_KEYBYTES);
+    randombytes_buf(key.data(), key.size());
+
+    const std::string ad = buildAd("alice", "bob", "msg001", 1000000);
+    const std::string pt = "tamper me if you dare";
+
+    std::vector<uint8_t> blob = encryptAes256Gcm(key, pt, ad);
+    check("encrypt succeeds (precondition)", !blob.empty());
+
+    constexpr std::size_t minLen =
+        crypto_aead_aes256gcm_NPUBBYTES + 1 + crypto_aead_aes256gcm_ABYTES;
+    if (blob.size() < minLen) {
+        printf("[FAIL] blob too short to contain ciphertext byte — skipping tamper\n");
+        ++failed;
+        return;
+    }
+
+    // Flip a byte in the ciphertext body (after the 12-byte nonce, before the 16-byte tag).
+    std::vector<uint8_t> tampered = blob;
+    tampered[crypto_aead_aes256gcm_NPUBBYTES] ^= 0xFF;
+
+    auto result = decryptAes256Gcm(key, tampered, ad);
+    check("tampered ciphertext rejected by AEAD tag verification", !result.has_value());
 }
 
 // ============================================================================
@@ -161,6 +230,7 @@ int main() {
     printf("=== Client crypto tests (offline) ===\n");
 
     testConstructorKeyValidation();
+    testConstructorMismatchedKeypairRejected();
     testEncryptDecryptRoundTrip();
     testWrongKeyFails();
     testAdTamperFails();
@@ -169,6 +239,7 @@ int main() {
     testBase64Length();
     testGenerateMsgId();
     testBuildAd();
+    testCiphertextTamperFails();
 
     printf("\n=== %d passed, %d failed ===\n", passed, failed);
     return (failed == 0) ? 0 : 1;

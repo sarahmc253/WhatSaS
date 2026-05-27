@@ -331,3 +331,398 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 ---
 
 **Sarah:** update the transcript in docs
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** implement send_message in messages/routes.py. accept recipient_id, ciphertext, nonce, validate all three, insert into messages table with a uuid, sender_id from JWT and created_at then return the new message id. same patterns as auth/routes.py
+
+**Claude:** Read `auth/routes.py` and `messages/routes.py`. Added imports (`re`, `threading`, `uuid`, `datetime`, `mysql.connector`, `get_db`, `request`), a `_invalid_fields` helper matching the auth pattern, and a `SEND_FIELDS` list. Implemented `send_message`: validates all three fields, generates UUID, pulls `sender_id` from `get_jwt_identity()`, inserts into `messages` with `created_at`, catches FK violation (errno 1452) → 404, returns `{'id': message_id}` with 201.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** what are the tradeoffs of recording a blockchain entry per message vs batching
+
+**Claude:** Per-message recording gives an immediate tamper-evident audit trail with simple querying but costs scale linearly and chain latency blocks the send flow. Batching (Merkle root of N messages) dramatically reduces chain writes and decouples throughput from chain speed, but requires storing the tree, introduces an anchoring delay, and adds complexity around partial batches and crash recovery. Recommended batching with a fixed interval — accumulate a Merkle tree of message IDs/hashes on a short interval (e.g. every 30s or 1000 messages), anchor the root, and use the existing UUID per row as the leaf set. The tradeoff is that messages are not provably on-chain until the next anchor.
+
+---
+
+**Sarah:** if we batch on the server side, how does the verification page work independently of the server?
+
+**Claude:** It doesn't — that's the core tension. The verification page can read the chain root independently, but to verify a specific message it needs the Merkle proof, which can only come from whoever built the tree (the server). A compromised server could omit a message from the tree and never provide a proof. Outlined three approaches to close the gap: client-assisted batching (clients submit signed hashes the server can't produce), a public batch log (server publishes the full leaf list to an independently readable store before anchoring, so the verification page can reconstruct proofs itself), or per-message recording (fully trustless but expensive). Recommended the public batch log as the realistic middle ground.
+
+---
+
+**Sarah:** what if the client builds the merkle tree locally from its own ciphertexts and sends the root to the server instead
+
+**Claude:** Explained that this gives a cleaner trust model — the server can't tamper with tree construction — and fits the existing design since ciphertexts never leave the client decrypted. However the chain entry only commits to one client's outbox at a point in time and says nothing about delivery or receipt. Also, each client anchoring its own root doesn't solve the volume problem. Recommended a hybrid: clients send `hash(ciphertext)` alongside each message; server batches those client-originated hashes into the Merkle tree and anchors the root; clients store their leaf hash locally. Server still builds the aggregate tree but the leaves are client commitments — a server that drops a message produces a leaf that doesn't match the client's stored hash, detectable without trusting the server's proof.
+
+---
+
+**Sarah:** what are the tradeoffs of triggering the batch on a fixed timer vs on session end? beyond data loss if a session is interrupted
+
+**Claude:** Fixed timer gives predictable anchoring latency, works for background/server-to-server messages with no session concept, may waste writes on idle periods, and requires a scheduler. Session end produces semantically coherent batches with no wasted writes, but is ambiguous in multi-device contexts, creates unpredictable chain write timing (potential gas spikes at end of day), and leaks conversation-boundary metadata to the chain. Fixed timer is the safer default for reliability and metadata privacy. Recommended using session end as a supplementary trigger — flush pending messages on a clean logout but rely on the timer as the primary mechanism.
+
+---
+
+**Sarah:** in send_message, store the client-supplied content_hash field (keccak256 of ciphertext, computed by client) alongside the messages table. then add a separate function that runs every 5 minutes: fetch all unanchored content_hashes for each conversation, build a merkle root, call DataStore.storeData via web3.py and store the tx_hash against those messages. also trigger this flush on clean session end
+
+**Claude:** Read `contracts/DataStore.sol` and `contracts/abi.json`. Noted discrepancy: `storeData` takes `bytes32` in the `.sol` but `string` in the ABI. Proposed implementation across four files — `anchor.py` (new), `messages/routes.py`, `__init__.py`, `auth/routes.py` — with `_connect()` reading from `os.getenv()` directly.
+
+**Sarah:** [REJECTED] — `_connect()` is reading from `os.getenv` directly, bypassing the validated `app.config`. fix it to use `current_app.config` the same way `get_db()` does in `__init__.py`.
+
+**Claude:** Explained that `current_app` requires an active Flask application context, which background threads don't get automatically. Proposed using `current_app.config` in `_connect()`, and having all callers outside a request context push one via `with app.app_context()` — the scheduler job via a closure over `app`, and the logout flush thread via `current_app._get_current_object()` passed into the thread. Request-context callers (flush route) already have an app context and need no change.
+
+**Sarah:** the ABI is correct, it reflects the deployed contract on Sepolia. treat the ABI as the source of truth and proceed.
+
+**Claude:** Confirmed — `storeData` takes `string`, so the Merkle root is passed as a hex string (e.g. `"0xabcd..."`). Created `server/app/messages/anchor.py` with `_connect()` using `current_app.config`, `_merkle_root()` building a keccak256 binary tree (odd leaves duplicated), and `anchor_pending(user_id=None)` that fetches unanchored rows, groups by normalised conversation key (`LEAST`/`GREATEST` on IDs), submits one `storeData(root_hex)` tx per conversation with nonce incremented locally, and writes `anchor_tx_hash` back to the rows. A `threading.Lock` prevents concurrent runs. Updated `messages/routes.py` to add `content_hash` to `SEND_FIELDS`, validate it as a 64-char hex string, normalise to `0x` prefix, and store it in the INSERT. Added `POST /messages/flush` endpoint. Updated `__init__.py` to load `WEB3_RPC_URL`, `CONTRACT_ADDRESS`, `WALLET_PRIVATE_KEY` into `app.config` (optional — logs a warning and skips the scheduler if missing), and start an APScheduler `BackgroundScheduler` with a 5-minute interval guarded against double-start in Flask debug/reloader mode. Updated `auth/routes.py` to add `POST /auth/logout` which fires `anchor_pending(user_id)` in a daemon thread within a pushed app context.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** The /revoke endpoint is a stub. Implement it: check the requester owns the message, then delete the forwarded copy from the DB (not the original), and return 403 if they don't own it.
+
+**Claude:** Explored codebase, found stub at `server/app/messages/routes.py` lines 27–30. Asked how forwarded messages are stored in the DB.
+
+**Sarah:** Same messages table, flagged by `original_message_id`. `sender_id` is the forwarder (owner).
+
+**Claude:** Proposed implementing revoke by querying `messages WHERE id = %s AND original_message_id IS NOT NULL`, checking `sender_id == current_user_id`, and deleting the row on success.
+
+**Sarah:** [REJECTED] — don't delete the row. Schema has `is_revoked` on `messages` and `revoked_at` on `message_access`. Set `is_revoked = 1` and `revoked_at = now()` instead.
+
+**Claude:** Updated implementation to soft-delete: `UPDATE messages SET is_revoked = 1` and `UPDATE message_access SET revoked_at = %s` in a single transaction with rollback on failure. Also added `from datetime import datetime, timezone` and `from .. import get_db` imports. Returns 404 if message not found, 403 if requester is not the sender.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update all column name references across the codebase to match the new schema. old names: argon2id_server_hash, argon2id_server_salt, aes_gcm_ciphertext, aes_gcm_nonce_96bit, hpke_kem_output, hpke_sender_ephemeral_pk, blockchain_tx_id. new names: password_hash, password_salt, ciphertext, nonce, kem_output, ephemeral_pk, blockchain_record_id
+
+**Claude:** Searched all non-venv files for the seven old names. Found hits only in `server/app/auth/routes.py` (the other five names had no code references yet). Updated `auth/routes.py`: renamed local variable `argon2id_salt` → `password_salt`, updated INSERT column names `argon2id_server_hash` → `password_hash` and `argon2id_server_salt` → `password_salt`, updated SELECT column name, replaced both `user['argon2id_server_hash']` dict accesses, and updated the rehash UPDATE SET clause. Left `docs/transcript_sarah.md` unchanged as it is historical record.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update anchor.py to write to the blockchain_records table instead of storing anchor_tx_hash directly on messages. after a successful chain tx, insert a row into blockchain_records with merkle_root, conv_a, conv_b, tx_hash, block_number, block_timestamp, then update blockchain_record_id on the anchored message rows to point to it
+
+**Claude:** Updated `anchor.py`: added `uuid` and `datetime`/`timezone` imports; replaced `anchor_tx_hash IS NULL` filter with `blockchain_record_id IS NULL` in both SELECT queries; after sending the tx, now calls `wait_for_transaction_receipt(timeout=120)` and `get_block()` to obtain `block_number` and `block_timestamp` before touching the DB; inserts a `blockchain_records` row with all seven fields, then updates `messages.blockchain_record_id` to point at it — both inside a single `db.commit()` so they succeed or fail atomically. Nonce is incremented immediately after `send_raw_transaction` (before the receipt wait) so subsequent conversations can be submitted without waiting for each confirmation.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** write a pytest test that registers two users, has user A send a message, then tries to GET that message as user B and asserts a 403 response
+
+**Claude:** Noted no existing test infrastructure. Identified that `GET /messages/<id>` route did not exist (required for 403 to be meaningful), and that the messages blueprint had a double url_prefix bug (`url_prefix='/messages'` + route decorators also starting with `/messages` made all routes accessible at `/messages/messages/...`). Asked Sarah to confirm the bug before fixing.
+
+---
+
+**Sarah:** you mentioned a url_prefix double slash bug. can you show me what it is before making any changes
+
+**Claude:** Explained that `__init__.py` registers the messages blueprint at `url_prefix='/messages'`, while every route decorator in `routes.py` also begins with `/messages`. Flask concatenates them, so all message routes were only reachable at `/messages/messages`, `/messages/messages/<id>`, etc. Showed that auth routes are not affected — auth route decorators use `/register` and `/login` (no `/auth` prefix), so concatenation produces the correct `/auth/register`, `/auth/login`. The bug was present since PR #6 (flask-routes, 20 May), when both files were introduced together.
+
+---
+
+**Sarah:** yes fix it pls. has this bug been here since the start? would any existing functionality like /login or /register have been affected?
+
+**Claude:** Confirmed the bug was introduced in commit `f23c333` (PR #6, 20 May 2026) — both `__init__.py` and `routes.py` landed in the same commit with the double prefix. `/login` and `/register` were not affected. Fixed by changing `url_prefix='/messages'` to `url_prefix=''` in `__init__.py`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** now write that test
+
+**Claude:** Added `GET /messages/<string:message_id>` route to `routes.py` with ownership check (`sender_id` or `recipient_id` must match JWT identity, else 403). Created `pytest.ini` (testpaths, pythonpath), `server/tests/__init__.py`, `server/tests/conftest.py` (dummy env vars + app/client fixtures), and `server/tests/test_messages.py`. Test registers alice and bob via mocked DB, logs both in using real auth endpoints with a precomputed argon2id hash in the mock row, user A sends a message via the stub endpoint, then user B GETs the message with a mock DB row showing user A as sender and a third party as recipient — asserts 403. Installed pytest into venv. Test passes.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** why are the argon2id parameters in the test lower than production. could this mask a bug where the wrong hash parameters are used?
+
+**Claude:** Checked both files — parameters were actually identical (not lower). However, the concern was valid: the test duplicated the `PasswordHasher(...)` constructor rather than importing the production `ph` instance. Because argon2 embeds parameters in the hash string, `ph.verify()` always uses the hash's own embedded params regardless of the verifier's constructor — so a parameter drift would never cause the test to fail. Fixed by replacing the duplicate constructor with `from server.app.auth.routes import ph as _ph`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in anchor.py, after send_raw_transaction store the tx hash and mark messages as anchored immediately without waiting for receipt. add a second scheduled job that runs every 2 minutes to find blockchain_records where block_number is NULL, fetch the receipt, and update block_number and block_timestamp if confirmed.
+
+**Claude:** Split anchoring into two phases. In `_run`: removed `wait_for_transaction_receipt` and `get_block` calls; the `blockchain_records` INSERT now writes `NULL, NULL` for `block_number`/`block_timestamp`; messages are linked to the record immediately after `send_raw_transaction`. Added `_confirm_lock` and a new `confirm_pending`/`_confirm_run` pair: `_confirm_run` queries `blockchain_records WHERE block_number IS NULL`, calls `get_transaction_receipt` (non-blocking — returns `None` if still pending), and on a confirmed receipt fetches the block and updates `block_number` and `block_timestamp` in a separate commit. Updated `__init__.py` to import `confirm_pending` and register `_scheduled_confirm` as a second APScheduler job on a 2-minute interval alongside the existing 5-minute anchor job.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update transcript in docs
+
+---
+
+**Sarah:** Add a POST /forward endpoint to the Express server that accepts { messageId, recipientUsername } and returns 403 if the requester doesn't own the message.
+
+**Claude:** Noted the server is Flask not Express. Found the existing stub at `POST /messages/<string:message_id>/forward`. Read the messages table schema from git history — columns: `id`, `sender_id`, `recipient_id`, `ciphertext`, `nonce`, `content_hash`, `created_at`.
+
+---
+
+**Sarah:** Add a POST /forward route in Flask that accepts { messageId, recipientUsername } and returns 403 if the requester doesn't own the message.
+
+**Claude:** Proposed implementing the stub: parse `recipientUsername` from body, query `sender_id` from messages table, return 403 if it doesn't match `get_jwt_identity()`, verify recipient exists, then return 200 placeholder.
+
+**Sarah:** [REJECTED] — the forward endpoint validates ownership but never inserts the forwarded message into the DB. Add the INSERT before returning 200.
+
+**Claude:** Proposed fetching the original message's `ciphertext`, `nonce`, `content_hash` and copying them into a new messages row for the new recipient.
+
+**Sarah:** [REJECTED] — the forward endpoint copies the ciphertext directly but that ciphertext is encrypted to the original recipient's public key, not the new recipient's. Is this intentional or should the server be rejecting re-encryption entirely and leaving that to the client?
+
+**Claude:** Explained that copying ciphertext is cryptographically broken — the ciphertext is HPKE-sealed to the original recipient's X25519 key so the new recipient can't decrypt it. The correct design is for the client to decrypt locally and re-encrypt for the new recipient, then send the new payload to the server. The server accepts `{ recipientUsername, ciphertext, nonce, content_hash }` and inserts the new record, matching the same flow as `POST /messages`.
+
+---
+
+**Sarah:** yes [proceed with client-re-encrypts approach]
+
+**Claude:** Implemented `forward_message` in `server/app/messages/routes.py`:
+- Added imports: `re`, `uuid`, `datetime/timezone`, `mysql.connector`, `request`, `get_db`, plus `_HEX32_RE` regex and `_invalid_fields` helper (matching the pattern from `send_message`).
+- Validates body is a JSON object; requires `recipientUsername`, `ciphertext`, `nonce`, `content_hash`.
+- Validates `content_hash` is a 64-char hex string.
+- Queries `sender_id` from messages; returns 404 if not found, 403 if `sender_id != get_jwt_identity()`.
+- Looks up recipient by `recipientUsername`; returns 404 if not found.
+- Normalises `content_hash` to `0x`-prefixed, generates new UUID, inserts new messages row with client-supplied re-encrypted payload.
+- Returns `{ id: new_id }` 201 on success.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** remove all duplicate from .. import get_fb import in messages/routes.py
+
+**Claude:** Found two identical `from .. import get_db` lines (lines 8 and 10) in `server/app/messages/routes.py`. Removed the duplicate on line 10.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** jwt_required and get_jwt_identity are used in messages/routes.py but never imported. add them
+
+**Claude:** Added `from flask_jwt_extended import jwt_required, get_jwt_identity` to `server/app/messages/routes.py`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the forward insert doesnt set original_message_id so revoke can never find the row. fix the insert to include it
+
+**Claude:** Added `original_message_id` to the forward INSERT column list and passed `message_id` (the forwarded-from row's ID) as its value. This ensures the revoke endpoint's `WHERE original_message_id IS NOT NULL` filter matches forwarded rows.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the test posts an empty body to /messages but the endpoint now validates required fields so it returns 400 not 200. update the test to post a valid message payload with a mocked db
+
+**Claude:** Proposed updated test with `ciphertext: 'deadbeef'`, `nonce: 'cafebabe'`, `content_hash: 'a' * 64`.
+
+**Sarah:** [REJECTED] — does the /messages endpoint validate the format of ciphertext and nonce or only content_hash?
+
+**Claude:** Confirmed only `content_hash` is validated against `_HEX32_RE` (64-char hex). `ciphertext` and `nonce` are only checked to be non-empty strings via `_invalid_fields`, so any non-empty string passes.
+
+**Claude:** Updated `test_messages.py`: replaced empty body `{}` with a valid payload (`recipient_id`, `ciphertext`, `nonce`, `content_hash: 'a' * 64`), wrapped the POST in `patch('server.app.messages.routes.get_db', return_value=_db())`, and changed the assertion from 200 to 201.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript with all prompts and replies
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
+**Sarah:** Write a systemd service file to run the Flask app in server/run.py using gunicorn from the project venv at /home/student/WhatSaS/venv/bin/gunicorn. WorkingDirectory is /home/student/WhatSaS, run as user student, bind to 127.0.0.1:5000, and restart on failure.
+
+**Claude:** Proposed writing `whatsas.service` with `EnvironmentFile=/home/student/WhatSaS/.env` to load env vars.
+
+**Sarah:** Does systemd's EnvironmentFile handle quoted values in a .env file, and do any values in our .env need adjusting before this will work?
+
+**Claude:** Explained that `EnvironmentFile` handles simple `KEY=VALUE` pairs correctly — quotes are stripped, no shell substitution. Found one issue in `.env`: `FLASK_DEBUG=true ` has a trailing space on line 7. `python-dotenv` strips it when parsing the file itself, but `EnvironmentFile` does not — so systemd would set `FLASK_DEBUG` to `"true "` (with a trailing space), which would fail the `== 'true'` check in `run.py`. Recommended fixing to `FLASK_DEBUG=false` anyway since debug mode shouldn't run under gunicorn (Werkzeug reloader conflicts with gunicorn workers). All other values are compatible.
+
+**Sarah:** yes [proceed]
+
+**Claude:** Created `whatsas.service` at project root with `User=student`, `WorkingDirectory=/home/student/WhatSaS`, `EnvironmentFile=/home/student/WhatSaS/.env`, gunicorn binding to `127.0.0.1:5000` with 2 workers, logs redirected to stdout/stderr (captured by journald), `Restart=on-failure`, `RestartSec=5`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** add a getuser(username) function to api.js that calls GET /users/:username with auth and returns the response. we need it to fetch a recipient's x25519_public_key
+
+**Claude:** Checked for `GET /users/:username` in the Flask server before writing the client function. Found no such route — only `auth/routes.py` and `messages/routes.py` touch the `users` table. Asked Sarah to confirm whether the route needs to be created first.
+
+---
+
+**Sarah:** does GET /users/:username exist in the flask server or do we need to create it
+
+**Claude:** Confirmed it does not exist. Offered to create it.
+
+---
+
+**Sarah:** create a GET /users/<username> route in the Flask server that returns the user's id, username and x25519_public_key ONLY. require jwt auth. return 404 if the user doesnt exist
+
+**Claude:** Created `server/app/users/__init__.py` (empty) and `server/app/users/routes.py` with a `users_bp` blueprint. Route is `GET /<username>`, decorated with `@jwt_required()`, queries `id`, `username`, `x25519_public_key` from the `users` table, returns 404 if not found. Updated `server/app/__init__.py` to import and register `users_bp` at `url_prefix='/users'`.
+
+---
+
+**Sarah:** the get_messages route in server/app/messages/routes.py returns an empty list. implement it to query the database for all messages where recipient_id equals the current user's JWT identity, returning id, sender_id, ciphertext, nonce, ephemeral_public_key and created_at for each message
+
+**Claude:** Read `messages/routes.py` and identified the stub. Proposed querying `SELECT id, sender_id, ciphertext, nonce, ephemeral_public_key, created_at FROM messages WHERE recipient_id = %s` using a `dictionary=True` cursor, following the pattern from `get_message`.
+
+**Sarah:** will created_at from MySQL serialise correctly to JSON with jsonify or do we need to convert it to an ISO string first
+
+**Claude:** Flask 3.x uses `DefaultJSONProvider` which calls `.isoformat()` on `datetime` objects — no manual conversion needed. mysql-connector-python returns `datetime.datetime` for DATETIME/TIMESTAMP columns, which Flask serialises cleanly to ISO 8601.
+
+**Sarah:** you didnt answer. does flask's jsonify handle Python datetime objects from MySQL or will it throw a TypeError at runtime?
+
+**Claude:** Confirmed it will not throw. Flask 3.x's `DefaultJSONProvider.default()` explicitly handles `datetime` instances via `.isoformat()`. The MySQL connector returns `datetime.datetime` for those columns, so serialisation is automatic and correct.
+
+**Sarah:** yes
+
+**Claude:** Implemented `get_messages`: queries DB with `dictionary=True` cursor, `WHERE recipient_id = %s` parameterised with JWT identity, fetches all rows, returns `{'messages': rows}` 200.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** rebase this branch onto main
+
+**Claude:** Ran `git rebase main` — reported "up to date". Fetched origin and ran `git rebase origin/main` instead, which surfaced conflicts (local `main` was stale).
+
+---
+
+**Sarah:** try again
+
+**Claude:** Confirmed merge base was `47e3c7a` but `origin/main` was at `b00bf02` (two new commits ahead). Ran `git fetch origin && git rebase origin/main`. Conflict in `docs/transcript_sarah.md` on commit `3414de5`: both branches added different transcript entries at the same location. Asked how to resolve.
+
+**Sarah:** keep mains first and then this branches
+
+**Claude:** Resolved first conflict (commit 3414de5): placed origin/main's entries (getuser / GET /users/:username creation) before the branch's entries (get_messages implementation). Resolved second conflict in the same commit (second transcript block). Continued rebase — commit `249c503` conflicted in both `client-web/js/views.js` and `docs/transcript_sarah.md`. In views.js: HEAD had `import { decryptMessage }`, branch had `import encryptMessage` (default) and `import { getUser, sendMessage }` — combined into `import encryptMessage, { decryptMessage }` plus the named api imports. In transcript: placed HEAD content (hexToBytes/tryDecrypt entries) first, then 249c503's compose/encrypt entries. Commit `26ff9e3` conflicted in views.js: branch changed `encryptMessage` from default to named export — resolved to `import { encryptMessage, decryptMessage }`. Rebase completed successfully.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** Make messages.ephemeral_pk NOT NULL to match the encrypted-message API contract. messages.ephemeral_pk is nullable in docs/schema.sql, but server/app/messages/routes.py enforces non-empty ephemeral_pk on /messages POST and returns it on /messages GET; additionally, a separate INSERT INTO messages path omits ephemeral_pk, which will persist NULL rows.
+
+**Claude:** Identified three changes needed: (1) `docs/schema.sql` line 123 — `ephemeral_pk` nullable. (2) forward route `_invalid_fields` check missing `ephemeral_pk`. (3) forward INSERT omits `ephemeral_pk`. Added `NOT NULL` to the schema column. Started to add `ephemeral_pk` alongside `content_hash` in the forward route validation.
+
+**Sarah:** [REJECTED] — remove content_hash entirely from the forward route validation and insert. replace it with ephemeral_pk only, matching the send route.
+
+**Claude:** Replaced `['recipientUsername', 'ciphertext', 'nonce', 'content_hash']` with `['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk']` in the forward route's `_invalid_fields` call, removed the `_HEX32_RE` regex check and the `content_hash` normalisation line, and updated the INSERT to use `ephemeral_pk` in place of `content_hash`. Confirmed no remaining `_HEX32_RE` or `content_hash` references in the file.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in the get_messages query in routes.py, add AND is_revoked=0 to the WHERE clause so revoked messages don't appear in the inbox
+
+**Claude:** Added `AND is_revoked = 0` to the `WHERE recipient_id = %s` clause in the `get_messages` query.
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
+**Sarah:** in hexToBytes in views.js, add a validation check that throws if the string contains any character outside 0-9a-fA-F before processing, so invalid hex fails loudly instead of silently producing zero bytes
+
+**Claude:** Added `/[^0-9a-fA-F]/` regex check immediately after the odd-length guard in `hexToBytes`. Throws `'hexToBytes: invalid hex character'` before the loop runs, so garbage input can't produce silent `0x00` bytes via `parseInt`'s `NaN`→`0` coercion.
+
+---
+
+**Sarah:** in tryDecrypt in views.js, the server returns ephemeral_pk but the code reads msg.ephemeral_public_key. fix it to use msg.ephemeral_pk
+
+**Claude:** Updated both references in `tryDecrypt`: the guard check (`!msg.ephemeral_public_key` → `!msg.ephemeral_pk`) and the `importKey` call (`hexToBytes(msg.ephemeral_public_key)` → `hexToBytes(msg.ephemeral_pk)`).
+
+---
+
+**Sarah:** update docs/transcript
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
+**Sarah:** in renderCompose in views.js, remove the encryptionReady = false block that disables the send button and shows the 'temporarily unavailable' message. we're implementing it now
+
+**Claude:** Removed the `const encryptionReady = false` variable, the block that disabled the send button and set the unavailable error message, the `if (!encryptionReady) return` guard in the submit handler, and changed `btn.disabled = !encryptionReady` in the `finally` block to `btn.disabled = false`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in views.js, import getUser and sendMessage from api.js
+
+**Claude:** Added `import { getUser, sendMessage } from './api.js';` below the existing `import * as api` line. Noted that `getUser` does not yet exist in `api.js` and offered to add it.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in the compose form submit handler in views.js after validating that recipient and content are not empty, call getUser(recipient) and throw a user-facing error if the user is not found or has no x25519_public_key
+
+**Claude:** Proposed the edit but it still called `encryptForRecipient`, which does not exist anywhere in the codebase.
+
+**Sarah:** [REJECTED] — you're still calling encryptForRecipient which doesn't exist. what are you planning to replace it with?
+
+**Claude:** Checked `client-web/js/` — no crypto module exists yet. Proposed using a `TODO` placeholder or passing `x25519_public_key` through as a parameter to whatever encrypt function gets written next.
+
+---
+
+**Sarah:** import encryptMessage from ../crypto/messageEncryption.js and use it directly. dont use a placeholder
+
+**Claude:** Added `import encryptMessage from '../crypto/messageEncryption.js';` and proposed calling `encryptMessage(content, recipientUser.x25519_public_key)`.
+
+**Sarah:** [REJECTED] — encryptMessage expects a CryptoKey as the second argument, but recipientUser.x25519_public_key is a base64 string from the server. how are you handling that conversion?
+
+**Claude:** Explained the inline `importKey` approach: decode base64 with `atob`, wrap in `Uint8Array`, call `crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, [])`, pass the resulting `CryptoKey` to `encryptMessage`.
+
+---
+
+**Sarah:** there's a getPublicKeyBytes helper in keypair.js but no import helper. add the inline importKey for the recipient's base64 public key directly in the submit handler as you described, then pass the resulting CryptoKey to encryptMessage
+
+**Claude:** Read `keypair.js` — confirmed `getPublicKeyBytes` exports raw bytes, consistent with the `atob` → `Uint8Array` → `importKey('raw', ...)` inverse. Read `messageEncryption.js` — confirmed it returns `{ ephemeralPublicKey: CryptoKey, nonce: Uint8Array, ciphertext: Uint8Array }`. Proposed the edit but stalled on two gaps: no keccak library for `content_hash`, and `ephemeral_pk` missing from the server INSERT (making decryption impossible).
+
+**Sarah:** [REJECTED] — encryptMessage returns { ephemeralPublicKey, nonce, ciphertext } as CryptoKey and Uint8Arrays but api.sendMessage needs hex strings. how are you converting them before the POST?
+
+**Claude:** Checked `package.json` (only `argon2-browser` — no keccak library) and the server `SEND_FIELDS` / INSERT. Flagged: (1) no keccak library available for `content_hash`; (2) `ephemeral_pk` is missing from both `SEND_FIELDS` and the INSERT, making recipient decryption impossible. Asked how to proceed on both.
+
+---
+
+**Sarah:** fix the server insert to include ephemeral_pk, drop content_hash from the required fields then write the hex conversions and call sendMessage with the correct payload
+
+**Claude:** In `server/app/messages/routes.py`: replaced `SEND_FIELDS` with `['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']`, removed `_HEX32_RE` and the `content_hash` validation block, updated the INSERT columns and bound values to use `ephemeral_pk` in place of `content_hash`. In `client-web/js/views.js`: submit handler now calls `getUser(recipient)`, throws `'Recipient not found or has no encryption key.'` if the user or key is missing, decodes `x25519_public_key` from base64 and imports it as a `CryptoKey` inline, calls `encryptMessage(content, recipientPublicKey)`, defines a `toHex` helper to convert `Uint8Array` to hex, exports `ephemeralPublicKey` to raw bytes, then calls `sendMessage({ recipient_id, ciphertext, nonce, ephemeral_pk })` with all four values as hex strings.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]

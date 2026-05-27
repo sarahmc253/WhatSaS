@@ -4,9 +4,11 @@ project(sas-secure-messaging VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O2")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED) #SQLite3 for local cache for user. I chose it over MySql for fast lookups, offline capability, etc.
+find_package(nlohmann_json REQUIRED)
 
 # libsodium does not ship a CMake config package; locate it via find_library/find_path
 find_library(SODIUM_LIB NAMES sodium libsodium REQUIRED)
@@ -21,6 +23,7 @@ include_directories(include ${SODIUM_INCLUDE})
 
 add_executable(sas-client
   src/main.cpp
+  src/Auth.cpp
   src/User.cpp
   src/Message.cpp
   src/MessageStore.cpp
@@ -36,6 +39,7 @@ target_link_libraries(sas-client PRIVATE
   OpenSSL::Crypto
   ${SODIUM_LIB}
   SQLite::SQLite3
+  nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
 
@@ -52,6 +56,7 @@ target_link_libraries(test_tcp PRIVATE
   OpenSSL::Crypto
   ${SODIUM_LIB}
   SQLite::SQLite3
+  nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
 add_test(NAME TCP_Socket_Test COMMAND test_tcp)
@@ -67,6 +72,7 @@ target_link_libraries(test_http PRIVATE
   OpenSSL::Crypto
   ${SODIUM_LIB}
   SQLite::SQLite3
+  nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
 # Network tests are opt-in — run manually with: ctest -L network
@@ -90,6 +96,49 @@ target_link_libraries(test_client PRIVATE
   OpenSSL::Crypto
   ${SODIUM_LIB}
   SQLite::SQLite3
+  nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
 add_test(NAME Client_Crypto_Test COMMAND test_client)
+
+add_executable(test_conversation
+  tests/test_conversation.cpp
+  src/Message.cpp
+  src/MessageStore.cpp
+  src/Conversation.cpp
+  src/Client.cpp
+  src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
+  src/User.cpp
+)
+target_link_libraries(test_conversation PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  nlohmann_json::nlohmann_json
+  ${PLATFORM_LIBS}
+)
+add_test(NAME Conversation_Test COMMAND test_conversation)
+
+add_executable(test_hpke
+  tests/test_hpke.cpp
+  src/User.cpp
+  src/Message.cpp
+  src/MessageStore.cpp
+  src/Conversation.cpp
+  src/Client.cpp
+  src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
+)
+target_link_libraries(test_hpke PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  nlohmann_json::nlohmann_json
+  ${PLATFORM_LIBS}
+)
+add_test(NAME HPKE_Test COMMAND test_hpke)
