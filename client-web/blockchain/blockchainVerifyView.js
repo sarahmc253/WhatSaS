@@ -54,9 +54,9 @@ function getConfig() {
             'Contract address is not configured. Set <meta name="contract-address" content="0x…"> in index.html.'
         );
     }
-    if (!rpcUrl || !rpcUrl.startsWith('http')) {
+    if (!rpcUrl || !/^https:\/\/.+/.test(rpcUrl)) {
         throw new Error(
-            'Sepolia RPC URL is not configured. Set <meta name="sepolia-rpc-url" content="https://…"> in index.html.'
+            'Sepolia RPC URL is not configured or insecure. Set <meta name="sepolia-rpc-url" content="https://…"> in index.html.'
         );
     }
 
