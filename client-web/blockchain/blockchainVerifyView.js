@@ -13,9 +13,10 @@
  * and has not been altered since anchoring.
  *
  * How keccak256 matching works:
- *   - On-chain: storeData(string data) → contract stores keccak256(abi.encodePacked(data))
- *   - Client:   ethers.keccak256(ethers.toUtf8Bytes(content)) — identical encoding
- *   - dataHash is an *indexed* bytes32 topic, so ethers decodes it from topics[2], not args
+ *   - Server builds Merkle root of conversation's content_hash values (ordered by created_at)
+ *   - Calls storeData(merkle_root) — contract stores the bytes32 root directly, no re-hashing
+ *   - getRecord() returns that bytes32 root
+ *   - User pastes their saved Merkle root hex → page normalises and compares directly to on-chain bytes32
  */
 
 // ABI fragments — event for log parsing to extract recordId; getRecord to fetch hash+timestamp
@@ -53,9 +54,9 @@ function getConfig() {
             'Contract address is not configured. Set <meta name="contract-address" content="0x…"> in index.html.'
         );
     }
-    if (!rpcUrl || !rpcUrl.startsWith('http')) {
+    if (!rpcUrl || !/^https:\/\/.+/.test(rpcUrl)) {
         throw new Error(
-            'Sepolia RPC URL is not configured. Set <meta name="sepolia-rpc-url" content="https://…"> in index.html.'
+            'Sepolia RPC URL is not configured or insecure. Set <meta name="sepolia-rpc-url" content="https://…"> in index.html.'
         );
     }
 
@@ -93,10 +94,15 @@ export function renderVerify(container) {
                 <div class="verify-onchain-info" id="onchain-info"></div>
 
                 <div class="form-group" style="margin-top:1.5rem">
-                    <label for="v-content">Original message content</label>
+                    <label for="v-content">Merkle root (saved locally by your client)</label>
                     <textarea id="v-content"
-                              placeholder="Paste the original message text exactly as stored — whitespace matters."
-                              style="min-height:140px; font-family:monospace; font-size:.875rem;"></textarea>
+                              placeholder="Paste your locally saved Merkle root hex string (0x…)"
+                              style="min-height:80px; font-family:monospace; font-size:.875rem;"></textarea>
+                    <p style="font-size:.8rem;color:var(--muted);margin-top:.375rem">
+                        The keccak256 Merkle root your client computed from the conversation's
+                        message hashes before anchoring. Retrieve it from the server DB:
+                        <code style="font-size:.75rem">SELECT merkle_root FROM blockchain_records WHERE tx_hash = '…'</code>
+                    </p>
                 </div>
                 <div class="compose-actions">
                     <button class="btn btn-primary" id="btn-verify">Verify integrity</button>
@@ -236,27 +242,34 @@ function handleVerify() {
     }
 
     if (content === '') {
-        setStatus(resultEl, 'error', 'Paste the original message content before verifying.');
+        setStatus(resultEl, 'error', 'Paste your locally saved Merkle root before verifying.');
         return;
     }
 
-    // Do NOT trim — keccak256 is sensitive to every character including whitespace.
-    // keccak256(toUtf8Bytes(s)) === Solidity keccak256(abi.encodePacked(string s))
-    const computedHash = window.ethers.keccak256(window.ethers.toUtf8Bytes(content));
-    const match = computedHash.toLowerCase() === state.onchainHash.toLowerCase();
+    // The contract stores the Merkle root directly as bytes32 — no re-hashing.
+    // Normalise both sides to lowercase 0x-prefixed hex and compare directly.
+    const pasted = content.trim().toLowerCase();
+    const normalised = pasted.startsWith('0x') ? pasted : '0x' + pasted;
+
+    if (!/^0x[0-9a-f]{64}$/.test(normalised)) {
+        setStatus(resultEl, 'error', 'Enter a valid 32-byte hex Merkle root (64 hex characters, with or without 0x prefix).');
+        return;
+    }
+
+    const match = normalised === state.onchainHash.toLowerCase();
 
     if (match) {
         resultEl.className = 'success-msg';
         resultEl.innerHTML =
-            `<strong>PASS</strong> — Message integrity verified.<br>
+            `<strong>PASS</strong> — Merkle root matches on-chain record. Conversation batch integrity verified.<br>
             Recorded on-chain at <strong>${esc(formatDate(state.timestamp))}</strong>.<br>
-            <span class="verify-hash-line">Hash: <code class="verify-hash">${esc(computedHash)}</code></span>`;
+            <span class="verify-hash-line">Root: <code class="verify-hash">${esc(normalised)}</code></span>`;
     } else {
         resultEl.className = 'error-msg';
         resultEl.innerHTML =
-            `<strong>FAIL</strong> — Hash mismatch. The content does not match the on-chain record.<br>
-            <span class="verify-hash-line">Expected:&nbsp;<code class="verify-hash">${esc(state.onchainHash)}</code></span><br>
-            <span class="verify-hash-line">Computed:&nbsp;<code class="verify-hash">${esc(computedHash)}</code></span>`;
+            `<strong>FAIL</strong> — Merkle root does not match on-chain record.<br>
+            <span class="verify-hash-line">Expected:&nbsp;<code class="verify-hash">${esc(state.onchainHash.toLowerCase())}</code></span><br>
+            <span class="verify-hash-line">Provided:&nbsp;<code class="verify-hash">${esc(normalised)}</code></span>`;
     }
 }
 

@@ -1,4 +1,5 @@
 #include "../src/hpke_utils.hpp"
+#include "../src/hkdf_info.hpp"
 #include "../src/crypto_utils.hpp"
 #include "../src/message_crypto.hpp"
 #include <sodium.h>
@@ -241,6 +242,23 @@ static void testEphemeralKeyFreshness() {
 }
 
 // ============================================================================
+// Test 10: HKDF domain separation — same PRK, different info → different keys
+// Validates that HKDF_INFO_MSG_ENC and HKDF_INFO_KEY_AT_REST cannot produce
+// the same output even when derived from the same pseudorandom key material.
+// ============================================================================
+static void testHkdfDomainSeparation() {
+    printf("\nTest 10: HKDF domain separation — msg-enc and key-at-rest keys differ\n");
+    std::vector<uint8_t> prk(32, 0xAB);  // fixed PRK; determinism is the point here
+
+    std::vector<uint8_t> msgEncKey    = hkdfExpand32(prk, HKDF_INFO_MSG_ENC);
+    std::vector<uint8_t> keyAtRestKey = hkdfExpand32(prk, HKDF_INFO_KEY_AT_REST);
+
+    check("msg-enc key is 32 bytes",       msgEncKey.size()    == 32);
+    check("key-at-rest key is 32 bytes",   keyAtRestKey.size() == 32);
+    check("msg-enc != key-at-rest (domain separated)", msgEncKey != keyAtRestKey);
+}
+
+// ============================================================================
 
 int main() {
     if (sodium_init() < 0) {
@@ -258,6 +276,7 @@ int main() {
     testFullRoundTrip();
     testLowOrderPointRejected();
     testEphemeralKeyFreshness();
+    testHkdfDomainSeparation();
 
     printf("\n=== %d passed, %d failed ===\n", passed, failed);
     return (failed == 0) ? 0 : 1;

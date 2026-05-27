@@ -256,12 +256,49 @@ async function handleAction(btn, inboxBody) {
                 btn.closest('.message-card')?.remove();
                 break;
 
-            case 'forward':
-                await api.forwardMessage(id);
-                // Brief visual confirmation instead of a disruptive alert
+            case 'forward': {
+                const recipientUsername = window.prompt('Forward to username:')?.trim();
+                if (!recipientUsername) { btn.disabled = false; return; }
+
+                const privKey = api.getPrivateKey();
+                if (!privKey) throw new Error('Private key unavailable — please log in again.');
+
+                const [recipientUser, orig] = await Promise.all([
+                    api.getUser(recipientUsername),
+                    api.getMessage(id),
+                ]);
+
+                if (!recipientUser?.x25519_public_key) throw new Error('Recipient not found or has no encryption key.');
+                if (!orig?.ciphertext || !orig?.nonce || !orig?.ephemeral_pk) throw new Error('Original message has no crypto fields.');
+
+                const origEphPubKey = await crypto.subtle.importKey(
+                    'raw', hexToBytes(orig.ephemeral_pk), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                );
+                const plaintext = await decryptMessage(
+                    hexToBytes(orig.ciphertext),
+                    hexToBytes(orig.nonce),
+                    origEphPubKey,
+                    privKey,
+                );
+
+                const recipKeyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
+                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
+                const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(plaintext, recipPublicKey);
+
+                const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+                const ephPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
+
+                await api.forwardMessage(id, {
+                    recipientUsername,
+                    ciphertext:   toHex(ciphertext),
+                    nonce:        toHex(nonce),
+                    ephemeral_pk: toHex(ephPkBytes),
+                });
+
                 btn.textContent = 'Forwarded!';
                 setTimeout(() => { btn.disabled = false; btn.textContent = 'Forward'; }, 1500);
-                return; // skip the re-enable at the bottom
+                return;
+            }
         }
 
         // If no messages remain, show the empty state

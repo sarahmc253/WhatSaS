@@ -109,7 +109,7 @@ def get_message(message_id):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            'SELECT sender_id, recipient_id FROM messages WHERE id = %s',
+            'SELECT sender_id, recipient_id, ciphertext, nonce, ephemeral_pk FROM messages WHERE id = %s',
             (message_id,),
         )
         message = cursor.fetchone()
@@ -119,7 +119,12 @@ def get_message(message_id):
         return jsonify({'error': 'Message not found'}), 404
     if message['sender_id'] != current_user_id and message['recipient_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
-    return jsonify({'id': message_id}), 200
+    return jsonify({
+        'id': message_id,
+        'ciphertext': message['ciphertext'],
+        'nonce': message['nonce'],
+        'ephemeral_pk': message['ephemeral_pk'],
+    }), 200
 
 @messages_bp.route('/messages/<string:message_id>', methods=['DELETE'])
 @jwt_required()
@@ -143,7 +148,7 @@ def forward_message(message_id):
 
     cursor = db.cursor(dictionary=True)
     try:
-        cursor.execute('SELECT sender_id FROM messages WHERE id = %s', (message_id,))
+        cursor.execute('SELECT sender_id, recipient_id FROM messages WHERE id = %s', (message_id,))
         message = cursor.fetchone()
     finally:
         cursor.close()
@@ -151,7 +156,7 @@ def forward_message(message_id):
     if message is None:
         return jsonify({'error': 'Message not found'}), 404
 
-    if message['sender_id'] != current_user_id:
+    if message['sender_id'] != current_user_id and message['recipient_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
 
     cursor = db.cursor(dictionary=True)
