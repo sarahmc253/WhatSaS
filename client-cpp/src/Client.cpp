@@ -1,3 +1,5 @@
+#define NOMINMAX
+
 #include "../include/Client.hpp"
 #include "hpke_utils.hpp"
 #include "message_crypto.hpp"
@@ -164,7 +166,7 @@ HttpResponse Client::sendMessage(const std::string& recipientId,
     body["sender_ephemeral_pk"] = "";  // deprecated field kept for server schema compat
     body["timestamp"]           = static_cast<long long>(enc->timestamp);
 
-    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", verifyCert_);
+    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", "", verifyCert_);
 }
 
 HttpResponse Client::getMessages() const {
@@ -363,5 +365,5 @@ HttpResponse Client::publishPublicKey(const std::string& userId,
     nlohmann::json body;
     body["user_id"]    = userId;
     body["public_key"] = b64Encode(publicKey.data(), publicKey.size());
-    return http_.post(baseUrl_ + "/keys", body.dump(), "application/json", verifyCert_);
+    return http_.post(baseUrl_ + "/keys", body.dump(), "application/json", "", verifyCert_);
 }

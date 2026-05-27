@@ -21,6 +21,10 @@ public:
     // Returns a copy of the message if found, or empty optional if not found.
     std::optional<Message> findMessage(const std::string& messageId) const;
 
+    // Check existence without returning a full Message copy — use this when
+    // you only need to know if the ID is present and don't need the payload.
+    bool hasMessage(const std::string& messageId) const;
+
     // Returns all messages for a peer conversation (both directions).
     // Returns empty vector if no messages exist for peerKey.
     const std::vector<Message>& getMessagesFor(const std::string& peerKey) const;

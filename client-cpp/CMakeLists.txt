@@ -3,23 +3,48 @@ project(sas-secure-messaging VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O2")
+if(MSVC)
+  add_compile_options(/W4)
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_options(/fsanitize=address)
+  endif()
+else()
+  add_compile_options(-Wall -Wextra -O2)
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+  endif()
+endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED) #SQLite3 for local cache for user. I chose it over MySql for fast lookups, offline capability, etc.
-find_package(nlohmann_json REQUIRED)
+include(FetchContent)
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG        v3.11.3
+  GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
 
 # libsodium does not ship a CMake config package; locate it via find_library/find_path
 find_library(SODIUM_LIB NAMES sodium libsodium REQUIRED)
-find_path(SODIUM_INCLUDE NAMES sodium.h PATH_SUFFIXES sodium REQUIRED)
+find_path(SODIUM_INCLUDE NAMES sodium.h
+  PATHS /usr/include /usr/local/include /opt/homebrew/include
+  REQUIRED
+)
 
 # Windows socket libraries (Winsock2, CryptoAPI for system cert store)
 if(WIN32)
   set(PLATFORM_LIBS ws2_32 crypt32)
+  # SODIUM_STATIC suppresses __declspec(dllimport) when linking the static .lib.
+  # Global definition ensures no target misses it; per-target definitions below
+  # provide an explicit belt-and-braces guarantee.
+  add_compile_definitions(SODIUM_STATIC)
 endif()
 
-include_directories(include ${SODIUM_INCLUDE})
+include_directories(include)
 
 add_executable(sas-client
   src/main.cpp
@@ -42,6 +67,7 @@ target_link_libraries(sas-client PRIVATE
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
+target_include_directories(sas-client PRIVATE ${SODIUM_INCLUDE})
 
 # Tests executable for TCP socket testing
 enable_testing()
@@ -59,6 +85,7 @@ target_link_libraries(test_tcp PRIVATE
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
+target_include_directories(test_tcp PRIVATE ${SODIUM_INCLUDE})
 add_test(NAME TCP_Socket_Test COMMAND test_tcp)
 
 add_executable(test_http
@@ -75,6 +102,7 @@ target_link_libraries(test_http PRIVATE
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
+target_include_directories(test_http PRIVATE ${SODIUM_INCLUDE})
 # Network tests are opt-in — run manually with: ctest -L network
 # or: ./build/test_http.exe --network
 add_test(NAME HTTP_GET_Test COMMAND test_http)
@@ -99,6 +127,7 @@ target_link_libraries(test_client PRIVATE
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
+target_include_directories(test_client PRIVATE ${SODIUM_INCLUDE})
 add_test(NAME Client_Crypto_Test COMMAND test_client)
 
 add_executable(test_conversation
@@ -120,6 +149,7 @@ target_link_libraries(test_conversation PRIVATE
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
+target_include_directories(test_conversation PRIVATE ${SODIUM_INCLUDE})
 add_test(NAME Conversation_Test COMMAND test_conversation)
 
 add_executable(test_hpke
@@ -141,4 +171,11 @@ target_link_libraries(test_hpke PRIVATE
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
+target_include_directories(test_hpke PRIVATE ${SODIUM_INCLUDE})
 add_test(NAME HPKE_Test COMMAND test_hpke)
+
+if(WIN32)
+  foreach(T sas-client test_tcp test_http test_client test_conversation test_hpke)
+    target_compile_definitions(${T} PRIVATE SODIUM_STATIC)
+  endforeach()
+endif()

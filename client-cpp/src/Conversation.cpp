@@ -39,6 +39,14 @@ std::size_t Conversation::countMessagesFromSender(const std::string& senderId) c
             }));
 }
 
+std::size_t Conversation::messageCount(const std::string& senderId) const {
+    return static_cast<std::size_t>(
+        std::count_if(messages_.begin(), messages_.end(),
+            [&senderId](const DecryptedMessage& dm) {
+                return dm.senderId == senderId;
+            }));
+}
+
 std::vector<DecryptedMessage> Conversation::getMessagesFromSender(const std::string& senderId) const {
     std::vector<DecryptedMessage> result;
     std::copy_if(messages_.begin(), messages_.end(),
