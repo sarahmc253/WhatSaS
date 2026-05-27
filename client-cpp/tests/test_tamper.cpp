@@ -32,6 +32,13 @@ static void testTamperFirstByte() {
     check("blob large enough to tamper", blob.size() > nonceLen);
     if (blob.size() <= nonceLen) return;
 
+    const auto baseline = decryptAes256Gcm(key, blob, ad);
+    check("baseline decryption succeeds", baseline.has_value());
+    if (!baseline.has_value()) return;
+    const std::string baselineText(baseline->begin(), baseline->end());
+    check("baseline plaintext matches original", baselineText == plaintext);
+    if (baselineText != plaintext) return;
+
     blob[nonceLen] ^= 0xFF;
 
     const auto result = decryptAes256Gcm(key, blob, ad);
@@ -53,6 +60,13 @@ static void testTamperMiddleByte() {
     const std::size_t ctLen = blob.size() - nonceLen;
     check("ciphertext long enough to have a middle byte", ctLen >= 2);
     if (ctLen < 2) return;
+
+    const auto baseline = decryptAes256Gcm(key, blob, ad);
+    check("baseline decryption succeeds", baseline.has_value());
+    if (!baseline.has_value()) return;
+    const std::string baselineText(baseline->begin(), baseline->end());
+    check("baseline plaintext matches original", baselineText == plaintext);
+    if (baselineText != plaintext) return;
 
     // Flip a byte in the middle of the ciphertext portion.
     const std::size_t midIdx = nonceLen + ctLen / 2;
