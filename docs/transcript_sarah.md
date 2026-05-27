@@ -561,6 +561,24 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 
 ---
 
+**Sarah:** add a getuser(username) function to api.js that calls GET /users/:username with auth and returns the response. we need it to fetch a recipient's x25519_public_key
+
+**Claude:** Checked for `GET /users/:username` in the Flask server before writing the client function. Found no such route — only `auth/routes.py` and `messages/routes.py` touch the `users` table. Asked Sarah to confirm whether the route needs to be created first.
+
+---
+
+**Sarah:** does GET /users/:username exist in the flask server or do we need to create it
+
+**Claude:** Confirmed it does not exist. Offered to create it.
+
+---
+
+**Sarah:** create a GET /users/<username> route in the Flask server that returns the user's id, username and x25519_public_key ONLY. require jwt auth. return 404 if the user doesnt exist
+
+**Claude:** Created `server/app/users/__init__.py` (empty) and `server/app/users/routes.py` with a `users_bp` blueprint. Route is `GET /<username>`, decorated with `@jwt_required()`, queries `id`, `username`, `x25519_public_key` from the `users` table, returns 404 if not found. Updated `server/app/__init__.py` to import and register `users_bp` at `url_prefix='/users'`.
+
+---
+
 **Sarah:** the get_messages route in server/app/messages/routes.py returns an empty list. implement it to query the database for all messages where recipient_id equals the current user's JWT identity, returning id, sender_id, ciphertext, nonce, ephemeral_public_key and created_at for each message
 
 **Claude:** Read `messages/routes.py` and identified the stub. Proposed querying `SELECT id, sender_id, ciphertext, nonce, ephemeral_public_key, created_at FROM messages WHERE recipient_id = %s` using a `dictionary=True` cursor, following the pattern from `get_message`.
@@ -581,6 +599,56 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 
 ---
 
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** rebase this branch onto main
+
+**Claude:** Ran `git rebase main` — reported "up to date". Fetched origin and ran `git rebase origin/main` instead, which surfaced conflicts (local `main` was stale).
+
+---
+
+**Sarah:** try again
+
+**Claude:** Confirmed merge base was `47e3c7a` but `origin/main` was at `b00bf02` (two new commits ahead). Ran `git fetch origin && git rebase origin/main`. Conflict in `docs/transcript_sarah.md` on commit `3414de5`: both branches added different transcript entries at the same location. Asked how to resolve.
+
+**Sarah:** keep mains first and then this branches
+
+**Claude:** Resolved first conflict (commit 3414de5): placed origin/main's entries (getuser / GET /users/:username creation) before the branch's entries (get_messages implementation). Resolved second conflict in the same commit (second transcript block). Continued rebase — commit `249c503` conflicted in both `client-web/js/views.js` and `docs/transcript_sarah.md`. In views.js: HEAD had `import { decryptMessage }`, branch had `import encryptMessage` (default) and `import { getUser, sendMessage }` — combined into `import encryptMessage, { decryptMessage }` plus the named api imports. In transcript: placed HEAD content (hexToBytes/tryDecrypt entries) first, then 249c503's compose/encrypt entries. Commit `26ff9e3` conflicted in views.js: branch changed `encryptMessage` from default to named export — resolved to `import { encryptMessage, decryptMessage }`. Rebase completed successfully.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** Make messages.ephemeral_pk NOT NULL to match the encrypted-message API contract. messages.ephemeral_pk is nullable in docs/schema.sql, but server/app/messages/routes.py enforces non-empty ephemeral_pk on /messages POST and returns it on /messages GET; additionally, a separate INSERT INTO messages path omits ephemeral_pk, which will persist NULL rows.
+
+**Claude:** Identified three changes needed: (1) `docs/schema.sql` line 123 — `ephemeral_pk` nullable. (2) forward route `_invalid_fields` check missing `ephemeral_pk`. (3) forward INSERT omits `ephemeral_pk`. Added `NOT NULL` to the schema column. Started to add `ephemeral_pk` alongside `content_hash` in the forward route validation.
+
+**Sarah:** [REJECTED] — remove content_hash entirely from the forward route validation and insert. replace it with ephemeral_pk only, matching the send route.
+
+**Claude:** Replaced `['recipientUsername', 'ciphertext', 'nonce', 'content_hash']` with `['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk']` in the forward route's `_invalid_fields` call, removed the `_HEX32_RE` regex check and the `content_hash` normalisation line, and updated the INSERT to use `ephemeral_pk` in place of `content_hash`. Confirmed no remaining `_HEX32_RE` or `content_hash` references in the file.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in the get_messages query in routes.py, add AND is_revoked=0 to the WHERE clause so revoked messages don't appear in the inbox
+
+**Claude:** Added `AND is_revoked = 0` to the `WHERE recipient_id = %s` clause in the `get_messages` query.
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
 **Sarah:** in hexToBytes in views.js, add a validation check that throws if the string contains any character outside 0-9a-fA-F before processing, so invalid hex fails loudly instead of silently producing zero bytes
 
 **Claude:** Added `/[^0-9a-fA-F]/` regex check immediately after the odd-length guard in `hexToBytes`. Throws `'hexToBytes: invalid hex character'` before the loop runs, so garbage input can't produce silent `0x00` bytes via `parseInt`'s `NaN`→`0` coercion.
@@ -596,3 +664,65 @@ For your app specifically: your auth routes will handle credentials and tokens, 
 **Sarah:** update docs/transcript
 
 **Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.
+
+---
+
+**Sarah:** in renderCompose in views.js, remove the encryptionReady = false block that disables the send button and shows the 'temporarily unavailable' message. we're implementing it now
+
+**Claude:** Removed the `const encryptionReady = false` variable, the block that disabled the send button and set the unavailable error message, the `if (!encryptionReady) return` guard in the submit handler, and changed `btn.disabled = !encryptionReady` in the `finally` block to `btn.disabled = false`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in views.js, import getUser and sendMessage from api.js
+
+**Claude:** Added `import { getUser, sendMessage } from './api.js';` below the existing `import * as api` line. Noted that `getUser` does not yet exist in `api.js` and offered to add it.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** in the compose form submit handler in views.js after validating that recipient and content are not empty, call getUser(recipient) and throw a user-facing error if the user is not found or has no x25519_public_key
+
+**Claude:** Proposed the edit but it still called `encryptForRecipient`, which does not exist anywhere in the codebase.
+
+**Sarah:** [REJECTED] — you're still calling encryptForRecipient which doesn't exist. what are you planning to replace it with?
+
+**Claude:** Checked `client-web/js/` — no crypto module exists yet. Proposed using a `TODO` placeholder or passing `x25519_public_key` through as a parameter to whatever encrypt function gets written next.
+
+---
+
+**Sarah:** import encryptMessage from ../crypto/messageEncryption.js and use it directly. dont use a placeholder
+
+**Claude:** Added `import encryptMessage from '../crypto/messageEncryption.js';` and proposed calling `encryptMessage(content, recipientUser.x25519_public_key)`.
+
+**Sarah:** [REJECTED] — encryptMessage expects a CryptoKey as the second argument, but recipientUser.x25519_public_key is a base64 string from the server. how are you handling that conversion?
+
+**Claude:** Explained the inline `importKey` approach: decode base64 with `atob`, wrap in `Uint8Array`, call `crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, [])`, pass the resulting `CryptoKey` to `encryptMessage`.
+
+---
+
+**Sarah:** there's a getPublicKeyBytes helper in keypair.js but no import helper. add the inline importKey for the recipient's base64 public key directly in the submit handler as you described, then pass the resulting CryptoKey to encryptMessage
+
+**Claude:** Read `keypair.js` — confirmed `getPublicKeyBytes` exports raw bytes, consistent with the `atob` → `Uint8Array` → `importKey('raw', ...)` inverse. Read `messageEncryption.js` — confirmed it returns `{ ephemeralPublicKey: CryptoKey, nonce: Uint8Array, ciphertext: Uint8Array }`. Proposed the edit but stalled on two gaps: no keccak library for `content_hash`, and `ephemeral_pk` missing from the server INSERT (making decryption impossible).
+
+**Sarah:** [REJECTED] — encryptMessage returns { ephemeralPublicKey, nonce, ciphertext } as CryptoKey and Uint8Arrays but api.sendMessage needs hex strings. how are you converting them before the POST?
+
+**Claude:** Checked `package.json` (only `argon2-browser` — no keccak library) and the server `SEND_FIELDS` / INSERT. Flagged: (1) no keccak library available for `content_hash`; (2) `ephemeral_pk` is missing from both `SEND_FIELDS` and the INSERT, making recipient decryption impossible. Asked how to proceed on both.
+
+---
+
+**Sarah:** fix the server insert to include ephemeral_pk, drop content_hash from the required fields then write the hex conversions and call sendMessage with the correct payload
+
+**Claude:** In `server/app/messages/routes.py`: replaced `SEND_FIELDS` with `['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']`, removed `_HEX32_RE` and the `content_hash` validation block, updated the INSERT columns and bound values to use `ephemeral_pk` in place of `content_hash`. In `client-web/js/views.js`: submit handler now calls `getUser(recipient)`, throws `'Recipient not found or has no encryption key.'` if the user or key is missing, decodes `x25519_public_key` from base64 and imports it as a `CryptoKey` inline, calls `encryptMessage(content, recipientPublicKey)`, defines a `toHex` helper to convert `Uint8Array` to hex, exports `ephemeralPublicKey` to raw bytes, then calls `sendMessage({ recipient_id, ciphertext, nonce, ephemeral_pk })` with all four values as hex strings.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+**Sarah:** [APPROVED]

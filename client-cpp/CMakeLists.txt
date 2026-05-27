@@ -121,3 +121,24 @@ target_link_libraries(test_conversation PRIVATE
   ${PLATFORM_LIBS}
 )
 add_test(NAME Conversation_Test COMMAND test_conversation)
+
+add_executable(test_hpke
+  tests/test_hpke.cpp
+  src/User.cpp
+  src/Message.cpp
+  src/MessageStore.cpp
+  src/Conversation.cpp
+  src/Client.cpp
+  src/HttpClient.cpp
+  src/tls_connect.cpp
+  src/http_response.cpp
+)
+target_link_libraries(test_hpke PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  nlohmann_json::nlohmann_json
+  ${PLATFORM_LIBS}
+)
+add_test(NAME HPKE_Test COMMAND test_hpke)
