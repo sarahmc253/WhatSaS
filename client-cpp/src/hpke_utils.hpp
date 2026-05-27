@@ -13,11 +13,10 @@
 // subsequent fetches that diverge are rejected as potential key-substitution attacks.
 
 #include "crypto_utils.hpp"
+#include "hkdf_info.hpp"
 #include <sodium.h>
 #include <optional>
 #include <vector>
-
-static constexpr const char* HPKE_INFO = "WhatSaS-HPKE-v1";
 
 struct HpkeKeypair {
     std::vector<uint8_t> pk;  // 32 bytes — X25519 public key; safe to publish
@@ -102,7 +101,7 @@ static inline std::optional<HpkeSendResult> hpkeSend(
     if (prk.empty()) return std::nullopt;
 
     // 7. HKDF-Expand: AES_KEY = HMAC-SHA256(PRK, info || 0x01).
-    std::vector<uint8_t> aesKey = hkdfExpand32(prk, HPKE_INFO);
+    std::vector<uint8_t> aesKey = hkdfExpand32(prk, HKDF_INFO_MSG_ENC);
     sodium_memzero(prk.data(), prk.size());
     if (aesKey.empty()) return std::nullopt;
 
@@ -159,7 +158,7 @@ static inline std::vector<uint8_t> hpkeReceive(
     sodium_memzero(ikm.data(), ikm.size());
     if (prk.empty()) return {};
 
-    std::vector<uint8_t> aesKey = hkdfExpand32(prk, HPKE_INFO);
+    std::vector<uint8_t> aesKey = hkdfExpand32(prk, HKDF_INFO_MSG_ENC);
     sodium_memzero(prk.data(), prk.size());
     return aesKey;
 }
