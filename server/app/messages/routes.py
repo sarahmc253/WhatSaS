@@ -148,7 +148,7 @@ def forward_message(message_id):
 
     cursor = db.cursor(dictionary=True)
     try:
-        cursor.execute('SELECT sender_id FROM messages WHERE id = %s', (message_id,))
+        cursor.execute('SELECT sender_id, recipient_id FROM messages WHERE id = %s', (message_id,))
         message = cursor.fetchone()
     finally:
         cursor.close()
@@ -156,7 +156,7 @@ def forward_message(message_id):
     if message is None:
         return jsonify({'error': 'Message not found'}), 404
 
-    if message['sender_id'] != current_user_id:
+    if message['sender_id'] != current_user_id and message['recipient_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
 
     cursor = db.cursor(dictionary=True)
