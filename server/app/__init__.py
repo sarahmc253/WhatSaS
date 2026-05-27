@@ -65,8 +65,10 @@ def create_app():
 
     from .auth.routes import auth_bp
     from .messages.routes import messages_bp
+    from .users.routes import users_bp
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(messages_bp, url_prefix='')
+    app.register_blueprint(users_bp, url_prefix='/users')
 
     if app.config['ANCHORING_ENABLED']:
         # In debug mode the reloader forks a child process; only start the scheduler

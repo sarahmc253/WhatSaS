@@ -113,6 +113,11 @@ export function getMessages() {
     return request('GET', '/messages', { auth: true });
 }
 
+// ── Users ─────────────────────────────────────────────────────────────────
+export function getUser(username) {
+    return request('GET', `/users/${encodeURIComponent(username)}`, { auth: true });
+}
+
 export function sendMessage(payload) {
     return request('POST', '/messages', { body: payload, auth: true });
 }
