@@ -31,9 +31,6 @@ public:
     const std::vector<uint8_t>& getPeerPublicKey() const;
     bool hasPeerPublicKey() const;
 
-    // Count messages in this conversation sent by senderId.
-    std::size_t countMessagesFromSender(const std::string& senderId) const;
-
     // Count messages from a specific sender using std::count_if with a lambda.
     // Cleaner than a manual loop: no mutable counter, no risk of off-by-one,
     // and the intent is expressed directly in the predicate.

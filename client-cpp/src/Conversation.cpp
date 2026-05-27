@@ -31,14 +31,6 @@ const std::string& Conversation::getPeerId() const {
     return peerId_;
 }
 
-std::size_t Conversation::countMessagesFromSender(const std::string& senderId) const {
-    return static_cast<std::size_t>(
-        std::count_if(messages_.begin(), messages_.end(),
-            [&senderId](const DecryptedMessage& dm) {
-                return dm.senderId == senderId;
-            }));
-}
-
 std::size_t Conversation::messageCount(const std::string& senderId) const {
     return static_cast<std::size_t>(
         std::count_if(messages_.begin(), messages_.end(),

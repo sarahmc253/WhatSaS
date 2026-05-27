@@ -4,16 +4,20 @@ project(sas-secure-messaging VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(MSVC)
-  add_compile_options(/W4)
-  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_options(/fsanitize=address)
-  endif()
+  add_compile_options(
+    /W4
+    $<$<CONFIG:Debug>:/fsanitize=address>
+  )
+  add_link_options($<$<CONFIG:Debug>:/fsanitize=address>)
 else()
-  add_compile_options(-Wall -Wextra -O2)
-  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=address)
-  endif()
+  add_compile_options(
+    -Wall -Wextra
+    $<$<CONFIG:Release>:-O2>
+    $<$<CONFIG:Debug>:-g>
+    $<$<CONFIG:Debug>:-fsanitize=address>
+    $<$<CONFIG:Debug>:-fno-omit-frame-pointer>
+  )
+  add_link_options($<$<CONFIG:Debug>:-fsanitize=address>)
 endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
