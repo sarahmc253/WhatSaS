@@ -6,8 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
-#include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 // Organises already-decrypted messages for a single peer conversation.
@@ -31,8 +31,10 @@ public:
     const std::vector<uint8_t>& getPeerPublicKey() const;
     bool hasPeerPublicKey() const;
 
-    // Count messages in this conversation sent by senderId.
-    std::size_t countMessagesFromSender(const std::string& senderId) const;
+    // Count messages from a specific sender using std::count_if with a lambda.
+    // Cleaner than a manual loop: no mutable counter, no risk of off-by-one,
+    // and the intent is expressed directly in the predicate.
+    std::size_t messageCount(const std::string& senderId) const;
 
     // Copy all messages sent by senderId, in insertion order.
     std::vector<DecryptedMessage> getMessagesFromSender(const std::string& senderId) const;
@@ -40,7 +42,9 @@ public:
 private:
     std::string peerId_;
     std::vector<DecryptedMessage> messages_;
-    std::set<std::string> seenIds_;
+    // unordered_set gives O(1) average lookup vs O(log n) for std::set — better
+    // for the frequent duplicate checks on every incoming message.
+    std::unordered_set<std::string> seenIds_;
     std::vector<uint8_t> peerPublicKey_;  // 32 bytes; empty until setPeerPublicKey called
 };
 

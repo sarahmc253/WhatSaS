@@ -17,6 +17,13 @@ std::optional<Message> MessageStore::findMessage(const std::string& messageId) c
     return it != messages_.end() ? std::optional<Message>(*it) : std::nullopt;
 }
 
+bool MessageStore::hasMessage(const std::string& messageId) const {
+    return std::any_of(messages_.begin(), messages_.end(),
+        [&messageId](const Message& m) {
+            return m.getMessageId() == messageId;
+        });
+}
+
 const std::vector<Message>& MessageStore::getMessagesFor(const std::string& key) const {
     auto it = byPeer_.find(key);
     return it != byPeer_.end() ? it->second : empty_;

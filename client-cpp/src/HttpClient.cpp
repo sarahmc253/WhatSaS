@@ -9,15 +9,16 @@
 
 // RAII wrappers for OpenSSL SSL* and raw SOCKET
 
-struct SslDeleter   { void operator()(SSL*    s) const { if (s) SSL_free(s); } };
-struct SocketDeleter {
-    void operator()(SOCKET* s) const {
-        if (s && *s != INVALID_SOCKET) closesocket(*s);
-        delete s;
-    }
+struct SslDeleter { void operator()(SSL* s) const { if (s) SSL_free(s); } };
+using UniqueSSL = std::unique_ptr<SSL, SslDeleter>;
+
+struct RaiiSocket {
+    SOCKET fd;
+    explicit RaiiSocket(SOCKET s) noexcept : fd(s) {}
+    ~RaiiSocket() { if (fd != INVALID_SOCKET) closesocket(fd); }
+    RaiiSocket(const RaiiSocket&)            = delete;
+    RaiiSocket& operator=(const RaiiSocket&) = delete;
 };
-using UniqueSSL    = std::unique_ptr<SSL,    SslDeleter>;
-using UniqueSocket = std::unique_ptr<SOCKET, SocketDeleter>;
 
 // SSL_CTX deleter (declared in HttpClient.hpp, implemented here)
 
@@ -74,9 +75,9 @@ HttpResponse HttpClient::doRequest(const std::string& host,
     if (fd == INVALID_SOCKET) {
         return {0, "", err, false};
     }
-    UniqueSocket sock(new SOCKET(fd));
+    RaiiSocket sock(fd);
 
-    SSL* sslRaw = performTlsHandshake(ctx_.get(), fd, host, verifyCert, err);
+    SSL* sslRaw = performTlsHandshake(ctx_.get(), sock.fd, host, verifyCert, err);
     if (!sslRaw) {
         return {0, "", err, false};
     }
