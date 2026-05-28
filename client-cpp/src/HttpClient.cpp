@@ -116,7 +116,9 @@ HttpResponse HttpClient::doRequest(const std::string& host,
 
 // Public API
 
-HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
+HttpResponse HttpClient::get(const std::string& url,
+                             const std::string& authToken,
+                             bool verifyCert) const {
     if (!wsaInitialized_ || !ctx_) {
         return {0, "", "HttpClient not initialized", false};
     }
@@ -127,7 +129,7 @@ HttpResponse HttpClient::get(const std::string& url, bool verifyCert) const {
         return {0, "", parsed.error, false};
     }
 
-    return doRequest(parsed.host, parsed.port, buildGetRequest(parsed), verifyCert);
+    return doRequest(parsed.host, parsed.port, buildGetRequest(parsed, authToken), verifyCert);
 }
 
 HttpResponse HttpClient::post(const std::string& url,

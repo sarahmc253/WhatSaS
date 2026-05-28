@@ -16,7 +16,8 @@ struct ParsedUrl {
 ParsedUrl    parseUrl(const std::string& url);
 
 // Build a minimal HTTP/1.1 GET request string.
-std::string  buildGetRequest(const ParsedUrl& u);
+std::string  buildGetRequest(const ParsedUrl& u,
+                             const std::string& authToken = "");
 
 // Build a minimal HTTP/1.1 POST request string with a body.
 std::string  buildPostRequest(const ParsedUrl& u,

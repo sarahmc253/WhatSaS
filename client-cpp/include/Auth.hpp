@@ -19,9 +19,13 @@ public:
         const std::string& username,
         const std::string& password);
 
-    const std::string& getToken() const;
+    const std::string& getToken()              const;
+    const std::string& getWrappedPrivateKey()  const;
+    const std::string& getKekSalt()            const;
     bool isLoggedIn() const;
 
 private:
     std::string token_;
+    std::string wrappedPrivateKey_;  // base64(nonce || ciphertext+tag), populated by login
+    std::string kekSalt_;            // base64(crypto_pwhash_SALTBYTES), populated by login
 };

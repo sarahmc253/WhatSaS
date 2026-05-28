@@ -35,6 +35,7 @@ public:
            std::vector<uint8_t> staticSk,
            std::vector<uint8_t> staticPk,
            const std::string& pinsPath,
+           const std::string& authToken = "",
            bool verifyCert = true);
 
     // Derive a per-message AES key via DHKEM, encrypt with AES-256-GCM,
@@ -59,13 +60,17 @@ public:
     // GET baseUrl/users/{userId}/key → base64-decode → 32-byte vector.
     // TOFU pinning: first fetch pins the key; later fetches that differ return empty
     // and log a key-substitution warning.
-    // Returns empty vector on any network or parse error.
+    // Returns empty vector on any error (invalid userId, network failure, parse error).
+    // Never throws — failures are logged to stderr.
     std::vector<uint8_t> fetchPeerPublicKey(const std::string& userId) const;
 
     // POST baseUrl/keys  {"user_id": userId, "public_key": base64(pk)}
     // Publishes this client's public key to the server registry. Call once at startup.
     HttpResponse publishPublicKey(const std::string& userId,
                                   const std::vector<uint8_t>& publicKey) const;
+
+    // Returns this client's X25519 public key (32 bytes).
+    const std::vector<uint8_t>& getPublicKey() const;
 
 private:
     std::string          baseUrl_;
@@ -74,7 +79,8 @@ private:
     std::vector<uint8_t> staticPk_;  // local long-term X25519 public key
     bool                 verifyCert_;
     HttpClient           http_;
-    std::string          pinsPath_;  // path to the on-disk TOFU pin file
+    std::string          pinsPath_;
+    std::string          authToken_;  // bearer token forwarded to every authenticated request
     // TOFU key pins: userId → first-seen public key. mutable so const methods can update.
     mutable std::unordered_map<std::string, std::vector<uint8_t>> pinnedKeys_;
 
