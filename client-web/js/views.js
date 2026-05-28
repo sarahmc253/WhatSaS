@@ -9,6 +9,7 @@
 import * as api from './api.js';
 import { getUser, sendMessage } from './api.js';
 import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
+import { generateKeypair, getPublicKeyBytes, getPrivateKeyBytes } from '../crypto/keypair.js';
 import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -150,9 +151,19 @@ function renderRegister(container, navigate) {
         msg.className = msg.textContent = '';
 
         try {
-            // TODO: generate X25519 key pair, derive KEK via Argon2id, HPKE-wrap
-            //       the private key, then call api.register() with real key material.
-            throw new Error('Registration is not yet implemented — key generation and HPKE wrapping are pending');
+            const username = document.getElementById('r-username').value.trim();
+            const email    = document.getElementById('r-email').value.trim();
+            const password = document.getElementById('r-password').value;
+
+            const { publicKey, privateKey } = await generateKeypair();
+            const pubKeyBytes = await getPublicKeyBytes(publicKey);
+            const encryptedPrivateKey = await encryptPrivateKey(await getPrivateKeyBytes(privateKey), password);
+            const toB64 = bytes => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''));
+            await api.register(username, email, password, {
+                x25519_public_key:  toB64(pubKeyBytes),
+                wrapped_private_key: btoa(JSON.stringify(encryptedPrivateKey.toJSON())),
+                kek_salt:           toB64(encryptedPrivateKey.salt),
+            });
             msg.className = 'success-msg';
             msg.textContent = 'Account created — redirecting to sign in…';
             setTimeout(() => renderLogin(container, navigate), 1600);
