@@ -178,8 +178,22 @@ target_link_libraries(test_hpke PRIVATE
 target_include_directories(test_hpke PRIVATE ${SODIUM_INCLUDE})
 add_test(NAME HPKE_Test COMMAND test_hpke)
 
+add_executable(test_tamper
+  tests/test_tamper.cpp
+)
+target_link_libraries(test_tamper PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  nlohmann_json::nlohmann_json
+  ${PLATFORM_LIBS}
+)
+target_include_directories(test_tamper PRIVATE ${SODIUM_INCLUDE})
+add_test(NAME Tamper_Test COMMAND test_tamper)
+
 if(WIN32)
-  foreach(T sas-client test_tcp test_http test_client test_conversation test_hpke)
+  foreach(T sas-client test_tcp test_http test_client test_conversation test_hpke test_tamper)
     target_compile_definitions(${T} PRIVATE SODIUM_STATIC)
   endforeach()
 endif()
