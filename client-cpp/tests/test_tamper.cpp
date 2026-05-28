@@ -57,9 +57,13 @@ static void testTamperMiddleByte() {
     if (blob.empty()) return;
 
     constexpr std::size_t nonceLen = crypto_aead_aes256gcm_NPUBBYTES;
-    const std::size_t ctLen = blob.size() - nonceLen;
-    check("ciphertext long enough to have a middle byte", ctLen >= 2);
-    if (ctLen < 2) return;
+    constexpr std::size_t tagLen   = crypto_aead_aes256gcm_ABYTES;
+    check("blob large enough for nonce + tag", blob.size() > nonceLen + tagLen);
+    if (blob.size() <= nonceLen + tagLen) return;
+    const std::size_t payloadLen = blob.size() - nonceLen;  // ciphertext + tag
+    const std::size_t cipherLen  = payloadLen - tagLen;     // ciphertext only
+    check("ciphertext long enough to have a middle byte", cipherLen >= 2);
+    if (cipherLen < 2) return;
 
     const auto baseline = decryptAes256Gcm(key, blob, ad);
     check("baseline decryption succeeds", baseline.has_value());
@@ -68,8 +72,8 @@ static void testTamperMiddleByte() {
     check("baseline plaintext matches original", baselineText == plaintext);
     if (baselineText != plaintext) return;
 
-    // Flip a byte in the middle of the ciphertext portion.
-    const std::size_t midIdx = nonceLen + ctLen / 2;
+    // Flip a byte in the middle of the ciphertext portion (not the tag).
+    const std::size_t midIdx = nonceLen + cipherLen / 2;
     blob[midIdx] ^= 0xFF;
 
     const auto result = decryptAes256Gcm(key, blob, ad);

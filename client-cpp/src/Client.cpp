@@ -20,6 +20,7 @@ Client::Client(const std::string& baseUrl,
                std::vector<uint8_t> staticSk,
                std::vector<uint8_t> staticPk,
                const std::string& pinsPath,
+               const std::string& authToken,
                bool verifyCert)
     : baseUrl_(baseUrl),
       senderId_(senderId),
@@ -27,7 +28,8 @@ Client::Client(const std::string& baseUrl,
       staticPk_(std::move(staticPk)),
       verifyCert_(verifyCert),
       http_(),
-      pinsPath_(pinsPath) {
+      pinsPath_(pinsPath),
+      authToken_(authToken) {
     if (staticSk_.size() != 32) {
         throw std::invalid_argument(
             "X25519 private key must be exactly 32 bytes, got " +
@@ -106,36 +108,29 @@ bool Client::savePins() const {
             return false;
         }
     }
-    // Atomic replace. std::rename on the Windows CRT fails with EEXIST when the
-    // destination already exists. Use MoveFileExW with MOVEFILE_REPLACE_EXISTING
-    // on Windows, which is the correct atomic-replace primitive on this platform.
-    #ifdef _WIN32
-    // Widen once at the top of savePins()
+#ifdef _WIN32
+    // std::rename on the Windows CRT fails with EEXIST when the destination exists.
+    // MoveFileExW with MOVEFILE_REPLACE_EXISTING is the correct atomic-replace primitive.
     auto toWide = [](const std::string& utf8) -> std::wstring {
         int len = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
         std::wstring w(len, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, w.data(), len);
         return w;
     };
-    
-    std::wstring wdest = toWide(pinsPath_);
-    std::wstring wtmp  = wdest + L".tmp";
-    
-    // Open with wide path
-    FILE* f = _wfopen(wtmp.c_str(), L"w");
-    if (!f) { /* handle error */ return false; }
-    // ... write via f ...
-    fclose(f);
-    
-    // Atomic replace
+    const std::wstring wdest = toWide(pinsPath_);
+    const std::wstring wtmp  = toWide(tmp);
     if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         std::cerr << "[savePins] MoveFileExW failed (" << GetLastError() << ")\n";
-        DeleteFileW(wtmp.c_str());   // wide cleanup — can't fail silently
+        DeleteFileW(wtmp.c_str());
         return false;
     }
-    #else
-    // narrow / POSIX path unchanged
-    #endif
+#else
+    if (std::rename(tmp.c_str(), pinsPath_.c_str()) != 0) {
+        std::cerr << "[savePins] rename failed\n";
+        std::remove(tmp.c_str());
+        return false;
+    }
+#endif
     return true;
 }
 
@@ -166,11 +161,11 @@ HttpResponse Client::sendMessage(const std::string& recipientId,
     body["sender_ephemeral_pk"] = "";  // deprecated field kept for server schema compat
     body["timestamp"]           = static_cast<long long>(enc->timestamp);
 
-    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", "", verifyCert_);
+    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
 }
 
 HttpResponse Client::getMessages() const {
-    return http_.get(baseUrl_ + "/messages", verifyCert_);
+    return http_.get(baseUrl_ + "/messages", authToken_, verifyCert_);
 }
 
 int Client::receiveMessages(MessageStore& store,
@@ -312,7 +307,18 @@ int Client::receiveMessages(MessageStore& store,
 }
 
 std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const {
-    HttpResponse resp = http_.get(baseUrl_ + "/users/" + userId + "/key", verifyCert_);
+    if (userId.empty()) {
+        std::cerr << "[fetchPeerPublicKey] userId must not be empty\n";
+        return {};
+    }
+    for (unsigned char c : userId) {
+        if (!std::isalnum(c) && c != '_' && c != '-' && c != '.') {
+            std::cerr << "[fetchPeerPublicKey] userId '" << userId
+                      << "' contains invalid character — only alphanumeric, '_', '-', '.' allowed\n";
+            return {};
+        }
+    }
+    HttpResponse resp = http_.get(baseUrl_ + "/users/" + userId + "/key", authToken_, verifyCert_);
     if (!resp.ok_ || resp.statusCode_ != 200 || resp.body_.empty()) {
         std::cerr << "[fetchPeerPublicKey] HTTP error for " << userId
                   << ": " << resp.error_ << "\n";
@@ -360,10 +366,12 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
     return pk;
 }
 
+const std::vector<uint8_t>& Client::getPublicKey() const { return staticPk_; }
+
 HttpResponse Client::publishPublicKey(const std::string& userId,
                                       const std::vector<uint8_t>& publicKey) const {
     nlohmann::json body;
     body["user_id"]    = userId;
     body["public_key"] = b64Encode(publicKey.data(), publicKey.size());
-    return http_.post(baseUrl_ + "/keys", body.dump(), "application/json", "", verifyCert_);
+    return http_.post(baseUrl_ + "/keys", body.dump(), "application/json", authToken_, verifyCert_);
 }

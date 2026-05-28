@@ -5,9 +5,9 @@
 
 // ── Accessors ────────────────────────────────────────────────────────────────
 
-const std::string& Auth::getToken() const {
-    return token_;
-}
+const std::string& Auth::getToken()             const { return token_;             }
+const std::string& Auth::getWrappedPrivateKey() const { return wrappedPrivateKey_; }
+const std::string& Auth::getKekSalt()           const { return kekSalt_;           }
 
 bool Auth::isLoggedIn() const {
     return !token_.empty();
@@ -73,5 +73,14 @@ Auth Auth::login(HttpClient& client,
 
     Auth auth;
     auth.token_ = parsed["token"].get<std::string>();
+
+    if (!parsed.contains("wrapped_private_key") || !parsed["wrapped_private_key"].is_string()) {
+        throw std::runtime_error("Login failed: no wrapped_private_key in response");
+    }
+    if (!parsed.contains("kek_salt") || !parsed["kek_salt"].is_string()) {
+        throw std::runtime_error("Login failed: no kek_salt in response");
+    }
+    auth.wrappedPrivateKey_ = parsed["wrapped_private_key"].get<std::string>();
+    auth.kekSalt_           = parsed["kek_salt"].get<std::string>();
     return auth;
 }
