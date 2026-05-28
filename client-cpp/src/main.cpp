@@ -1,3 +1,5 @@
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <iostream>
 #include <string>
 #include "AuthCLI.hpp"
@@ -6,6 +8,24 @@
 #include "../include/HttpClient.hpp"
 
 static const std::string BASE_URL = "https://sas.theburkenator.com";
+
+// Returns the absolute path to certs/server.crt relative to the exe's own directory.
+// Independent of the working directory the exe was launched from.
+static std::string certPath() {
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (len == 0 || len == MAX_PATH) return "";
+    std::wstring exeDir(buf, len);
+    auto slash = exeDir.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return "";
+    exeDir = exeDir.substr(0, slash + 1);  // keep trailing separator
+    // Convert to narrow UTF-8
+    int nb = WideCharToMultiByte(CP_UTF8, 0, exeDir.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (nb <= 0) return "";
+    std::string dir(nb - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, exeDir.c_str(), -1, &dir[0], nb, nullptr, nullptr);
+    return dir + "certs\\server.crt";
+}
 
 int main() {
 
@@ -83,7 +103,7 @@ WhatSaS client starting...
 
     const auto creds = promptCredentials();
 
-    HttpClient http;
+    HttpClient http(certPath());
     Auth auth;
     try {
         if (choice == "1") {

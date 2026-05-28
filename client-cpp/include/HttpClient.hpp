@@ -17,7 +17,8 @@ struct HttpResponse {
 
 class HttpClient {
 public:
-    HttpClient();
+    // pinnedCertPath — absolute path to a self-signed server cert to pin, or "" for CA-only
+    explicit HttpClient(const std::string& pinnedCertPath = "");
     ~HttpClient();
 
     // Non-copyable

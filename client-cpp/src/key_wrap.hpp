@@ -41,7 +41,10 @@ struct X25519Keypair {
 };
 
 // Generate a fresh X25519 keypair using libsodium.
+// Requires sodium_init() to have been called successfully beforehand.
 inline X25519Keypair generateX25519Keypair() {
+    if (sodium_init() < 0)
+        throw std::runtime_error("libsodium not initialised — call sodium_init() in main() first");
     X25519Keypair kp;
     kp.publicKey.resize(crypto_kx_PUBLICKEYBYTES);
     kp.privateKey.resize(crypto_kx_SECRETKEYBYTES);
@@ -68,17 +71,18 @@ inline std::vector<uint8_t> deriveKek(const std::string& password,
 // HKDF extract+expand using libsodium's HMAC-SHA256 (RFC 5869).
 // Matches client-web/crypto/hkdf.js hkdfDerive(keyMaterial, info, salt, length).
 // Reuses hkdfExtract/hkdfExpand32 from crypto_utils.hpp — no extra dependency.
+// length must be <= 32 (one HMAC-SHA256 block); sufficient for all key material here.
 inline std::vector<uint8_t> hkdfDeriveOssl(const std::vector<uint8_t>& ikm,
                                              const std::string& info,
                                              const std::vector<uint8_t>& salt,
                                              std::size_t length) {
-    // length must be <= 32 (one HMAC-SHA256 block); sufficient for all key material here
-    if (length > 32)
-        throw std::runtime_error("hkdfDeriveOssl: length > 32 not supported");
+    if (length == 0 || length > 32)
+        throw std::runtime_error("hkdfDeriveOssl: length must be 1–32");
     const auto prk = hkdfExtract(salt, ikm);
     if (prk.empty()) throw std::runtime_error("HKDF extract failed");
-    const auto okm = hkdfExpand32(prk, info);
+    auto okm = hkdfExpand32(prk, info);
     if (okm.empty()) throw std::runtime_error("HKDF expand failed");
+    okm.resize(length);  // truncate to requested length — hkdfExpand32 always returns 32 bytes
     return okm;
 }
 
@@ -133,8 +137,12 @@ struct WrappedKeyResult {
 
 // Wraps an X25519 private key with the user's password.
 // Matches client-web/crypto/keyStorage.js encryptPrivateKey exactly.
+// Requires sodium_init() to have been called successfully beforehand.
 inline WrappedKeyResult wrapPrivateKey(const X25519Keypair& kp,
                                         const std::string& password) {
+    if (sodium_init() < 0)
+        throw std::runtime_error("libsodium not initialised — call sodium_init() in main() first");
+
     // 1. Random 16-byte salt for Argon2
     std::vector<uint8_t> salt(SALT_LEN);
     randombytes_buf(salt.data(), salt.size());

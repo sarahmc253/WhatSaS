@@ -32,16 +32,24 @@ static void loadWindowsCerts(SSL_CTX* ctx) {
 }
 
 // Load a pinned self-signed server certificate into the trust store.
-// Falls back silently if the file is missing so CA-signed certs still work.
-static void loadPinnedCert(SSL_CTX* ctx, const char* certPath) {
-    if (SSL_CTX_load_verify_locations(ctx, certPath, nullptr) != 1) {
-        // Not fatal — CA-signed cert will still validate via system store
+// Returns false and sets errorOut if the file exists but cannot be loaded.
+// If path is empty, skips pinning (CA-signed cert validates via system store).
+static bool loadPinnedCert(SSL_CTX* ctx, const std::string& certPath, std::string& errorOut) {
+    if (certPath.empty()) return true;
+    if (SSL_CTX_load_verify_locations(ctx, certPath.c_str(), nullptr) != 1) {
+        unsigned long e = ERR_get_error();
+        errorOut = "Failed to load pinned cert '" + certPath + "': " +
+                   (e ? ERR_error_string(e, nullptr) : "unknown error");
+        return false;
     }
+    return true;
 }
 
 // Initialise a shared SSL_CTX suitable for HTTPS client use.
-// Called once from HttpClient constructor; returned pointer is owned by the caller.
-SSL_CTX* createSslCtx() {
+// pinnedCertPath — absolute path to a self-signed server cert, or "" to skip pinning.
+// Returns nullptr and prints to stderr on failure.
+// Ownership of the returned pointer is transferred to the caller.
+SSL_CTX* createSslCtx(const std::string& pinnedCertPath) {
     SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx) return nullptr;
 
@@ -52,8 +60,13 @@ SSL_CTX* createSslCtx() {
     SSL_CTX_set_default_verify_paths(ctx);
     loadWindowsCerts(ctx);
 
-    // Load pinned self-signed server cert (used when CA-signed cert is unavailable)
-    loadPinnedCert(ctx, "certs/server.crt");
+    // Load pinned self-signed server cert if provided
+    std::string certErr;
+    if (!loadPinnedCert(ctx, pinnedCertPath, certErr)) {
+        SSL_CTX_free(ctx);
+        fprintf(stderr, "TLS setup error: %s\n", certErr.c_str());
+        return nullptr;
+    }
 
     // Always request peer cert; SSL_connect fails if chain does not validate
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
