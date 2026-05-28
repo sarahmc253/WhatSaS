@@ -14,4 +14,7 @@ static constexpr const char* HKDF_INFO_LOCAL_KEK = "securemsg-local-kek-v1";
 // Data-encryption key wrap — matches web client HKDF_INFO_DEK_WRAP.
 static constexpr const char* HKDF_INFO_DEK_WRAP = "securemsg-dek-wrap-v1";
 
+// Key derived for encrypting private key at rest (local storage).
+static constexpr const char* HKDF_INFO_KEY_AT_REST = "securemsg-key-at-rest-v1";
+
 #endif // HKDF_INFO_HPP

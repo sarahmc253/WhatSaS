@@ -31,6 +31,14 @@ static void loadWindowsCerts(SSL_CTX* ctx) {
     CertCloseStore(hStore, 0);
 }
 
+// Load a pinned self-signed server certificate into the trust store.
+// Falls back silently if the file is missing so CA-signed certs still work.
+static void loadPinnedCert(SSL_CTX* ctx, const char* certPath) {
+    if (SSL_CTX_load_verify_locations(ctx, certPath, nullptr) != 1) {
+        // Not fatal — CA-signed cert will still validate via system store
+    }
+}
+
 // Initialise a shared SSL_CTX suitable for HTTPS client use.
 // Called once from HttpClient constructor; returned pointer is owned by the caller.
 SSL_CTX* createSslCtx() {
@@ -43,6 +51,9 @@ SSL_CTX* createSslCtx() {
     // Load CAs: OpenSSL built-in paths first, then Windows system store
     SSL_CTX_set_default_verify_paths(ctx);
     loadWindowsCerts(ctx);
+
+    // Load pinned self-signed server cert (used when CA-signed cert is unavailable)
+    loadPinnedCert(ctx, "certs/server.crt");
 
     // Always request peer cert; SSL_connect fails if chain does not validate
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);

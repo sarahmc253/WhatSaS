@@ -1,10 +1,11 @@
 #include <iostream>
 #include <string>
 #include "AuthCLI.hpp"
+#include "key_wrap.hpp"
 #include "../include/Auth.hpp"
 #include "../include/HttpClient.hpp"
 
-static const std::string BASE_URL = "https://localhost:5000";
+static const std::string BASE_URL = "https://sas.theburkenator.com";
 
 int main() {
 
@@ -86,12 +87,14 @@ WhatSaS client starting...
     Auth auth;
     try {
         if (choice == "1") {
+            const auto kp      = generateX25519Keypair();
+            const auto wrapped = wrapPrivateKey(kp, creds.password);
             auth = Auth::registerUser(http, BASE_URL,
                                       creds.username, creds.password,
                                       creds.email,
-                                      /*x25519PublicKey=*/"",
-                                      /*wrappedPrivateKey=*/"",
-                                      /*kekSalt=*/"");
+                                      wrapped.x25519PublicKeyB64,
+                                      wrapped.wrappedPrivateKeyB64,
+                                      wrapped.kekSaltB64);
             std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << creds.username << "~ 💖\n";
         } else {
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
