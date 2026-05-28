@@ -68,6 +68,9 @@ public:
     HttpResponse publishPublicKey(const std::string& userId,
                                   const std::vector<uint8_t>& publicKey) const;
 
+    // Returns this client's X25519 public key (32 bytes).
+    const std::vector<uint8_t>& getPublicKey() const;
+
 private:
     std::string          baseUrl_;
     std::string          senderId_;
@@ -76,7 +79,7 @@ private:
     bool                 verifyCert_;
     HttpClient           http_;
     std::string          pinsPath_;
-    std::string          authToken_;  // path to the on-disk TOFU pin file
+    std::string          authToken_;  // bearer token forwarded to every authenticated request
     // TOFU key pins: userId → first-seen public key. mutable so const methods can update.
     mutable std::unordered_map<std::string, std::vector<uint8_t>> pinnedKeys_;
 

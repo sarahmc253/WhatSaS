@@ -45,14 +45,17 @@ ParsedUrl parseUrl(const std::string& url) {
 // Request builder
 // ============================================================================
 
-std::string buildGetRequest(const ParsedUrl& u) {
-    // RFC 7230: Host header must include port when it differs from the default (443)
+std::string buildGetRequest(const ParsedUrl& u, const std::string& authToken) {
     std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
-    return "GET " + u.path + " HTTP/1.1\r\n"
-           "Host: " + hostHeader + "\r\n"
-           "Connection: close\r\n"
-           "Accept: */*\r\n"
-           "\r\n";
+    std::string req = "GET " + u.path + " HTTP/1.1\r\n"
+                      "Host: " + hostHeader + "\r\n"
+                      "Connection: close\r\n"
+                      "Accept: */*\r\n";
+    if (!authToken.empty()) {
+        req += "Authorization: Bearer " + authToken + "\r\n";
+    }
+    req += "\r\n";
+    return req;
 }
 
 std::string buildPostRequest(const ParsedUrl& u,

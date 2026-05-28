@@ -192,8 +192,25 @@ target_link_libraries(test_tamper PRIVATE
 target_include_directories(test_tamper PRIVATE ${SODIUM_INCLUDE})
 add_test(NAME Tamper_Test COMMAND test_tamper)
 
+add_executable(test_e2e
+  tests/test_e2e.cpp
+  src/Message.cpp
+  src/MessageStore.cpp
+  src/Conversation.cpp
+)
+target_link_libraries(test_e2e PRIVATE
+  OpenSSL::SSL
+  OpenSSL::Crypto
+  ${SODIUM_LIB}
+  SQLite::SQLite3
+  nlohmann_json::nlohmann_json
+  ${PLATFORM_LIBS}
+)
+target_include_directories(test_e2e PRIVATE ${SODIUM_INCLUDE})
+add_test(NAME E2E_Crypto_Test COMMAND test_e2e)
+
 if(WIN32)
-  foreach(T sas-client test_tcp test_http test_client test_conversation test_hpke test_tamper)
+  foreach(T sas-client test_tcp test_http test_client test_conversation test_hpke test_tamper test_e2e)
     target_compile_definitions(${T} PRIVATE SODIUM_STATIC)
   endforeach()
 endif()

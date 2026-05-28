@@ -100,6 +100,10 @@ WhatSaS client starting...
     std::optional<Client> client;
     try {
         if (choice == "1") {
+            if (!crypto_aead_aes256gcm_is_available()) {
+                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
+            }
+
             std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
             std::vector<uint8_t> sk(crypto_box_SECRETKEYBYTES);
             crypto_box_keypair(pk.data(), sk.data());
@@ -116,10 +120,6 @@ WhatSaS client starting...
                     crypto_pwhash_MEMLIMIT_INTERACTIVE,
                     crypto_pwhash_ALG_ARGON2ID13) != 0) {
                 throw std::runtime_error("key derivation failed — not enough memory for Argon2id");
-            }
-
-            if (!crypto_aead_aes256gcm_is_available()) {
-                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
             }
 
             // wrapped layout: nonce (12) || ciphertext+tag (32+16 = 48)
@@ -146,6 +146,14 @@ WhatSaS client starting...
                                       b64Encode(pk.data(), pk.size()),
                                       b64Encode(wrapped.data(), wrapped.size()),
                                       b64Encode(kekSalt.data(), kekSalt.size()));
+
+            // Registration returns no token — log in immediately to get one.
+            // sk and pk are already in scope so there is no need to re-derive them.
+            auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+            client.emplace(BASE_URL, creds.username,
+                           std::move(sk), std::move(pk),
+                           "whatsas_pins.txt", auth.getToken());
+
             std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << creds.username << "~ 💖\n";
         } else {
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
@@ -208,6 +216,14 @@ WhatSaS client starting...
     }
 
     if (!client.has_value()) return 0;  // registration complete — no session yet
+
+    {
+        const auto pubResp = client->publishPublicKey(creds.username, client->getPublicKey());
+        if (pubResp.statusCode_ < 200 || pubResp.statusCode_ > 299) {
+            std::cerr << "\033[1;33m\n        ⚠  key publish failed (HTTP "
+                      << pubResp.statusCode_ << ") — peers may not be able to find you\n\033[0m\n";
+        }
+    }
 
     while (true) {
         std::cout << "\033[1;35m" << R"(

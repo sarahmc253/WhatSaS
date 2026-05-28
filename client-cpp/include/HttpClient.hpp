@@ -29,7 +29,9 @@ public:
     HttpClient& operator=(HttpClient&& other) noexcept;
 
     // Perform HTTP GET request over HTTPS with optional SSL cert verification
-    HttpResponse get(const std::string& url, bool verifyCert = true) const;
+    HttpResponse get(const std::string& url,
+                     const std::string& authToken = "",
+                     bool verifyCert = true) const;
 
     // Perform HTTP POST request over HTTPS with a JSON (or other) body
     HttpResponse post(const std::string& url,
