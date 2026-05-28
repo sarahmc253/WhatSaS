@@ -199,7 +199,9 @@ WhatSaS client starting...
             sk.resize(skLen);
 
             std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
-            crypto_scalarmult_base(pk.data(), sk.data());
+            if (crypto_scalarmult_base(pk.data(), sk.data()) != 0) {
+                throw std::runtime_error("public key derivation failed — private key may be corrupted");
+            }
 
             client.emplace(BASE_URL, creds.username,
                            std::move(sk), std::move(pk),
@@ -210,14 +212,16 @@ WhatSaS client starting...
 
         std::cout << "        🔑 session token received ✅\n\033[0m\n";
 
-    } catch (const std::runtime_error& e) {
+    } catch (const std::exception& e) {
         std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m\n";
         return 1;
     }
 
     if (!client.has_value()) return 0;  // registration complete — no session yet
 
-    {
+    if (choice == "2") {
+        // Registration already sends x25519_public_key in the register request body.
+        // Only publish on login, where the key registry may not yet have an entry.
         const auto pubResp = client->publishPublicKey(creds.username, client->getPublicKey());
         if (pubResp.statusCode_ < 200 || pubResp.statusCode_ > 299) {
             std::cerr << "\033[1;33m\n        ⚠  key publish failed (HTTP "

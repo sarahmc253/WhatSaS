@@ -307,6 +307,15 @@ int Client::receiveMessages(MessageStore& store,
 }
 
 std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const {
+    if (userId.empty()) {
+        throw std::invalid_argument("userId must not be empty");
+    }
+    for (unsigned char c : userId) {
+        if (!std::isalnum(c) && c != '_' && c != '-' && c != '.') {
+            throw std::invalid_argument(
+                "userId contains invalid character — only alphanumeric, '_', '-', '.' allowed");
+        }
+    }
     HttpResponse resp = http_.get(baseUrl_ + "/users/" + userId + "/key", authToken_, verifyCert_);
     if (!resp.ok_ || resp.statusCode_ != 200 || resp.body_.empty()) {
         std::cerr << "[fetchPeerPublicKey] HTTP error for " << userId
