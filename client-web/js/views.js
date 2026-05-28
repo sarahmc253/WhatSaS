@@ -284,8 +284,7 @@ export async function renderInbox(container, navigate) {
 
     try {
         const data = await api.getMessages();
-        console.log('[renderInbox] data.messages[0]:', data.messages?.[0]);
-        messages = data.messages ?? [];
+messages = data.messages ?? [];
     } catch (err) {
         body.innerHTML = `<div class="error-msg">Could not load messages: ${esc(err.message)}</div>`;
         return;

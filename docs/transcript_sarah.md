@@ -902,3 +902,39 @@ Attempted to add `GET /users/<username>` to `auth/routes.py`.
 **Sarah:** update the docs / transcripts
 
 **Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+---
+
+**Sarah:** in views.js tryDecrypt. log msg.ciphertext, msg.nonce and msg.ephemeral_pk before the null check so i can see what fields are actually on the message object
+
+**Claude:** Added three `console.log` lines immediately after the existing `privKey` log, before the null check: `msg.ciphertext`, `msg.nonce`, and `msg.ephemeral_pk`.
+
+---
+
+**Sarah:** in app.js if the user has a valid token on load but api.getPrivateKey() is null, redirect them to login instead of straight to inbox. so the key always gets unwrapped before messages load
+
+**Claude:** Added a second guard in `route()` in `app.js` directly after the existing unauthenticated check: if `api.isAuthenticated()` but `api.getPrivateKey()` is null and the view is not public, redirects to login. Ensures the key is always unwrapped via the login flow before inbox loads.
+
+---
+
+**Sarah:** In views.js tryDecrypt, log the full error in the catch block with console.error('[tryDecrypt] decryption failed:', e)
+
+**Claude:** Renamed catch variable from `err` to `e` and updated the `console.error` call to use `e`.
+
+---
+
+**Sarah:** remove all the temporary debug console.log and console.error lines we added in views.js and api.js
+
+**Claude:** Removed all five debug lines: four from `views.js` (`privKey`, `ciphertext`, `nonce`, `ephemeral_pk` logs, and the catch `console.error`) and one from `api.js` (`[login] server response`).
+
+---
+
+**Sarah:** log data.messages[0] in renderInbox so i can see the exact fields the server is returning
+
+**Claude:** Added `console.log('[renderInbox] data.messages[0]:', data.messages?.[0])` immediately after the `api.getMessages()` call in `renderInbox`, using optional chaining so it doesn't throw on an empty inbox.
+
+---
+
+**Sarah:** remove all temporary console logs and error debug lines added in views and api
+
+**Claude:** Removed the single remaining debug line from `views.js` (the `renderInbox` messages[0] log). `api.js` was already clean.
