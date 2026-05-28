@@ -8,7 +8,7 @@ Secure messaging application — CS4455 Cybersecurity Epic 2026, Group sas.
 
 ```
 WhatSaS/
-├── client.cpp/      # C++ client
+├── client-cpp/      # C++ client
 ├── client-web/      # Web client (HTML/JS)
 ├── server/          # Python backend
 ├── contracts/       # Solidity smart contract
@@ -59,6 +59,52 @@ cmake --build client-cpp/build
 
 For Windows (MSYS2/UCRT64) and full test instructions see [`client-cpp/README.md`](client-cpp/README.md).
 
+### CLI walkthrough
+
+On first run the client shows a register / login menu.
+
+**Registration**
+1. Prompts for username and password.
+2. Generates an X25519 keypair via `crypto_box_keypair`.
+3. Derives a 32-byte Key Encryption Key (KEK) from the password using Argon2id (`crypto_pwhash`, INTERACTIVE ops/mem limits, fresh 16-byte random salt).
+4. Wraps the private key with AES-256-GCM (`crypto_aead_aes256gcm_encrypt`, random 12-byte nonce); the envelope stored on the server is `nonce || ciphertext || tag` — the server never sees the plaintext private key.
+5. Registers with the server, sending `x25519_public_key`, `wrapped_private_key`, and `kek_salt` (all base64-encoded).
+6. Automatically flows into the messaging session without requiring the user to log in again.
+
+**Login**
+1. Prompts for username and password.
+2. Fetches `wrapped_private_key` and `kek_salt` from the server's login response.
+3. Re-derives the KEK using the same Argon2id parameters and the stored salt.
+4. Decrypts the wrapped private key with AES-256-GCM to recover the X25519 private key; the tag authenticates the password.
+5. Re-derives the public key via `crypto_scalarmult_base` and constructs a `Client` ready to send and receive.
+
+**Messaging session**
+
+```
+[1] Send message
+[2] View messages
+[3] Quit
+```
+
+- **Send** — prompts for a recipient username and message text. The client fetches the recipient's public key (TOFU-pinned on first contact), derives a per-message AES-256-GCM key via DHKEM(X25519, HKDF-SHA256), encrypts the plaintext, and POSTs the ciphertext and ephemeral public key to the server.
+- **View** — GETs all messages from the server, re-derives the AES key from each message's ephemeral public key (`kem_output`), decrypts, and prints the conversation chronologically.
+
+### Tests
+
+```bash
+# All offline tests
+ctest --test-dir client-cpp/build
+
+# Individual targets
+./client-cpp/build/test_e2e          # full register → login → send → receive chain (no network)
+./client-cpp/build/test_hpke         # DHKEM(X25519) + HKDF-SHA256 key derivation
+./client-cpp/build/test_tamper       # AES-256-GCM tamper detection
+./client-cpp/build/test_client       # Client crypto unit tests
+./client-cpp/build/test_conversation # Conversation deduplication and ordering
+./client-cpp/build/test_tcp          # raw TCP socket (offline)
+./client-cpp/build/test_http         # HTTPS GET (requires --network flag)
+```
+
 ### Memory Ownership
 
 No raw owning pointers (`new`/`delete`) appear in the codebase. Every resource is either owned by a smart pointer or stored by value.
@@ -107,6 +153,8 @@ There is no shared ownership in the design. Every object has exactly one owner a
 | `std::move` | `Client` constructor, `Conversation::addMessage`, `HttpClient` move operators | Transfers ownership of key byte vectors and message objects without copying; critical for 32-byte key vectors passed into `Client` at construction. |
 
 ### Classes
+
+**`Auth`** — handles registration and login HTTP calls and holds the session token returned by the server. After a successful `login()` call it also exposes `getWrappedPrivateKey()` and `getKekSalt()` so `main.cpp` can re-derive the KEK and unwrap the private key without a second network round-trip.
 
 **`User`** — represents a participant in the system. Holds a user ID, display name, and a Curve25519 (X25519) public key. The local user also stores a private key; remote peers only ever have the public key populated. Keys may be set after construction to support deferred key-registry lookups.
 

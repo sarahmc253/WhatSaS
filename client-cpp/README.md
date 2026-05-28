@@ -32,11 +32,23 @@ cmake --build build
 ## Tests
 
 ```powershell
-# Offline TCP socket tests (no internet required)
-.\build\test_tcp.exe
+# Full E2E chain: register, login, send, receive — no network
+.\build\test_e2e.exe
 
-# Offline crypto unit tests (no internet required)
+# DHKEM(X25519) + HKDF-SHA256 key derivation
+.\build\test_hpke.exe
+
+# AES-256-GCM tamper detection
+.\build\test_tamper.exe
+
+# Client crypto unit tests
 .\build\test_client.exe
+
+# Conversation deduplication and ordering
+.\build\test_conversation.exe
+
+# Raw TCP socket tests (no internet required)
+.\build\test_tcp.exe
 
 # HTTPS/TLS tests (internet required)
 .\build\test_http.exe --network
@@ -96,9 +108,10 @@ client-cpp/
 | Associated data | Canonical JSON, bound into AEAD tag | nlohmann `ordered_json` (guaranteed key insertion order) |
 | Message ID | 16 CSPRNG bytes → 32 hex chars | libsodium `randombytes_buf` + `sodium_bin2hex` |
 | Base64 encoding | RFC 4648 standard | libsodium `sodium_bin2base64` |
-| Key exchange | X25519 ECDH + HPKE RFC 9180 (pending Day 7) | libsodium `crypto_scalarmult_*` |
-| Key derivation | HKDF-SHA256 (pending) | libsodium `crypto_kdf_hkdf_sha256_*` |
-| Password hashing | Argon2id (pending) | libsodium `crypto_pwhash_*` |
+| Key exchange | DHKEM(X25519) — ephemeral + static DH, authenticated sender | libsodium `crypto_scalarmult_*` |
+| Key derivation | HKDF-SHA256 over DH1 \|\| DH2 → 32-byte AES key | libsodium `crypto_kdf_hkdf_sha256_*` |
+| Password hashing / KEK derivation | Argon2id, INTERACTIVE ops/mem, 16-byte random salt | libsodium `crypto_pwhash_*` |
+| Private key wrapping | AES-256-GCM over X25519 sk; envelope = nonce \|\| ct \|\| tag | libsodium `crypto_aead_aes256gcm_*` |
 | Transport | HTTPS/TLS 1.2+ | Raw OpenSSL (libssl + libcrypto) |
 | Cert validation | System CA store | Windows `CertOpenSystemStoreA` + OpenSSL X509 |
 
@@ -106,7 +119,8 @@ client-cpp/
 - AES-256-GCM requires hardware AES-NI (Intel/AMD); `Client` constructor throws `std::runtime_error` if unavailable
 - Nonce scheme: fresh 96-bit nonce drawn from `randombytes_buf` on every `encryptAes256Gcm` call — no counter, no state carried between messages
 - Associated data (sender_id, recipient_id, message_id, timestamp) is bound into the AEAD tag but not encrypted — any tampering causes decryption to fail
-- HPKE RFC 9180 (`DHKEM(X25519, HKDF-SHA256)`) is a Day 7 task; `kem_output` and `sender_ephemeral_pk` fields in POST JSON are empty placeholders until then
+- HPKE-style key establishment is fully implemented: each message derives a fresh AES key via `DH1 = X25519(eph_sk, recipient_pk)` and `DH2 = X25519(sender_sk, recipient_pk)`; `kem_output` carries the ephemeral public key; `sender_ephemeral_pk` is a deprecated wire field kept for server schema compatibility
+- Private keys are stored server-side wrapped under a password-derived KEK (Argon2id → AES-256-GCM); the server never holds a plaintext private key
 - TLS certificate chain validated against the Windows system root CA store
 - Hostname verification enforced via `SSL_set1_host` — connections rejected on CN/SAN mismatch
 - Plain HTTP rejected — this client is HTTPS only
