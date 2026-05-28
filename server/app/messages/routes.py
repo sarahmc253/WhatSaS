@@ -28,9 +28,11 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT id, sender_id, ciphertext, nonce, ephemeral_pk, created_at
-            FROM messages
-            WHERE recipient_id = %s AND is_revoked = 0
+            SELECT m.id, m.sender_id, u.username AS sender_username,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at
+            FROM messages m
+            JOIN users u ON u.id = m.sender_id
+            WHERE m.recipient_id = %s AND m.is_revoked = 0
             """,
             (current_user_id,),
         )

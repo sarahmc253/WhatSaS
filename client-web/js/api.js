@@ -88,7 +88,7 @@ export async function login(username, password) {
                 'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
             );
             setPrivateKey(privKey);
-        } catch {
+        } catch (err) {
             // Placeholder key material (test users) or corrupted key — login still succeeds,
             // inbox will see getPrivateKey() === null and skip decryption.
         }

@@ -284,6 +284,7 @@ export async function renderInbox(container, navigate) {
 
     try {
         const data = await api.getMessages();
+        console.log('[renderInbox] data.messages[0]:', data.messages?.[0]);
         messages = data.messages ?? [];
     } catch (err) {
         body.innerHTML = `<div class="error-msg">Could not load messages: ${esc(err.message)}</div>`;
@@ -304,10 +305,10 @@ export async function renderInbox(container, navigate) {
             const ciphertext  = hexToBytes(msg.ciphertext);
             const nonce       = hexToBytes(msg.nonce);
             const ephPubKey   = await crypto.subtle.importKey(
-                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, [],
             );
             return await decryptMessage(ciphertext, nonce, ephPubKey, privKey);
-        } catch {
+        } catch (e) {
             return '(encrypted)';
         }
     }
