@@ -13,6 +13,7 @@ export async function deriveLocalKEK(passphrase, salt) {
         time:        2,
         parallelism: 4,
         hashLen:     32,
+        distPath:    null,    // run on main thread — avoids blob: worker blocked by MetaMask CSP
     });
 
     return result.hash; // raw Uint8Array — callers import into Web Crypto as needed
