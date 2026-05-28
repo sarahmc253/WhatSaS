@@ -128,13 +128,6 @@ HttpResponse HttpClient::get(const std::string& url,
         return {0, "", parsed.error, false};
     }
 
-    auto hasCrlf = [](const std::string& s) {
-        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
-    };
-    if (hasCrlf(parsed.path) || hasCrlf(authToken)) {
-        return {0, "", "Invalid header value: CRLF in path or Authorization", false};
-    }
-
     return doRequest(parsed.host, parsed.port, buildGetRequest(parsed, authToken), verifyCert);
 }
 

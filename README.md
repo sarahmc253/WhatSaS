@@ -80,7 +80,7 @@ On first run the client shows a register / login menu.
 
 **Messaging session**
 
-```
+```text
 [1] Send message
 [2] View messages
 [3] Quit

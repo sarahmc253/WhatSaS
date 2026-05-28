@@ -60,7 +60,8 @@ public:
     // GET baseUrl/users/{userId}/key → base64-decode → 32-byte vector.
     // TOFU pinning: first fetch pins the key; later fetches that differ return empty
     // and log a key-substitution warning.
-    // Returns empty vector on any network or parse error.
+    // Returns empty vector on any error (invalid userId, network failure, parse error).
+    // Never throws — failures are logged to stderr.
     std::vector<uint8_t> fetchPeerPublicKey(const std::string& userId) const;
 
     // POST baseUrl/keys  {"user_id": userId, "public_key": base64(pk)}

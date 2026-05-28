@@ -158,9 +158,29 @@ WhatSaS client starting...
         } else {
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
 
+            // Validate both key-material fields before doing any crypto.
             const std::vector<uint8_t> kekSaltBytes = b64Decode(auth.getKekSalt());
             if (kekSaltBytes.size() != crypto_pwhash_SALTBYTES) {
-                throw std::runtime_error("login response: kek_salt is missing or malformed");
+                throw std::runtime_error(
+                    "login response: kek_salt must be " +
+                    std::to_string(crypto_pwhash_SALTBYTES) +
+                    " bytes, got " + std::to_string(kekSaltBytes.size()));
+            }
+
+            const std::vector<uint8_t> wrappedBytes = b64Decode(auth.getWrappedPrivateKey());
+            constexpr std::size_t expectedWrappedLen =
+                crypto_aead_aes256gcm_NPUBBYTES +
+                crypto_box_SECRETKEYBYTES +
+                crypto_aead_aes256gcm_ABYTES;
+            if (wrappedBytes.size() != expectedWrappedLen) {
+                throw std::runtime_error(
+                    "login response: wrapped_private_key must be " +
+                    std::to_string(expectedWrappedLen) +
+                    " bytes, got " + std::to_string(wrappedBytes.size()));
+            }
+
+            if (!crypto_aead_aes256gcm_is_available()) {
+                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
             }
 
             std::vector<uint8_t> kek(32);
@@ -174,23 +194,13 @@ WhatSaS client starting...
                 throw std::runtime_error("key derivation failed — not enough memory for Argon2id");
             }
 
-            if (!crypto_aead_aes256gcm_is_available()) {
-                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
-            }
-
-            const std::vector<uint8_t> wrappedBytes = b64Decode(auth.getWrappedPrivateKey());
-            constexpr std::size_t nonceLen = crypto_aead_aes256gcm_NPUBBYTES;
-            constexpr std::size_t tagLen   = crypto_aead_aes256gcm_ABYTES;
-            if (wrappedBytes.size() != nonceLen + crypto_box_SECRETKEYBYTES + tagLen) {
-                throw std::runtime_error("login response: wrapped_private_key is malformed");
-            }
-
             std::vector<uint8_t> sk(crypto_box_SECRETKEYBYTES);
             unsigned long long skLen = 0;
             if (crypto_aead_aes256gcm_decrypt(
                     sk.data(), &skLen,
                     nullptr,
-                    wrappedBytes.data() + nonceLen, wrappedBytes.size() - nonceLen,
+                    wrappedBytes.data() + crypto_aead_aes256gcm_NPUBBYTES,
+                    wrappedBytes.size() - crypto_aead_aes256gcm_NPUBBYTES,
                     nullptr, 0,
                     wrappedBytes.data(),
                     kek.data()) != 0) {

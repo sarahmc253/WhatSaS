@@ -1,6 +1,7 @@
 #include "http_response.hpp"
 
 #include <sstream>
+#include <stdexcept>
 #include <algorithm>
 #include <cctype>
 
@@ -46,6 +47,16 @@ ParsedUrl parseUrl(const std::string& url) {
 // ============================================================================
 
 std::string buildGetRequest(const ParsedUrl& u, const std::string& authToken) {
+    auto hasCrlf = [](const std::string& s) {
+        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
+    };
+    if (hasCrlf(u.path)) {
+        throw std::invalid_argument("buildGetRequest: CRLF in path");
+    }
+    if (hasCrlf(authToken)) {
+        throw std::invalid_argument("buildGetRequest: CRLF in Authorization token");
+    }
+
     std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
     std::string req = "GET " + u.path + " HTTP/1.1\r\n"
                       "Host: " + hostHeader + "\r\n"
