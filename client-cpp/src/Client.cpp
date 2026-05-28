@@ -20,6 +20,7 @@ Client::Client(const std::string& baseUrl,
                std::vector<uint8_t> staticSk,
                std::vector<uint8_t> staticPk,
                const std::string& pinsPath,
+               const std::string& authToken,
                bool verifyCert)
     : baseUrl_(baseUrl),
       senderId_(senderId),
@@ -27,7 +28,8 @@ Client::Client(const std::string& baseUrl,
       staticPk_(std::move(staticPk)),
       verifyCert_(verifyCert),
       http_(),
-      pinsPath_(pinsPath) {
+      pinsPath_(pinsPath),
+      authToken_(authToken) {
     if (staticSk_.size() != 32) {
         throw std::invalid_argument(
             "X25519 private key must be exactly 32 bytes, got " +
@@ -166,7 +168,7 @@ HttpResponse Client::sendMessage(const std::string& recipientId,
     body["sender_ephemeral_pk"] = "";  // deprecated field kept for server schema compat
     body["timestamp"]           = static_cast<long long>(enc->timestamp);
 
-    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", "", verifyCert_);
+    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
 }
 
 HttpResponse Client::getMessages() const {
@@ -365,5 +367,5 @@ HttpResponse Client::publishPublicKey(const std::string& userId,
     nlohmann::json body;
     body["user_id"]    = userId;
     body["public_key"] = b64Encode(publicKey.data(), publicKey.size());
-    return http_.post(baseUrl_ + "/keys", body.dump(), "application/json", "", verifyCert_);
+    return http_.post(baseUrl_ + "/keys", body.dump(), "application/json", authToken_, verifyCert_);
 }

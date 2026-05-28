@@ -35,6 +35,7 @@ public:
            std::vector<uint8_t> staticSk,
            std::vector<uint8_t> staticPk,
            const std::string& pinsPath,
+           const std::string& authToken = "",
            bool verifyCert = true);
 
     // Derive a per-message AES key via DHKEM, encrypt with AES-256-GCM,
@@ -74,7 +75,8 @@ private:
     std::vector<uint8_t> staticPk_;  // local long-term X25519 public key
     bool                 verifyCert_;
     HttpClient           http_;
-    std::string          pinsPath_;  // path to the on-disk TOFU pin file
+    std::string          pinsPath_;
+    std::string          authToken_;  // path to the on-disk TOFU pin file
     // TOFU key pins: userId → first-seen public key. mutable so const methods can update.
     mutable std::unordered_map<std::string, std::vector<uint8_t>> pinnedKeys_;
 
