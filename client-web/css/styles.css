@@ -326,3 +326,4 @@ textarea { resize: vertical; min-height: 120px; }
 
 /* ── Key fingerprint ─────────────────────────────────────────────────────── */
 .key-fingerprint { font-size: .75rem; font-family: monospace; color: var(--muted); margin: .25rem 0 .5rem; min-height: 1em; }
+.inbox-actions { display: flex; gap: .5rem; }

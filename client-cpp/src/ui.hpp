@@ -11,7 +11,7 @@
 #define RED "\033[1;31m"
 
 enum class AuthChoice   { Register, Login, Eof };
-enum class MainChoice   { Send, Conversation, Logout, Eof };
+enum class MainChoice   { Send, Conversation, ChangePassword, Logout, Eof };
 enum class ConvChoice   { Reply, Back, Eof };
 
 // ── banner ────────────────────────────────────────────────────────────────────
@@ -95,7 +95,8 @@ inline MainChoice showMainMenu(const std::string& username)
         "        │                                          │\n"
         "        │      [1]  📨  send a message             │\n"
         "        │      [2]  💬  open a conversation        │\n"
-        "        │      [3]  🚪  logout                     │\n"
+        "        │      [3]  🔒  change password            │\n"
+        "        │      [4]  🚪  logout                     │\n"
         "        │                                          │\n"
         "        └──────────────────────────────────────────┘\n"
         "\n        ✨ your choice: " R;
@@ -105,8 +106,9 @@ inline MainChoice showMainMenu(const std::string& username)
         if (!std::getline(std::cin, action)) return MainChoice::Eof;
         if (action == "1") return MainChoice::Send;
         if (action == "2") return MainChoice::Conversation;
-        if (action == "3") return MainChoice::Logout;
-        std::cout << M "        💔 please enter 1, 2, or 3: " R;
+        if (action == "3") return MainChoice::ChangePassword;
+        if (action == "4") return MainChoice::Logout;
+        std::cout << M "        💔 please enter 1, 2, 3, or 4: " R;
     }
 }
 

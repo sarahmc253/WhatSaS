@@ -86,6 +86,7 @@ int main(int argc, char* argv[]) {
     Auth auth;
     std::optional<Client> client;
     std::string username;
+    std::vector<uint8_t> sessionSk;  // kept alongside client for password re-wrap
 
     try {
         if (choice == AuthChoice::Register) {
@@ -133,6 +134,7 @@ int main(int argc, char* argv[]) {
                                       b64Encode(kekSalt.data(), kekSalt.size()));
 
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+            sessionSk = sk;
             client.emplace(BASE_URL, creds.username,
                            std::move(sk), std::move(pk),
                            "whatsas_pins.txt", auth.getToken());
@@ -192,6 +194,7 @@ int main(int argc, char* argv[]) {
             if (crypto_scalarmult_base(pk.data(), sk.data()) != 0)
                 throw std::runtime_error("public key derivation failed — private key may be corrupted");
 
+            sessionSk = sk;
             client.emplace(BASE_URL, creds.username,
                            std::move(sk), std::move(pk),
                            "whatsas_pins.txt", auth.getToken());
@@ -230,6 +233,54 @@ int main(int argc, char* argv[]) {
             std::cout << "\033[1;35m\n        🚪 logged out — see you soon, " << username << "~ 💖\n\033[0m\n";
             showGoodbye();
             return 0;
+        }
+
+        if (action == MainChoice::ChangePassword) {
+            const auto pwChange = promptPasswordChange();
+            if (pwChange.oldPassword.empty()) continue;
+
+            try {
+                // Derive new KEK from new password with a fresh salt
+                std::vector<uint8_t> newKekSalt(crypto_pwhash_SALTBYTES);
+                randombytes_buf(newKekSalt.data(), newKekSalt.size());
+
+                std::vector<uint8_t> newKek(32);
+                if (crypto_pwhash(
+                        newKek.data(), newKek.size(),
+                        pwChange.newPassword.c_str(), pwChange.newPassword.size(),
+                        newKekSalt.data(),
+                        crypto_pwhash_OPSLIMIT_INTERACTIVE,
+                        crypto_pwhash_MEMLIMIT_INTERACTIVE,
+                        crypto_pwhash_ALG_ARGON2ID13) != 0)
+                    throw std::runtime_error("key derivation failed — not enough memory for Argon2id");
+
+                // Re-wrap the private key under the new KEK
+                unsigned char wrapNonce[crypto_aead_aes256gcm_NPUBBYTES];
+                randombytes_buf(wrapNonce, sizeof(wrapNonce));
+
+                std::vector<uint8_t> newWrapped(
+                    sizeof(wrapNonce) + crypto_box_SECRETKEYBYTES + crypto_aead_aes256gcm_ABYTES);
+                unsigned long long wrappedCtLen = 0;
+                if (crypto_aead_aes256gcm_encrypt(
+                        newWrapped.data() + sizeof(wrapNonce), &wrappedCtLen,
+                        sessionSk.data(), sessionSk.size(),
+                        nullptr, 0, nullptr,
+                        wrapNonce, newKek.data()) != 0)
+                    throw std::runtime_error("private key re-wrapping failed");
+
+                std::copy(wrapNonce, wrapNonce + sizeof(wrapNonce), newWrapped.begin());
+                newWrapped.resize(sizeof(wrapNonce) + wrappedCtLen);
+
+                auth.changePassword(http, BASE_URL,
+                                    pwChange.oldPassword, pwChange.newPassword,
+                                    b64Encode(newWrapped.data(), newWrapped.size()),
+                                    b64Encode(newKekSalt.data(), newKekSalt.size()));
+
+                std::cout << "\033[1;35m\n        🔒 password changed successfully! 💖\n\033[0m\n";
+            } catch (const std::exception& e) {
+                std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m\n";
+            }
+            continue;
         }
 
         // both send and view need a peer

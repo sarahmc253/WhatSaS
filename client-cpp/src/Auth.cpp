@@ -19,6 +19,28 @@ void Auth::logout(HttpClient& client, const std::string& baseUrl) const {
     client.post(baseUrl + "/auth/logout", "", "application/json", token_);
 }
 
+void Auth::changePassword(HttpClient& client,
+                          const std::string& baseUrl,
+                          const std::string& oldPassword,
+                          const std::string& newPassword,
+                          const std::string& newWrappedPrivateKey,
+                          const std::string& newKekSalt) const {
+    nlohmann::json body;
+    body["old_password"]        = oldPassword;
+    body["new_password"]        = newPassword;
+    body["wrapped_private_key"] = newWrappedPrivateKey;
+    body["kek_salt"]            = newKekSalt;
+
+    const auto resp = client.post(baseUrl + "/auth/change-password", body.dump(),
+                                  "application/json", token_);
+
+    if (resp.statusCode_ < 200 || resp.statusCode_ > 299) {
+        const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_;
+        throw std::runtime_error("Password change failed (HTTP " +
+                                 std::to_string(resp.statusCode_) + "): " + detail);
+    }
+}
+
 // ── Static factories ─────────────────────────────────────────────────────────
 
 Auth Auth::registerUser(HttpClient& client,

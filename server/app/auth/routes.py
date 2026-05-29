@@ -159,6 +159,61 @@ def login():
     }), 200
 
 
+@auth_bp.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request body must be a JSON object'}), 400
+
+    invalid = _invalid_fields(data, ['old_password', 'new_password', 'wrapped_private_key', 'kek_salt'])
+    if invalid:
+        return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    user_id = get_jwt_identity()
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute('SELECT password_hash FROM users WHERE id = %s', (user_id,))
+        user = cursor.fetchone()
+    finally:
+        cursor.close()
+
+    if user is None:
+        return jsonify({'error': 'User not found'}), 404
+
+    try:
+        ph.verify(user['password_hash'], data['old_password'])
+    except VerifyMismatchError:
+        return jsonify({'error': 'Old password is incorrect'}), 401
+
+    new_hash = ph.hash(data['new_password'])
+    new_salt = new_hash.split('$')[4]
+
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE users
+            SET password_hash = %s, password_salt = %s,
+                wrapped_private_key = %s, kek_salt = %s
+            WHERE id = %s
+            """,
+            (new_hash, new_salt,
+             data['wrapped_private_key'], data['kek_salt'],
+             user_id),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cursor.close()
+
+    return jsonify({'message': 'Password changed successfully'}), 200
+
+
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():

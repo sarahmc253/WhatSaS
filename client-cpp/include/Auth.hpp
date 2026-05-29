@@ -21,6 +21,13 @@ public:
 
     void logout(HttpClient& client, const std::string& baseUrl) const;
 
+    void changePassword(HttpClient& client,
+                        const std::string& baseUrl,
+                        const std::string& oldPassword,
+                        const std::string& newPassword,
+                        const std::string& newWrappedPrivateKey,
+                        const std::string& newKekSalt) const;
+
     const std::string& getToken()              const;
     const std::string& getWrappedPrivateKey()  const;
     const std::string& getKekSalt()            const;

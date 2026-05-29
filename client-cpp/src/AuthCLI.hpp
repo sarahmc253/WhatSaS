@@ -81,6 +81,24 @@ inline LoginCredentials promptLogin() {
     return { username, readPassword() };
 }
 
+// Prompts for old password then new password (with confirmation loop).
+// Returns {oldPassword, newPassword} or {"",""} if stdin closes.
+struct PasswordChange { std::string oldPassword; std::string newPassword; };
+inline PasswordChange promptPasswordChange() {
+    std::cout << "Old password: ";
+    std::string oldPw = readPassword();
+    if (oldPw.empty()) return {};
+
+    while (true) {
+        std::cout << "New password: ";
+        std::string newPw = readPassword();
+        std::cout << "Confirm new:  ";
+        std::string confirm = readPassword();
+        if (newPw == confirm) return { oldPw, newPw };
+        std::cout << "\033[1;31m        💔 passwords don't match — try again\n\033[0m";
+    }
+}
+
 inline Credentials promptCredentials() {
     std::string username;
     std::cout << "Username: ";

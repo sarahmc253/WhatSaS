@@ -9,6 +9,7 @@
 import * as api from './api.js';
 import { getUser, sendMessage } from './api.js';
 import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
+import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -173,9 +174,31 @@ export async function renderInbox(container, navigate) {
     container.innerHTML = `
         <div class="inbox-header">
             <h2>Inbox</h2>
-            <button class="btn btn-primary" id="btn-compose">Compose</button>
+            <div class="inbox-actions">
+                <button class="btn btn-primary" id="btn-compose">Compose</button>
+                <button class="btn btn-secondary" id="btn-change-password">🔒 Change Password</button>
+            </div>
         </div>
         <div id="my-fingerprint" class="key-fingerprint" title="Your key fingerprint — share this with contacts to verify your identity"></div>
+        <section id="change-password-section" class="card" hidden>
+            <h3>Change Password</h3>
+            <form id="change-password-form" novalidate>
+                <div class="form-group">
+                    <label for="cp-old">Current password</label>
+                    <input type="password" id="cp-old" autocomplete="current-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="cp-new">New password</label>
+                    <input type="password" id="cp-new" autocomplete="new-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="cp-confirm">Confirm new password</label>
+                    <input type="password" id="cp-confirm" autocomplete="new-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Update Password</button>
+                <div id="cp-msg" role="alert"></div>
+            </form>
+        </section>
         <div id="inbox-body">
             <div class="loading"><span class="spinner"></span> Loading…</div>
         </div>`;
@@ -191,6 +214,56 @@ export async function renderInbox(container, navigate) {
     }
 
     document.getElementById('btn-compose').addEventListener('click', () => navigate('compose'));
+    document.getElementById('btn-change-password').addEventListener('click', () => {
+        const section = document.getElementById('change-password-section');
+        section.hidden = !section.hidden;
+    });
+
+    document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn     = e.target.querySelector('button[type="submit"]');
+        const msgEl   = document.getElementById('cp-msg');
+        const oldPw   = document.getElementById('cp-old').value;
+        const newPw   = document.getElementById('cp-new').value;
+        const confirm = document.getElementById('cp-confirm').value;
+
+        msgEl.className = msgEl.textContent = '';
+
+        if (newPw !== confirm) {
+            msgEl.className = 'error-msg';
+            msgEl.textContent = 'New passwords do not match.';
+            return;
+        }
+
+        btn.disabled = true;
+        try {
+            const wrappedB64 = api.getWrappedKey();
+            if (!wrappedB64) throw new Error('No key material in session — please log in again.');
+
+            // Decrypt private key with old password
+            const parsed    = JSON.parse(atob(wrappedB64));
+            const encrypted = EncryptedPrivateKey.fromJSON(parsed);
+            const privBytes = await decryptPrivateKey(encrypted, oldPw);
+
+            // Re-encrypt under new password
+            const newEncrypted = await encryptPrivateKey(privBytes, newPw);
+            const newWrappedB64 = btoa(JSON.stringify(newEncrypted.toJSON()));
+            // kek_salt: use the new salt embedded in the encrypted struct (base64)
+            const newKekSalt = btoa(String.fromCharCode(...newEncrypted.salt));
+
+            await api.changePassword(oldPw, newPw, newWrappedB64, newKekSalt);
+
+            msgEl.className = 'success-msg';
+            msgEl.textContent = 'Password updated successfully!';
+            e.target.reset();
+            document.getElementById('change-password-section').hidden = true;
+        } catch (err) {
+            msgEl.className = 'error-msg';
+            msgEl.textContent = err.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
 
     const body = document.getElementById('inbox-body');
     let messages;
