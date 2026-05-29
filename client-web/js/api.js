@@ -25,11 +25,14 @@ function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
 export function isAuthenticated() { return !!getToken(); }
 
 // ── Private key store (in-memory only, never persisted) ──────────────────
-let _sessionPrivateKey = null;
+let _sessionPrivateKey  = null;
+let _sessionPublicKeyB64 = null;  // base64 X25519 public key from login response
 
-export function setPrivateKey(key) { _sessionPrivateKey = key; }
-export function getPrivateKey()    { return _sessionPrivateKey; }
-export function clearPrivateKey()  { _sessionPrivateKey = null; }
+export function setPrivateKey(key)     { _sessionPrivateKey   = key; }
+export function getPrivateKey()        { return _sessionPrivateKey; }
+export function clearPrivateKey()      { _sessionPrivateKey   = null; }
+export function getPublicKeyB64()      { return _sessionPublicKeyB64; }
+export function clearPublicKey()       { _sessionPublicKeyB64 = null; }
 
 // ── Core fetch wrapper ────────────────────────────────────────────────────
 async function request(method, path, { body = null, auth = false } = {}) {
@@ -66,6 +69,7 @@ export async function login(username, password) {
     });
     if (!data.token) throw new Error('Login succeeded but no token was returned');
     setToken(data.token);
+    if (data.x25519_public_key) _sessionPublicKeyB64 = data.x25519_public_key;
 
     if (data.wrapped_private_key) {
         try {
@@ -106,6 +110,7 @@ export function logout() {
     }
     clearToken();
     clearPrivateKey();
+    clearPublicKey();
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────

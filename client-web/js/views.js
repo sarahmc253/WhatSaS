@@ -42,6 +42,16 @@ function hexToBytes(hex) {
 
 // ── Crypto ────────────────────────────────────────────────────────────────
 
+// SHA-256 fingerprint of a raw public key, formatted as colon-separated uppercase
+// hex pairs (first 8 bytes only). e.g. "A3:F2:11:8C:44:D0:9E:7B"
+// Used for out-of-band identity verification — matches the C++ client's format.
+async function keyFingerprint(pkBytes) {
+    const hash = await crypto.subtle.digest('SHA-256', pkBytes);
+    return Array.from(new Uint8Array(hash).slice(0, 8))
+        .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+        .join(':');
+}
+
 // TODO: fetch recipient's x25519_public_key and encrypt with HPKE.
 // eslint-disable-next-line no-unused-vars
 async function encryptForRecipient(_recipientUsername, _plaintext) {
@@ -165,9 +175,20 @@ export async function renderInbox(container, navigate) {
             <h2>Inbox</h2>
             <button class="btn btn-primary" id="btn-compose">Compose</button>
         </div>
+        <div id="my-fingerprint" class="key-fingerprint" title="Your key fingerprint — share this with contacts to verify your identity"></div>
         <div id="inbox-body">
             <div class="loading"><span class="spinner"></span> Loading…</div>
         </div>`;
+
+    // Compute and display own fingerprint from the login-cached public key
+    const pubB64 = api.getPublicKeyB64();
+    if (pubB64) {
+        try {
+            const pkBytes = Uint8Array.from(atob(pubB64), c => c.charCodeAt(0));
+            const fp = await keyFingerprint(pkBytes);
+            document.getElementById('my-fingerprint').textContent = `🔑 Your fingerprint: ${fp}`;
+        } catch { /* non-fatal */ }
+    }
 
     document.getElementById('btn-compose').addEventListener('click', () => navigate('compose'));
 
@@ -323,6 +344,7 @@ export function renderCompose(container, navigate) {
                 <div class="form-group">
                     <label for="c-recipient">Recipient username</label>
                     <input type="text" id="c-recipient" placeholder="Enter username" required>
+                    <div id="recipient-fingerprint" class="key-fingerprint"></div>
                 </div>
                 <div class="form-group">
                     <label for="c-body">Message</label>
@@ -338,6 +360,20 @@ export function renderCompose(container, navigate) {
 
     document.getElementById('btn-back').addEventListener('click',   () => navigate('inbox'));
     document.getElementById('btn-cancel').addEventListener('click', () => navigate('inbox'));
+
+    // Show peer fingerprint when the user finishes typing a recipient username
+    document.getElementById('c-recipient').addEventListener('blur', async (e) => {
+        const username = e.target.value.trim();
+        const fpEl = document.getElementById('recipient-fingerprint');
+        if (!username) { fpEl.textContent = ''; return; }
+        try {
+            const user = await getUser(username);
+            if (!user?.x25519_public_key) { fpEl.textContent = ''; return; }
+            const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
+            const fp = await keyFingerprint(pkBytes);
+            fpEl.textContent = `🔑 ${esc(username)}'s fingerprint: ${fp}`;
+        } catch { fpEl.textContent = ''; }
+    });
 
     const form = document.getElementById('compose-form');
     const msg  = document.getElementById('compose-msg');

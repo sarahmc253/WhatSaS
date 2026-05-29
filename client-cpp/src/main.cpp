@@ -218,6 +218,10 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    std::cout << "\033[1;35m        🔑 your key fingerprint: "
+              << keyFingerprint(client->getPublicKey())
+              << "\n        share this with contacts to verify your identity out-of-band\n\033[0m\n";
+
     // ── main loop ─────────────────────────────────────────────────────────────
     while (true) {
         const std::string action = showMainMenu(username);
@@ -238,6 +242,10 @@ int main(int argc, char* argv[]) {
                       << "' — user not found or key substitution detected\033[0m\n";
             continue;
         }
+
+        std::cout << "\033[1;35m        🔑 " << peerId << "'s key fingerprint: "
+                  << keyFingerprint(peerPk)
+                  << "\n        verify this matches what " << peerId << " sees for themselves\n\033[0m\n";
 
         if (action == "1") {
             // ── send ──────────────────────────────────────────────────────────
