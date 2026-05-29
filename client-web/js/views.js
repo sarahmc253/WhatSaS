@@ -99,6 +99,12 @@ export function renderLogin(container, navigate) {
                 document.getElementById('l-username').value.trim(),
                 document.getElementById('l-password').value
             );
+            if (!api.getPrivateKey()) {
+                msg.className = 'error-msg';
+                msg.textContent = 'Your account is authenticated but your encryption key could not be loaded. Please contact support.';
+                btn.disabled = false;
+                return;
+            }
             navigate('inbox');
         } catch (err) {
             msg.className = 'error-msg';

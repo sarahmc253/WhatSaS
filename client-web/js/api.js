@@ -89,8 +89,7 @@ export async function login(username, password) {
             );
             setPrivateKey(privKey);
         } catch (err) {
-            // Placeholder key material (test users) or corrupted key — login still succeeds,
-            // inbox will see getPrivateKey() === null and skip decryption.
+            console.error('Private key import failed:', err);
         }
     }
 
