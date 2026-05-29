@@ -82,8 +82,6 @@ int main(int argc, char* argv[]) {
         std::cout << "        💖 welcome back!\n\n\033[0m";
     }
 
-    const auto creds = promptCredentials();
-
     HttpClient http;
     Auth auth;
     std::optional<Client> client;
@@ -91,6 +89,7 @@ int main(int argc, char* argv[]) {
 
     try {
         if (choice == "1") {
+            const auto creds = promptCredentials();
             if (!crypto_aead_aes256gcm_is_available())
                 throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
 
@@ -142,6 +141,7 @@ int main(int argc, char* argv[]) {
             std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
 
         } else {
+            const auto creds = promptLogin();
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
 
             const std::vector<uint8_t> kekSaltBytes = b64Decode(auth.getKekSalt());
