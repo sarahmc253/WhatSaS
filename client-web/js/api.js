@@ -35,9 +35,10 @@ export function getPrivateKey()        { return _sessionPrivateKey; }
 export function clearPrivateKey()      { _sessionPrivateKey   = null; }
 export function getPublicKeyB64()      { return _sessionPublicKeyB64; }
 export function clearPublicKey()       { _sessionPublicKeyB64 = null; }
-export function getWrappedKey()        { return _sessionWrappedKey; }
-export function getKekSalt()           { return _sessionKekSalt; }
-export function clearWrappedKey()      { _sessionWrappedKey = null; _sessionKekSalt = null; }
+export function getWrappedKey()                   { return _sessionWrappedKey; }
+export function getKekSalt()                      { return _sessionKekSalt; }
+export function clearWrappedKey()                 { _sessionWrappedKey = null; _sessionKekSalt = null; }
+export function setWrappedKey(wrapped, kekSalt)   { _sessionWrappedKey = wrapped; _sessionKekSalt = kekSalt; }
 
 // ── Core fetch wrapper ────────────────────────────────────────────────────
 async function request(method, path, { body = null, auth = false } = {}) {

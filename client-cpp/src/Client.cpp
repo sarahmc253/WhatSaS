@@ -223,18 +223,23 @@ int Client::receiveMessages(MessageStore& store,
         if (createdAt.size() > 10 && createdAt[10] == 'T') createdAt[10] = ' ';
 #ifdef _WIN32
         int y, mo, d, h, mi, s;
-        std::time_t ts = 0;
+        std::time_t ts = -1;
         if (std::sscanf(createdAt.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
             tm.tm_year = y - 1900; tm.tm_mon = mo - 1; tm.tm_mday = d;
             tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
             ts = _mkgmtime(&tm);
         }
 #else
-        std::time_t ts = 0;
+        std::time_t ts = -1;
         if (strptime(createdAt.c_str(), "%Y-%m-%d %H:%M:%S", &tm)) {
             ts = timegm(&tm);
         }
 #endif
+        if (ts < 0) {
+            std::cerr << "[receiveMessages] skipping: unparseable created_at '" << createdAt
+                      << "' for message " << messageId << "\n";
+            continue;
+        }
 
         // 4. Validate ephemeral_pk field.
         if (!obj.contains("ephemeral_pk") || !obj["ephemeral_pk"].is_string()) {
@@ -347,7 +352,14 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
                   << " differs from pinned key — possible key substitution attack. Rejecting.\n";
         return {};
     } else {
-        // Already pinned — ensure UUID is also cached in memory (may be missing after restart).
+        // Key matches pin. Verify the UUID hasn't changed — a remap could redirect messages.
+        auto idIt = pinnedIds_.find(userId);
+        if (idIt != pinnedIds_.end() && idIt->second != peerUuid) {
+            std::cerr << "[fetchPeerPublicKey] WARNING: UUID for " << userId
+                      << " changed from " << idIt->second << " to " << peerUuid
+                      << " — possible account takeover. Rejecting.\n";
+            return {};
+        }
         pinnedIds_[userId] = peerUuid;
     }
 

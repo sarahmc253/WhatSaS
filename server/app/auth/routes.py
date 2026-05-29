@@ -153,6 +153,7 @@ def login():
 
     return jsonify({
         'token': token,
+        'user_id': str(user['id']),
         'wrapped_private_key': user['wrapped_private_key'],
         'kek_salt': user['kek_salt'],
         'x25519_public_key': user['x25519_public_key'],

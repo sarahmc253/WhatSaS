@@ -24,6 +24,10 @@ static void runMockFlow() {
     while (true) {
         const MainChoice action = showMainMenu(username);
         if (action == MainChoice::Eof || action == MainChoice::Logout) break;
+        if (action == MainChoice::ChangePassword) {
+            std::cout << "\033[1;35m\n        🔒 mock mode — password change not available\n\033[0m\n";
+            continue;
+        }
 
         const std::string peerId = promptPeer();
         if (peerId.empty()) continue;
@@ -214,7 +218,7 @@ int main(int argc, char* argv[]) {
 
     // publish key on every login/register so the registry stays current
     {
-        const auto pubResp = client->publishPublicKey(username, client->getPublicKey());
+        const auto pubResp = client->publishPublicKey(auth.getUserId(), client->getPublicKey());
         if (pubResp.statusCode_ < 200 || pubResp.statusCode_ > 299) {
             std::cerr << "\033[1;33m\n        ⚠  key publish failed (HTTP "
                       << pubResp.statusCode_ << ") — peers may not be able to find you\n\033[0m\n";

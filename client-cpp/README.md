@@ -34,7 +34,7 @@ The server uses a self-signed TLS certificate. Place it at `client-cpp/certs/ser
 SSH into the VM and copy the cert directly:
 
 ```bash
-scp student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
+scp -P 2200 student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
 ```
 
 Or copy it from within the VM session:

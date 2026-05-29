@@ -6,6 +6,7 @@
 // ── Accessors ────────────────────────────────────────────────────────────────
 
 const std::string& Auth::getToken()             const { return token_;             }
+const std::string& Auth::getUserId()            const { return userId_;            }
 const std::string& Auth::getWrappedPrivateKey() const { return wrappedPrivateKey_; }
 const std::string& Auth::getKekSalt()           const { return kekSalt_;           }
 
@@ -15,7 +16,7 @@ bool Auth::isLoggedIn() const {
 
 // ── Instance methods ─────────────────────────────────────────────────────────
 
-void Auth::logout(HttpClient& client, const std::string& baseUrl) const {
+void Auth::logout(HttpClient& client, const std::string& baseUrl) {
     client.post(baseUrl + "/auth/logout", "", "application/json", token_);
 }
 
@@ -24,7 +25,7 @@ void Auth::changePassword(HttpClient& client,
                           const std::string& oldPassword,
                           const std::string& newPassword,
                           const std::string& newWrappedPrivateKey,
-                          const std::string& newKekSalt) const {
+                          const std::string& newKekSalt) {
     nlohmann::json body;
     body["old_password"]        = oldPassword;
     body["new_password"]        = newPassword;
@@ -101,6 +102,9 @@ Auth Auth::login(HttpClient& client,
 
     Auth auth;
     auth.token_ = parsed["token"].get<std::string>();
+
+    if (parsed.contains("user_id") && parsed["user_id"].is_string())
+        auth.userId_ = parsed["user_id"].get<std::string>();
 
     if (!parsed.contains("wrapped_private_key") || !parsed["wrapped_private_key"].is_string()) {
         throw std::runtime_error("Login failed: no wrapped_private_key in response");

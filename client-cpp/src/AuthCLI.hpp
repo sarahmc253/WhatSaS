@@ -21,9 +21,9 @@ struct LoginCredentials {
     std::string password;
 };
 
-static std::string readPassword() {
+static std::string readPassword(const char* label = "Password: ") {
     std::string password;
-    std::cout << "Password: ";
+    std::cout << label;
 
 #ifdef _WIN32
     int ch;
@@ -85,15 +85,12 @@ inline LoginCredentials promptLogin() {
 // Returns {oldPassword, newPassword} or {"",""} if stdin closes.
 struct PasswordChange { std::string oldPassword; std::string newPassword; };
 inline PasswordChange promptPasswordChange() {
-    std::cout << "Old password: ";
-    std::string oldPw = readPassword();
+    std::string oldPw = readPassword("Old password: ");
     if (oldPw.empty()) return {};
 
     while (true) {
-        std::cout << "New password: ";
-        std::string newPw = readPassword();
-        std::cout << "Confirm new:  ";
-        std::string confirm = readPassword();
+        std::string newPw   = readPassword("New password: ");
+        std::string confirm = readPassword("Confirm new:  ");
         if (newPw == confirm) return { oldPw, newPw };
         std::cout << "\033[1;31m        💔 passwords don't match — try again\n\033[0m";
     }

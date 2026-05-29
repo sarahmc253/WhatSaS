@@ -253,6 +253,9 @@ export async function renderInbox(container, navigate) {
 
             await api.changePassword(oldPw, newPw, newWrappedB64, newKekSalt);
 
+            // Keep the in-memory wrapped key state consistent with the new password
+            api.setWrappedKey(newWrappedB64, newKekSalt);
+
             msgEl.className = 'success-msg';
             msgEl.textContent = 'Password updated successfully!';
             e.target.reset();
