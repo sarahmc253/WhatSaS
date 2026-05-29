@@ -90,7 +90,7 @@ inline std::string showMainMenu(const std::string& username)
         "        │                                          │\n"
         "        │      [1]  📨  send a message             │\n"
         "        │      [2]  💬  open a conversation        │\n"
-        "        │      [3]  👋  quit                       │\n"
+        "        │      [3]  🚪  logout                     │\n"
         "        │                                          │\n"
         "        └──────────────────────────────────────────┘\n"
         "\n        ✨ your choice: " R;

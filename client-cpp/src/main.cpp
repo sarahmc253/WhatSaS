@@ -23,7 +23,7 @@ static void runMockFlow() {
 
     while (true) {
         const std::string action = showMainMenu(username);
-        if (action.empty() || action == "3") break;
+        if (action.empty() || action == "3") break; // logout: no real session in mock mode
 
         const std::string peerId = promptPeer();
         if (peerId.empty()) continue;
@@ -221,7 +221,12 @@ int main(int argc, char* argv[]) {
     // ── main loop ─────────────────────────────────────────────────────────────
     while (true) {
         const std::string action = showMainMenu(username);
-        if (action.empty() || action == "3") break;
+        if (action.empty() || action == "3") {
+            auth.logout(http, BASE_URL);
+            std::cout << "\033[1;35m\n        🚪 logged out — see you soon, " << username << "~ 💖\n\033[0m\n";
+            showGoodbye();
+            return 0;
+        }
 
         // both send and view need a peer
         const std::string peerId = promptPeer();

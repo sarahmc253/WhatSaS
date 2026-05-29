@@ -19,6 +19,8 @@ public:
         const std::string& username,
         const std::string& password);
 
+    void logout(HttpClient& client, const std::string& baseUrl) const;
+
     const std::string& getToken()              const;
     const std::string& getWrappedPrivateKey()  const;
     const std::string& getKekSalt()            const;

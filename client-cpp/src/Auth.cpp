@@ -13,6 +13,12 @@ bool Auth::isLoggedIn() const {
     return !token_.empty();
 }
 
+// ── Instance methods ─────────────────────────────────────────────────────────
+
+void Auth::logout(HttpClient& client, const std::string& baseUrl) const {
+    client.post(baseUrl + "/auth/logout", "", "application/json", token_);
+}
+
 // ── Static factories ─────────────────────────────────────────────────────────
 
 Auth Auth::registerUser(HttpClient& client,
