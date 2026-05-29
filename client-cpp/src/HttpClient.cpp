@@ -28,7 +28,8 @@ void HttpClient::SslCtxDeleter::operator()(SSL_CTX* ctx) const {
 
 // Constructor / destructor / move
 
-HttpClient::HttpClient() : wsaInitialized_(false), ctx_(nullptr) {
+HttpClient::HttpClient(const std::string& pinnedCertPath)
+    : wsaInitialized_(false), ctx_(nullptr) {
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::cerr << "WSAStartup failed\n";
@@ -36,7 +37,7 @@ HttpClient::HttpClient() : wsaInitialized_(false), ctx_(nullptr) {
     }
     wsaInitialized_ = true;
 
-    SSL_CTX* raw = createSslCtx();
+    SSL_CTX* raw = createSslCtx(pinnedCertPath);
     if (!raw) {
         std::cerr << "SSL_CTX creation failed\n";
         return;
