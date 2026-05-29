@@ -31,18 +31,46 @@ static void loadWindowsCerts(SSL_CTX* ctx) {
     CertCloseStore(hStore, 0);
 }
 
+// Load a pinned self-signed server certificate into the trust store.
+// Returns false and sets errorOut if the file exists but cannot be loaded.
+// If path is empty, skips pinning (CA-signed cert validates via system store).
+static bool loadPinnedCert(SSL_CTX* ctx, const std::string& certPath, std::string& errorOut) {
+    if (certPath.empty()) return true;
+    if (SSL_CTX_load_verify_locations(ctx, certPath.c_str(), nullptr) != 1) {
+        unsigned long e = ERR_get_error();
+        errorOut = "Failed to load pinned cert '" + certPath + "': " +
+                   (e ? ERR_error_string(e, nullptr) : "unknown error");
+        return false;
+    }
+    return true;
+}
+
 // Initialise a shared SSL_CTX suitable for HTTPS client use.
-// Called once from HttpClient constructor; returned pointer is owned by the caller.
-SSL_CTX* createSslCtx() {
+// pinnedCertPath — absolute path to a self-signed server cert, or "" to skip pinning.
+// Returns nullptr and prints to stderr on failure.
+// Ownership of the returned pointer is transferred to the caller.
+SSL_CTX* createSslCtx(const std::string& pinnedCertPath) {
     SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx) return nullptr;
 
     // TLS 1.2 minimum — 1.0 and 1.1 are deprecated (RFC 8996)
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
-    // Load CAs: OpenSSL built-in paths first, then Windows system store
-    SSL_CTX_set_default_verify_paths(ctx);
-    loadWindowsCerts(ctx);
+    std::string certErr;
+    if (!pinnedCertPath.empty()) {
+        // Pinning mode: trust only the explicitly pinned cert.
+        // Do NOT load the system CA store — any CA-signed cert would otherwise
+        // be accepted and the pin would be meaningless.
+        if (!loadPinnedCert(ctx, pinnedCertPath, certErr)) {
+            SSL_CTX_free(ctx);
+            fprintf(stderr, "TLS setup error: %s\n", certErr.c_str());
+            return nullptr;
+        }
+    } else {
+        // No pin: validate against the system CA store (normal PKI).
+        SSL_CTX_set_default_verify_paths(ctx);
+        loadWindowsCerts(ctx);
+    }
 
     // Always request peer cert; SSL_connect fails if chain does not validate
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
