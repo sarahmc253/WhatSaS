@@ -7,8 +7,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 app = create_app()
 
 if __name__ == '__main__':
+    host = os.getenv('FLASK_HOST', '127.0.0.1')
     debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
-    app.run(host='0.0.0.0', port=2200, debug=debug, ssl_context=(
-        '/home/student/server.crt',
-        '/home/student/server.key'
-    ))
+    if host == '0.0.0.0':
+        debug = False
+    ssl_cert = os.getenv('SSL_CERT', '/home/student/server.crt')
+    ssl_key = os.getenv('SSL_KEY', '/home/student/server.key')
+    app.run(host=host, debug=debug, ssl_context=(ssl_cert, ssl_key))
+
