@@ -10,6 +10,10 @@
 #define R "\033[0m"
 #define RED "\033[1;31m"
 
+enum class AuthChoice   { Register, Login, Eof };
+enum class MainChoice   { Send, Conversation, Logout, Eof };
+enum class ConvChoice   { Reply, Back, Eof };
+
 // ── banner ────────────────────────────────────────────────────────────────────
 inline void showBanner()
 {
@@ -52,7 +56,7 @@ WhatSaS client starting...
 }
 
 // ── auth menu ─────────────────────────────────────────────────────────────────
-inline std::string showAuthMenu()
+inline AuthChoice showAuthMenu()
 {
     std::cout << M << R"(
         ┌──────────────────────────────────────────┐
@@ -68,14 +72,15 @@ inline std::string showAuthMenu()
 
     std::string choice;
     while (true) {
-        if (!std::getline(std::cin, choice)) return "";
-        if (choice == "1" || choice == "2") return choice;
+        if (!std::getline(std::cin, choice)) return AuthChoice::Eof;
+        if (choice == "1") return AuthChoice::Register;
+        if (choice == "2") return AuthChoice::Login;
         std::cout << M "        💔 please enter 1 or 2: " R;
     }
 }
 
 // ── main menu ─────────────────────────────────────────────────────────────────
-inline std::string showMainMenu(const std::string& username)
+inline MainChoice showMainMenu(const std::string& username)
 {
     std::cout << M << "\n"
         "        ┌──────────────────────────────────────────┐\n"
@@ -97,8 +102,10 @@ inline std::string showMainMenu(const std::string& username)
 
     std::string action;
     while (true) {
-        if (!std::getline(std::cin, action)) return "";
-        if (action == "1" || action == "2" || action == "3") return action;
+        if (!std::getline(std::cin, action)) return MainChoice::Eof;
+        if (action == "1") return MainChoice::Send;
+        if (action == "2") return MainChoice::Conversation;
+        if (action == "3") return MainChoice::Logout;
         std::cout << M "        💔 please enter 1, 2, or 3: " R;
     }
 }
@@ -174,7 +181,7 @@ inline void showConversation(const Conversation& conv, const std::string& myId, 
 }
 
 // ── conversation action menu ──────────────────────────────────────────────────
-inline std::string showConversationMenu()
+inline ConvChoice showConversationMenu()
 {
     std::cout << M "\n"
         "        ┌──────────────────────────────────────────┐\n"
@@ -185,8 +192,9 @@ inline std::string showConversationMenu()
 
     std::string c;
     while (true) {
-        if (!std::getline(std::cin, c)) return "2";
-        if (c == "1" || c == "2") return c;
+        if (!std::getline(std::cin, c)) return ConvChoice::Eof;
+        if (c == "1") return ConvChoice::Reply;
+        if (c == "2") return ConvChoice::Back;
         std::cout << M "        💔 please enter 1 or 2: " R;
     }
 }

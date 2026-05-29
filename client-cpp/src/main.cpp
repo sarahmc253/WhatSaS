@@ -22,13 +22,13 @@ static void runMockFlow() {
     std::cout << "\033[1;35m\n        💖 mock mode — skipping auth, welcome " << username << "~ 🎀\n\033[0m\n";
 
     while (true) {
-        const std::string action = showMainMenu(username);
-        if (action.empty() || action == "3") break; // logout: no real session in mock mode
+        const MainChoice action = showMainMenu(username);
+        if (action == MainChoice::Eof || action == MainChoice::Logout) break;
 
         const std::string peerId = promptPeer();
         if (peerId.empty()) continue;
 
-        if (action == "1") {
+        if (action == MainChoice::Send) {
             const std::string text = promptMessage(peerId);
             if (text.empty()) continue;
             showSendResult(true, 200, "");
@@ -43,8 +43,8 @@ static void runMockFlow() {
 
                 showConversation(conv, username, 3);
 
-                const std::string convAction = showConversationMenu();
-                if (convAction == "2") break;
+                const ConvChoice convAction = showConversationMenu();
+                if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
 
                 const std::string text = promptMessage(peerId);
                 if (text.empty()) continue;
@@ -72,11 +72,11 @@ int main(int argc, char* argv[]) {
     showBanner();
 
     // ── auth ──────────────────────────────────────────────────────────────────
-    const std::string choice = showAuthMenu();
-    if (choice.empty()) return 1;
+    const AuthChoice choice = showAuthMenu();
+    if (choice == AuthChoice::Eof) return 1;
 
     std::cout << "\033[1;35m\n";
-    if (choice == "1") {
+    if (choice == AuthChoice::Register) {
         std::cout << "        🌸 let's get you registered!\n\n\033[0m";
     } else {
         std::cout << "        💖 welcome back!\n\n\033[0m";
@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
     std::string username;
 
     try {
-        if (choice == "1") {
+        if (choice == AuthChoice::Register) {
             const auto creds = promptCredentials();
             if (!crypto_aead_aes256gcm_is_available())
                 throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
@@ -224,8 +224,8 @@ int main(int argc, char* argv[]) {
 
     // ── main loop ─────────────────────────────────────────────────────────────
     while (true) {
-        const std::string action = showMainMenu(username);
-        if (action.empty() || action == "3") {
+        const MainChoice action = showMainMenu(username);
+        if (action == MainChoice::Eof || action == MainChoice::Logout) {
             auth.logout(http, BASE_URL);
             std::cout << "\033[1;35m\n        🚪 logged out — see you soon, " << username << "~ 💖\n\033[0m\n";
             showGoodbye();
@@ -247,7 +247,7 @@ int main(int argc, char* argv[]) {
                   << keyFingerprint(peerPk)
                   << "\n        verify this matches what " << peerId << " sees for themselves\n\033[0m\n";
 
-        if (action == "1") {
+        if (action == MainChoice::Send) {
             // ── send ──────────────────────────────────────────────────────────
             const std::string text = promptMessage(peerId);
             if (text.empty()) continue;
@@ -271,8 +271,8 @@ int main(int argc, char* argv[]) {
 
                 showConversation(conv, username, count);
 
-                const std::string convAction = showConversationMenu();
-                if (convAction == "2") break;
+                const ConvChoice convAction = showConversationMenu();
+                if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
 
                 // reply
                 const std::string text = promptMessage(peerId);
