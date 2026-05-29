@@ -1,11 +1,10 @@
-#define NOMINMAX
-#include <sodium.h>
-#include <cstdint>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <iostream>
 #include <string>
 #include <vector>
 #include "AuthCLI.hpp"
-#include "crypto_utils.hpp"
+#include "key_wrap.hpp"
 #include "../include/Auth.hpp"
 #include "../include/Client.hpp"
 #include "../include/Conversation.hpp"
@@ -13,7 +12,25 @@
 #include "../include/MessageStore.hpp"
 #include <optional>
 
-static const std::string BASE_URL = "https://localhost:5000";
+static const std::string BASE_URL = "https://sas.theburkenator.com";
+
+// Returns the absolute path to certs/server.crt relative to the exe's own directory.
+// Independent of the working directory the exe was launched from.
+static std::string certPath() {
+    wchar_t buf[MAX_PATH];
+    DWORD len = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (len == 0 || len == MAX_PATH) return "";
+    std::wstring exeDir(buf, len);
+    auto slash = exeDir.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return "";
+    exeDir = exeDir.substr(0, slash + 1);  // keep trailing separator
+    // Convert to narrow UTF-8
+    int nb = WideCharToMultiByte(CP_UTF8, 0, exeDir.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (nb <= 0) return "";
+    std::string dir(nb - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, exeDir.c_str(), -1, &dir[0], nb, nullptr, nullptr);
+    return dir + "certs\\server.crt";
+}
 
 int main() {
     if (sodium_init() < 0) {
@@ -95,65 +112,19 @@ WhatSaS client starting...
 
     const auto creds = promptCredentials();
 
-    HttpClient http;
+    HttpClient http(certPath());
     Auth auth;
     std::optional<Client> client;
     try {
         if (choice == "1") {
-            if (!crypto_aead_aes256gcm_is_available()) {
-                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
-            }
-
-            std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
-            std::vector<uint8_t> sk(crypto_box_SECRETKEYBYTES);
-            crypto_box_keypair(pk.data(), sk.data());
-
-            std::vector<uint8_t> kekSalt(crypto_pwhash_SALTBYTES);
-            randombytes_buf(kekSalt.data(), kekSalt.size());
-
-            std::vector<uint8_t> kek(32);
-            if (crypto_pwhash(
-                    kek.data(), kek.size(),
-                    creds.password.c_str(), creds.password.size(),
-                    kekSalt.data(),
-                    crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                    crypto_pwhash_MEMLIMIT_INTERACTIVE,
-                    crypto_pwhash_ALG_ARGON2ID13) != 0) {
-                throw std::runtime_error("key derivation failed — not enough memory for Argon2id");
-            }
-
-            // wrapped layout: nonce (12) || ciphertext+tag (32+16 = 48)
-            unsigned char wrapNonce[crypto_aead_aes256gcm_NPUBBYTES];
-            randombytes_buf(wrapNonce, sizeof(wrapNonce));
-
-            std::vector<uint8_t> wrapped(
-                sizeof(wrapNonce) + crypto_box_SECRETKEYBYTES + crypto_aead_aes256gcm_ABYTES);
-            unsigned long long wrappedCtLen = 0;
-            if (crypto_aead_aes256gcm_encrypt(
-                    wrapped.data() + sizeof(wrapNonce), &wrappedCtLen,
-                    sk.data(), sk.size(),
-                    nullptr, 0,
-                    nullptr,
-                    wrapNonce, kek.data()) != 0) {
-                throw std::runtime_error("private key wrapping failed");
-            }
-            std::copy(wrapNonce, wrapNonce + sizeof(wrapNonce), wrapped.begin());
-            wrapped.resize(sizeof(wrapNonce) + wrappedCtLen);
-
+            const auto kp      = generateX25519Keypair();
+            const auto wrapped = wrapPrivateKey(kp, creds.password);
             auth = Auth::registerUser(http, BASE_URL,
                                       creds.username, creds.password,
                                       creds.email,
-                                      b64Encode(pk.data(), pk.size()),
-                                      b64Encode(wrapped.data(), wrapped.size()),
-                                      b64Encode(kekSalt.data(), kekSalt.size()));
-
-            // Registration returns no token — log in immediately to get one.
-            // sk and pk are already in scope so there is no need to re-derive them.
-            auth = Auth::login(http, BASE_URL, creds.username, creds.password);
-            client.emplace(BASE_URL, creds.username,
-                           std::move(sk), std::move(pk),
-                           "whatsas_pins.txt", auth.getToken());
-
+                                      wrapped.x25519PublicKeyB64,
+                                      wrapped.wrappedPrivateKeyB64,
+                                      wrapped.kekSaltB64);
             std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << creds.username << "~ 💖\n";
         } else {
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);

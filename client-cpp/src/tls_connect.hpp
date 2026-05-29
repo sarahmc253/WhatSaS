@@ -12,8 +12,9 @@
 //   - TLS 1.2 minimum
 //   - Windows system CA store loaded
 //   - SSL_VERIFY_PEER enabled
+//   - pinnedCertPath: absolute path to a self-signed server cert to pin, or "" to skip
 // Ownership of the returned pointer is transferred to the caller.
-SSL_CTX* createSslCtx();
+SSL_CTX* createSslCtx(const std::string& pinnedCertPath);
 
 // Perform a TLS handshake on an already-connected TCP socket fd.
 // - SNI set to hostname (required for virtual-hosted servers)
