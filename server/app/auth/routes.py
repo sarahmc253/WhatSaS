@@ -191,17 +191,26 @@ def change_password():
         return jsonify({'error': 'Old password is incorrect'}), 401
 
     # Validate re-wrapped key structure before committing.
-    # AES-256-GCM envelope: 12-byte nonce || 32-byte ciphertext || 16-byte tag = 60 bytes.
-    # kek_salt must be exactly 16 bytes (crypto_pwhash_SALTBYTES).
-    WRAPPED_KEY_LEN = 60  # NPUBBYTES(12) + SECRETKEYBYTES(32) + ABYTES(16)
-    KEK_SALT_LEN    = 16
+    # Wire format: base64(JSON({salt, kek_nonce, wrapped_dek, dek_nonce, ciphertext}))
+    # kek_salt must be valid base64 decoding to exactly 16 bytes (Argon2id salt).
+    KEK_SALT_LEN = 16
+    WRAPPED_KEY_FIELDS = {'salt', 'kek_nonce', 'wrapped_dek', 'dek_nonce', 'ciphertext'}
     try:
-        wrapped_bytes = base64.b64decode(data['wrapped_private_key'], validate=True)
-        kek_salt_bytes = base64.b64decode(data['kek_salt'], validate=True)
-    except Exception:
-        return jsonify({'error': 'wrapped_private_key and kek_salt must be valid base64'}), 400
-    if len(wrapped_bytes) != WRAPPED_KEY_LEN:
-        return jsonify({'error': f'wrapped_private_key must decode to {WRAPPED_KEY_LEN} bytes'}), 400
+        wrapped_json_bytes = base64.b64decode(data['wrapped_private_key'])
+    except (ValueError, base64.binascii.Error):
+        return jsonify({'error': 'wrapped_private_key is not valid base64'}), 400
+    try:
+        import json as _json
+        wrapped_obj = _json.loads(wrapped_json_bytes)
+    except (ValueError, UnicodeDecodeError):
+        return jsonify({'error': 'wrapped_private_key does not contain valid JSON'}), 400
+    missing_fields = WRAPPED_KEY_FIELDS - set(wrapped_obj.keys() if isinstance(wrapped_obj, dict) else [])
+    if missing_fields:
+        return jsonify({'error': f'wrapped_private_key JSON missing fields: {", ".join(sorted(missing_fields))}'}), 400
+    try:
+        kek_salt_bytes = base64.b64decode(data['kek_salt'])
+    except (ValueError, base64.binascii.Error):
+        return jsonify({'error': 'kek_salt is not valid base64'}), 400
     if len(kek_salt_bytes) != KEK_SALT_LEN:
         return jsonify({'error': f'kek_salt must decode to {KEK_SALT_LEN} bytes'}), 400
 
