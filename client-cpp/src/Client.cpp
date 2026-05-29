@@ -61,8 +61,10 @@ Client::Client(const std::string& baseUrl,
     loadPins();
 }
 
-// File format: one line per pin — "<userId> <base64(pk)>\n"
+// File format: one line per pin — "<username> <base64(pk)> <uuid>\n"
 // Lines starting with '#' are ignored. Malformed lines are skipped with a warning.
+// The uuid column was added later; lines with only two tokens are loaded without UUID
+// (remap check will only activate once the UUID is seen from the server again).
 void Client::loadPins() {
     std::ifstream f(pinsPath_);
     if (!f.is_open()) return;  // file doesn't exist yet — that's fine on first run
@@ -70,17 +72,19 @@ void Client::loadPins() {
     while (std::getline(f, line)) {
         if (line.empty() || line[0] == '#') continue;
         std::istringstream ss(line);
-        std::string userId, pkB64;
+        std::string userId, pkB64, uuid;
         if (!(ss >> userId >> pkB64)) {
             std::cerr << "[loadPins] skipping malformed line in " << pinsPath_ << "\n";
             continue;
         }
+        ss >> uuid;  // optional — old pin files lack this column
         std::vector<uint8_t> pk = b64Decode(pkB64);
         if (pk.size() != 32) {
             std::cerr << "[loadPins] skipping bad key for " << userId << "\n";
             continue;
         }
         pinnedKeys_[userId] = std::move(pk);
+        if (!uuid.empty()) pinnedIds_[userId] = uuid;
     }
     std::cerr << "[loadPins] loaded " << pinnedKeys_.size()
               << " pin(s) from " << pinsPath_ << "\n";
@@ -100,7 +104,10 @@ bool Client::savePins() const {
         }
         f << "# WhatSaS TOFU key pins — do not edit manually\n";
         for (const auto& [userId, pk] : pinnedKeys_) {
-            f << userId << " " << b64Encode(pk.data(), pk.size()) << "\n";
+            f << userId << " " << b64Encode(pk.data(), pk.size());
+            auto idIt = pinnedIds_.find(userId);
+            if (idIt != pinnedIds_.end()) f << " " << idIt->second;
+            f << "\n";
         }
         // flush + close before rename so all bytes are on disk
         f.flush();

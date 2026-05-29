@@ -55,7 +55,16 @@ def create_app():
         app.config['CONTRACT_ADDRESS'] = os.getenv('CONTRACT_ADDRESS')
         app.config['WALLET_PRIVATE_KEY'] = os.getenv('WALLET_PRIVATE_KEY')
 
-    JWTManager(app)
+    jwt = JWTManager(app)
+
+    # In-memory JTI blocklist — tokens expire in 15 min so the set stays small.
+    # Cleared on server restart, which is acceptable: a restarted server issues new tokens.
+    _revoked_jtis: set = set()
+    app.revoked_jtis = _revoked_jtis
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        return jwt_payload['jti'] in app.revoked_jtis
 
     @app.teardown_appcontext
     def close_db(e=None):

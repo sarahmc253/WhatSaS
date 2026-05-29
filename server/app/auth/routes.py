@@ -1,3 +1,4 @@
+import base64
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -6,7 +7,7 @@ import mysql.connector
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 
 from .. import get_db
 
@@ -189,6 +190,21 @@ def change_password():
     except VerifyMismatchError:
         return jsonify({'error': 'Old password is incorrect'}), 401
 
+    # Validate re-wrapped key structure before committing.
+    # AES-256-GCM envelope: 12-byte nonce || 32-byte ciphertext || 16-byte tag = 60 bytes.
+    # kek_salt must be exactly 16 bytes (crypto_pwhash_SALTBYTES).
+    WRAPPED_KEY_LEN = 60  # NPUBBYTES(12) + SECRETKEYBYTES(32) + ABYTES(16)
+    KEK_SALT_LEN    = 16
+    try:
+        wrapped_bytes = base64.b64decode(data['wrapped_private_key'], validate=True)
+        kek_salt_bytes = base64.b64decode(data['kek_salt'], validate=True)
+    except Exception:
+        return jsonify({'error': 'wrapped_private_key and kek_salt must be valid base64'}), 400
+    if len(wrapped_bytes) != WRAPPED_KEY_LEN:
+        return jsonify({'error': f'wrapped_private_key must decode to {WRAPPED_KEY_LEN} bytes'}), 400
+    if len(kek_salt_bytes) != KEK_SALT_LEN:
+        return jsonify({'error': f'kek_salt must decode to {KEK_SALT_LEN} bytes'}), 400
+
     new_hash = ph.hash(data['new_password'])
     new_salt = new_hash.split('$')[4]
 
@@ -218,6 +234,9 @@ def change_password():
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
+    jti = get_jwt()['jti']
+    current_app.revoked_jtis.add(jti)
+
     if current_app.config.get('ANCHORING_ENABLED'):
         user_id = get_jwt_identity()
         app = current_app._get_current_object()
