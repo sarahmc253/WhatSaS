@@ -290,8 +290,6 @@ export async function renderInbox(container, navigate) {
 
     try {
         const data = await api.getMessages();
-        console.log('[inbox] raw response:', JSON.stringify(data, null, 2));
-        console.log('[inbox] sender_x25519_public_key values:', (data.messages ?? []).map(m => ({ id: m.id, sender_x25519_public_key: m.sender_x25519_public_key })));
 messages = data.messages ?? [];
     } catch (err) {
         body.innerHTML = `<div class="error-msg">Could not load messages: ${esc(err.message)}</div>`;
@@ -304,7 +302,6 @@ messages = data.messages ?? [];
     }
 
     async function tryDecrypt(msg) {
-        console.log('[tryDecrypt] sender_x25519_public_key:', msg.sender_x25519_public_key);
         const privKey = api.getPrivateKey();
         if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk || !msg.sender_x25519_public_key) {
             return '(encrypted)';
