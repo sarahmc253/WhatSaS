@@ -302,6 +302,7 @@ messages = data.messages ?? [];
     }
 
     async function tryDecrypt(msg) {
+        console.log('[tryDecrypt] sender_x25519_public_key:', msg.sender_x25519_public_key);
         const privKey = api.getPrivateKey();
         if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk || !msg.sender_x25519_public_key) {
             return '(encrypted)';
@@ -318,6 +319,7 @@ messages = data.messages ?? [];
             );
             return await decryptMessage(ciphertext, nonce, ephPubKey, privKey, senderPublicKey);
         } catch (e) {
+            console.error('[tryDecrypt] error:', e);
             return '(encrypted)';
         }
     }
