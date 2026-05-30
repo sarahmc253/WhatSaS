@@ -7,5 +7,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 app = create_app()
 
 if __name__ == '__main__':
-    debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'  # default false; gunicorn never calls app.run() so this is irrelevant in production
-    app.run(debug=debug)
+    host = os.getenv('FLASK_HOST', '127.0.0.1')
+    debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
+    if host != '127.0.0.1':
+        debug = False
+    ssl_cert = os.getenv('SSL_CERT', '/home/student/server.crt')
+    ssl_key = os.getenv('SSL_KEY', '/home/student/server.key')
+    app.run(host=host, debug=debug, ssl_context=(ssl_cert, ssl_key))
+

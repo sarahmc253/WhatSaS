@@ -4,7 +4,7 @@ export async function getPublicKeyBytes(publicKey) {
 
 export async function getPrivateKeyBytes(privateKey) {
     // Never log or transmit these bytes — pass them only to encryptPrivateKey for local storage
-    return new Uint8Array(await crypto.subtle.exportKey('raw', privateKey));
+    return new Uint8Array(await crypto.subtle.exportKey('pkcs8', privateKey));
 }
 
 export async function getPublicKeyB64(publicKey) {
@@ -15,7 +15,7 @@ export async function getPublicKeyB64(publicKey) {
 export async function generateKeypair() {
     const { publicKey, privateKey } = await crypto.subtle.generateKey(
         { name: 'X25519' },
-        true,               // extractable — both keys must be exportable for storage and publishing
+        true,               // extractable — private key exported as pkcs8 for storage; public key as raw for publishing
         ['deriveKey', 'deriveBits'],
     );
     return { publicKey, privateKey };

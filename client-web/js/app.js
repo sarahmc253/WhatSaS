@@ -36,6 +36,10 @@ async function route() {
         navigate('login');
         return;
     }
+    if (api.isAuthenticated() && !api.getPrivateKey() && !PUBLIC_VIEWS.has(view)) {
+        navigate('login');
+        return;
+    }
 
     navbar.hidden = !api.isAuthenticated();
     footer.hidden = view === 'verify';

@@ -28,9 +28,11 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT id, sender_id, ciphertext, nonce, ephemeral_pk, created_at
-            FROM messages
-            WHERE recipient_id = %s AND is_revoked = 0
+            SELECT m.id, m.sender_id, u.username AS sender_username,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at
+            FROM messages m
+            JOIN users u ON u.id = m.sender_id
+            WHERE m.recipient_id = %s AND m.is_revoked = 0
             """,
             (current_user_id,),
         )
@@ -126,9 +128,40 @@ def get_message(message_id):
         'ephemeral_pk': message['ephemeral_pk'],
     }), 200
 
+_DELETE_FLAG = {
+    'sender': 'UPDATE messages SET is_deleted_sender = 1 WHERE id = %s',
+    'recipient': 'UPDATE messages SET is_deleted_recipient = 1 WHERE id = %s',
+}
+
 @messages_bp.route('/messages/<string:message_id>', methods=['DELETE'])
 @jwt_required()
 def delete_message(message_id):
+    current_user_id = get_jwt_identity()
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            'SELECT sender_id, recipient_id FROM messages WHERE id = %s',
+            (message_id,),
+        )
+        message = cursor.fetchone()
+    finally:
+        cursor.close()
+    if message is None:
+        return jsonify({'error': 'Message not found'}), 404
+    if message['sender_id'] != current_user_id and message['recipient_id'] != current_user_id:
+        return jsonify({'error': 'Forbidden'}), 403
+    role = 'sender' if message['sender_id'] == current_user_id else 'recipient'
+    sql = _DELETE_FLAG[role]
+    cursor = db.cursor()
+    try:
+        cursor.execute(sql, (message_id,))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cursor.close()
     return jsonify({'message': f'message {message_id} deleted'}), 200
 
 @messages_bp.route('/messages/<string:message_id>/forward', methods=['POST'])

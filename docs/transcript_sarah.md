@@ -794,3 +794,147 @@ Attempted to add `GET /users/<username>` to `auth/routes.py`.
 ---
 
 **Sarah:** update docs/transcript
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+---
+
+**Sarah:** when sending a message to "sarah", the error is "X25519 key must be 256 bits". find where the recipient's public key is fetched and imported and identify why it might fail
+
+**Claude:** Traced the send-message flow. The recipient's `x25519_public_key` is fetched via `api.getUser(recipient)` and imported at `views.js:368-369` using `Uint8Array.from(atob(...))` then `crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, ...)`. `importKey` requires exactly 32 bytes; the error fires when the decoded array is the wrong length. Root cause: "sarah" (and any user registered before the crypto flow was implemented) has a placeholder key like `"pk_sarah"` stored in the database — set by the test fixture at `server/tests/test_messages.py:33`. `atob("pk_sarah")` decodes to ~6 bytes, far short of the required 32, so `importKey` throws. Fix: re-register "sarah" once the registration crypto flow is complete, or seed the DB with a real 32-byte base64-encoded X25519 public key.
+
+---
+
+**Sarah:** in views.js replace the throw new Error('Registration is not yet implemented...') line with a call to generateKeypair() from ./crypto/keypair.js and getPublicKeyBytes() to get the raw public key bytes
+
+**Claude:** Added `import { generateKeypair, getPublicKeyBytes } from '../crypto/keypair.js'` to `views.js`. In the registration submit handler, replaced the throw and its TODO comment with: reads `username`, `email`, `password` from form fields; calls `await generateKeypair()` to get an X25519 key pair; calls `await getPublicKeyBytes(publicKey)` to get the raw 32-byte `Uint8Array`. Added a TODO comment for the remaining KEK derivation and wrapping steps.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** now import encryptPrivateKey from ../crypto/keyStorage.js and getPrivateKeyBytes from ../crypto/keypair.js, then after generating the keypair call encryptPrivateKey(await getPrivateKeyBytes(privateKey), password) and store the result
+
+**Claude:** Added `getPrivateKeyBytes` to the existing `keypair.js` import and added `import { encryptPrivateKey } from '../crypto/keyStorage.js'`. After the keypair generation, added `const encryptedPrivateKey = await encryptPrivateKey(await getPrivateKeyBytes(privateKey), password)`. `encryptedPrivateKey` is an `EncryptedPrivateKey` instance (salt, wrapped DEK, encrypted private key bytes) ready for serialisation.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** now call api.register with the username, email, password and the crypto payload from pubKeyBytes and encryptedPrivateKey then remove the TODO comment
+
+**Claude:** Read `keyStorage.js` to confirm `EncryptedPrivateKey.toJSON()` format and the login decode path (`JSON.parse(atob(data.wrapped_private_key))`). Added a `toB64` local helper and called `api.register(username, email, password, { x25519_public_key: toB64(pubKeyBytes), wrapped_private_key: btoa(JSON.stringify(encryptedPrivateKey.toJSON())), kek_salt: toB64(encryptedPrivateKey.salt) })`. Removed the TODO comment. Encodings match what the login path expects: `x25519_public_key` and `kek_salt` as base64 raw bytes, `wrapped_private_key` as base64-encoded JSON.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** the registration fails with "The key is not of the expected type". check what the /auth/register endpoint expects for wrapped_private_key and fix the encoding mismatch
+
+**Claude:** Traced the full server and client stack. The server (`auth/routes.py`) stores all three fields as plain strings with no format validation. The login path in `api.js` does `JSON.parse(atob(data.wrapped_private_key))` — so `wrapped_private_key` must be base64-encoded JSON, which our encoding produces correctly. Investigated further: the error "The key is not of the expected type" is a DOMException thrown by `crypto.subtle.exportKey('raw', privateKey)` in `getPrivateKeyBytes` — Firefox and some Chrome builds do not support 'raw' export for X25519 private keys (only 'pkcs8' and 'jwk'). Fix: change the private key export and matching import to 'pkcs8'. Updated `keypair.js:getPrivateKeyBytes` to `exportKey('pkcs8', privateKey)`, updated the `generateKeypair` comment to document the pkcs8/raw split per key, and updated `api.js` login `importKey` from `'raw'` to `'pkcs8'` to match. `keyStorage.js` requires no code changes — `encryptPrivateKey` and `decryptPrivateKey` work with arbitrary bytes regardless of format.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** check if metamask is overriding window.crypto or crypto.subtle and if so why Web Crypto calls fail when MetaMask is active and suggest a fix that doesn't require incognito mode
+
+**Claude:** Searched the codebase — all Web Crypto operations use the bare `crypto` global. Modern MetaMask (v10+) does not override `crypto.subtle`; it only injects `window.ethereum`. Two historical interference mechanisms identified: (1) older MetaMask (≤8.x) used webpack4 + crypto-browserify which patched `window.crypto.getRandomValues` as a side effect; (2) the more likely current cause — MetaMask injects CSP rules that restrict `worker-src blob:`, blocking the blob URL web worker that `argon2-browser` creates in `kek.js` for Argon2id hashing. The worker creation failure surfaces as a DOMException. Recommended fix: pass `distPath: null` to `argon2.hash()` to force synchronous main-thread execution, bypassing the blob worker. Secondary defensive option: capture `window.crypto.subtle` at module load time.
+
+---
+
+**Sarah:** in kek.js add distPath: null to the argon2.hash() call to disable the web worker and run Argon2 on the main thread
+
+**Claude:** Added `distPath: null` to the `argon2.hash()` call in `kek.js` with a comment explaining it avoids the blob worker blocked by MetaMask CSP.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update the docs/transcript
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+---
+
+**Sarah:** in server/app/messages/routes.py update get_messages SQL query to JOIN with the users table so that sender_username is included in each row returned, alongside the existing fields
+
+**Claude:** Updated the `get_messages` SELECT to `SELECT m.id, m.sender_id, u.username AS sender_username, m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at FROM messages m JOIN users u ON u.id = m.sender_id WHERE m.recipient_id = %s AND m.is_revoked = 0`. Each row now includes `sender_username` alongside the existing fields.
+
+---
+
+**Sarah:** in views tryDecrypt add a console.log after getPrivateKey() to confirm the key is non-null at runtime
+
+**Claude:** Added `console.log('[tryDecrypt] privKey:', privKey)` immediately after `const privKey = api.getPrivateKey()` in `tryDecrypt`.
+
+---
+
+**Sarah:** write a one-off SQL snippet to delete all rows from all tables in the db so i can start fresh with correctly-keyed test messages
+
+**Claude:** Checked `docs/schema.sql` for FK relationships. `messages.sender_id` and `messages.recipient_id` reference `users` with RESTRICT, so deleting users while messages exist would fail. Provided a snippet that brackets all DELETEs with `SET FOREIGN_KEY_CHECKS = 0` / `SET FOREIGN_KEY_CHECKS = 1` to bypass ordering constraints safely: deletes `audit_log`, `message_receipts`, `message_access`, `messages`, `blockchain_records`, `sessions`, `users`.
+
+---
+
+**Sarah:** in api.js the login functions catch block unwrapping fails. add a console error so we can see why its failing
+
+**Claude:** Bound the catch variable (`catch (err)`) and added `console.error('[login] private key unwrap failed:', err)` inside the catch block in the `login` function.
+
+---
+
+**Sarah:** log the full server response in the login function so i can see what fields are being returned
+
+**Claude:** Added `console.log('[login] server response:', data)` immediately after the token check in `login`, before `setToken` is called.
+
+---
+
+**Sarah:** in views tryDecrypt change the empty catch to log the error with console error
+
+**Claude:** Bound the catch variable (`catch (err)`) and added `console.error('[tryDecrypt] decryption failed:', err)` before the `return '(encrypted)'` fallback.
+
+---
+
+**Sarah:** in views tryDecrypt change the ephemeral public key import usages to []
+
+**Claude:** Changed the `keyUsages` argument in the `crypto.subtle.importKey` call for `msg.ephemeral_pk` in `tryDecrypt` from `['deriveKey', 'deriveBits']` to `[]`.
+
+---
+
+**Sarah:** update the docs / transcripts
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+---
+
+**Sarah:** in views.js tryDecrypt. log msg.ciphertext, msg.nonce and msg.ephemeral_pk before the null check so i can see what fields are actually on the message object
+
+**Claude:** Added three `console.log` lines immediately after the existing `privKey` log, before the null check: `msg.ciphertext`, `msg.nonce`, and `msg.ephemeral_pk`.
+
+---
+
+**Sarah:** in app.js if the user has a valid token on load but api.getPrivateKey() is null, redirect them to login instead of straight to inbox. so the key always gets unwrapped before messages load
+
+**Claude:** Added a second guard in `route()` in `app.js` directly after the existing unauthenticated check: if `api.isAuthenticated()` but `api.getPrivateKey()` is null and the view is not public, redirects to login. Ensures the key is always unwrapped via the login flow before inbox loads.
+
+---
+
+**Sarah:** In views.js tryDecrypt, log the full error in the catch block with console.error('[tryDecrypt] decryption failed:', e)
+
+**Claude:** Renamed catch variable from `err` to `e` and updated the `console.error` call to use `e`.
+
+---
+
+**Sarah:** remove all the temporary debug console.log and console.error lines we added in views.js and api.js
+
+**Claude:** Removed all five debug lines: four from `views.js` (`privKey`, `ciphertext`, `nonce`, `ephemeral_pk` logs, and the catch `console.error`) and one from `api.js` (`[login] server response`).
+
+---
+
+**Sarah:** log data.messages[0] in renderInbox so i can see the exact fields the server is returning
+
+**Claude:** Added `console.log('[renderInbox] data.messages[0]:', data.messages?.[0])` immediately after the `api.getMessages()` call in `renderInbox`, using optional chaining so it doesn't throw on an empty inbox.
+
+---
+
+**Sarah:** remove all temporary console logs and error debug lines added in views and api
+
+**Claude:** Removed the single remaining debug line from `views.js` (the `renderInbox` messages[0] log). `api.js` was already clean.

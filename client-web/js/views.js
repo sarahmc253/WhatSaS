@@ -9,6 +9,7 @@
 import * as api from './api.js';
 import { getUser, sendMessage } from './api.js';
 import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
+import { generateKeypair, getPublicKeyBytes, getPrivateKeyBytes } from '../crypto/keypair.js';
 import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -98,6 +99,12 @@ export function renderLogin(container, navigate) {
                 document.getElementById('l-username').value.trim(),
                 document.getElementById('l-password').value
             );
+            if (!api.getPrivateKey()) {
+                msg.className = 'error-msg';
+                msg.textContent = 'Your account is authenticated but your encryption key could not be loaded. Please contact support.';
+                btn.disabled = false;
+                return;
+            }
             navigate('inbox');
         } catch (err) {
             msg.className = 'error-msg';
@@ -150,9 +157,19 @@ function renderRegister(container, navigate) {
         msg.className = msg.textContent = '';
 
         try {
-            // TODO: generate X25519 key pair, derive KEK via Argon2id, HPKE-wrap
-            //       the private key, then call api.register() with real key material.
-            throw new Error('Registration is not yet implemented — key generation and HPKE wrapping are pending');
+            const username = document.getElementById('r-username').value.trim();
+            const email    = document.getElementById('r-email').value.trim();
+            const password = document.getElementById('r-password').value;
+
+            const { publicKey, privateKey } = await generateKeypair();
+            const pubKeyBytes = await getPublicKeyBytes(publicKey);
+            const encryptedPrivateKey = await encryptPrivateKey(await getPrivateKeyBytes(privateKey), password);
+            const toB64 = bytes => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''));
+            await api.register(username, email, password, {
+                x25519_public_key:  toB64(pubKeyBytes),
+                wrapped_private_key: btoa(JSON.stringify(encryptedPrivateKey.toJSON())),
+                kek_salt:           toB64(encryptedPrivateKey.salt),
+            });
             msg.className = 'success-msg';
             msg.textContent = 'Account created — redirecting to sign in…';
             setTimeout(() => renderLogin(container, navigate), 1600);
@@ -273,7 +290,7 @@ export async function renderInbox(container, navigate) {
 
     try {
         const data = await api.getMessages();
-        messages = data.messages ?? [];
+messages = data.messages ?? [];
     } catch (err) {
         body.innerHTML = `<div class="error-msg">Could not load messages: ${esc(err.message)}</div>`;
         return;
@@ -293,10 +310,10 @@ export async function renderInbox(container, navigate) {
             const ciphertext  = hexToBytes(msg.ciphertext);
             const nonce       = hexToBytes(msg.nonce);
             const ephPubKey   = await crypto.subtle.importKey(
-                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, [],
             );
             return await decryptMessage(ciphertext, nonce, ephPubKey, privKey);
-        } catch {
+        } catch (e) {
             return '(encrypted)';
         }
     }

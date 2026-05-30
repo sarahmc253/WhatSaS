@@ -85,12 +85,11 @@ export async function login(username, password) {
             const encrypted = EncryptedPrivateKey.fromJSON(parsed);
             const privBytes = await decryptPrivateKey(encrypted, password);
             const privKey   = await crypto.subtle.importKey(
-                'raw', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
             );
             setPrivateKey(privKey);
-        } catch {
-            // Placeholder key material (test users) or corrupted key — login still succeeds,
-            // inbox will see getPrivateKey() === null and skip decryption.
+        } catch (err) {
+            console.error('Private key import failed:', err);
         }
     }
 
