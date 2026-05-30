@@ -9,7 +9,7 @@ app = create_app()
 if __name__ == '__main__':
     host = os.getenv('FLASK_HOST', '127.0.0.1')
     debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
-    if host == '0.0.0.0':
+    if host != '127.0.0.1':
         debug = False
     ssl_cert = os.getenv('SSL_CERT', '/home/student/server.crt')
     ssl_key = os.getenv('SSL_KEY', '/home/student/server.key')
