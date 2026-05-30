@@ -303,17 +303,22 @@ messages = data.messages ?? [];
 
     async function tryDecrypt(msg) {
         const privKey = api.getPrivateKey();
-        if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk) {
+        if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk || !msg.sender_x25519_public_key) {
             return '(encrypted)';
         }
         try {
             const ciphertext  = hexToBytes(msg.ciphertext);
             const nonce       = hexToBytes(msg.nonce);
             const ephPubKey   = await crypto.subtle.importKey(
-                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, false, [],
+                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, true, [],
             );
-            return await decryptMessage(ciphertext, nonce, ephPubKey, privKey);
+            const senderPkBytes  = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
+            const senderPublicKey = await crypto.subtle.importKey(
+                'raw', senderPkBytes, { name: 'X25519' }, false, [],
+            );
+            return await decryptMessage(ciphertext, nonce, ephPubKey, privKey, senderPublicKey);
         } catch (e) {
+            console.error('[tryDecrypt] error:', e);
             return '(encrypted)';
         }
     }
@@ -383,21 +388,26 @@ async function handleAction(btn, inboxBody) {
                 ]);
 
                 if (!recipientUser?.x25519_public_key) throw new Error('Recipient not found or has no encryption key.');
-                if (!orig?.ciphertext || !orig?.nonce || !orig?.ephemeral_pk) throw new Error('Original message has no crypto fields.');
+                if (!orig?.ciphertext || !orig?.nonce || !orig?.ephemeral_pk || !orig?.sender_x25519_public_key) throw new Error('Original message has no crypto fields.');
 
                 const origEphPubKey = await crypto.subtle.importKey(
-                    'raw', hexToBytes(orig.ephemeral_pk), { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                    'raw', hexToBytes(orig.ephemeral_pk), { name: 'X25519' }, true, [],
+                );
+                const origSenderPkBytes  = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
+                const origSenderPublicKey = await crypto.subtle.importKey(
+                    'raw', origSenderPkBytes, { name: 'X25519' }, false, [],
                 );
                 const plaintext = await decryptMessage(
                     hexToBytes(orig.ciphertext),
                     hexToBytes(orig.nonce),
                     origEphPubKey,
                     privKey,
+                    origSenderPublicKey,
                 );
 
                 const recipKeyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
                 const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
-                const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(plaintext, recipPublicKey);
+                const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(plaintext, recipPublicKey, privKey);
 
                 const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
                 const ephPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
@@ -489,6 +499,9 @@ export function renderCompose(container, navigate) {
         }
 
         try {
+            const senderPrivateKey = api.getPrivateKey();
+            if (!senderPrivateKey) throw new Error('Private key unavailable — please log in again.');
+
             const recipientUser = await getUser(recipient);
             if (!recipientUser?.x25519_public_key) {
                 throw new Error('Recipient not found or has no encryption key.');
@@ -497,7 +510,7 @@ export function renderCompose(container, navigate) {
             const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
             const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
 
-            const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(content, recipientPublicKey);
+            const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(content, recipientPublicKey, senderPrivateKey);
 
             const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
             const ephemeralPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
