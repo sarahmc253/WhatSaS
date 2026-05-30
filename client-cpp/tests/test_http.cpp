@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     // Test 3: expired cert must be rejected when verifyCert=true
     printf("\nTest 3: GET https://expired.badssl.com/ (verifyCert=true, expect failure)\n");
     {
-        auto r = http.get("https://expired.badssl.com/", true);
+        auto r = http.get("https://expired.badssl.com/", "", true);
         check("ok == false",         !r.ok_,                    "cert should have been rejected");
         check("error non-empty",     !r.error_.empty());
     }
@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
     // Test 4: expired cert accepted when verifyCert=false
     printf("\nTest 4: GET https://expired.badssl.com/ (verifyCert=false, expect success)\n");
     {
-        auto r = http.get("https://expired.badssl.com/", false);
+        auto r = http.get("https://expired.badssl.com/", "", false);
         check("ok == true",          r.ok_,                     r.error_.c_str());
         check("statusCode > 0",      r.statusCode_ > 0,         std::to_string(r.statusCode_).c_str());
     }
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
     // Test 5: hostname mismatch must be rejected
     printf("\nTest 5: GET https://wrong.host.badssl.com/ (hostname mismatch, expect failure)\n");
     {
-        auto r = http.get("https://wrong.host.badssl.com/", true);
+        auto r = http.get("https://wrong.host.badssl.com/", "", true);
         check("ok == false",         !r.ok_,                    "hostname mismatch should be rejected");
         check("error non-empty",     !r.error_.empty());
     }

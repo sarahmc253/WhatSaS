@@ -125,6 +125,25 @@ static inline std::optional<std::vector<uint8_t>> decryptAes256Gcm(
     return pt;
 }
 
+// SHA-256 fingerprint of a public key, formatted as colon-separated uppercase hex pairs.
+// Uses the first 8 bytes of the hash (64-bit prefix) — enough to detect substitution
+// in an out-of-band check without overwhelming the user with a 64-char string.
+// e.g. "A3:F2:11:8C:44:D0:9E:7B"
+static inline std::string keyFingerprint(const std::vector<uint8_t>& pk) {
+    unsigned char hash[crypto_hash_sha256_BYTES];
+    crypto_hash_sha256(hash, pk.data(), pk.size());
+
+    std::string fp;
+    fp.reserve(8 * 3 - 1);
+    for (int i = 0; i < 8; ++i) {
+        char buf[3];
+        snprintf(buf, sizeof(buf), "%02X", hash[i]);
+        if (i > 0) fp += ':';
+        fp += buf;
+    }
+    return fp;
+}
+
 // HKDF-Extract: PRK = HMAC-SHA256(salt, ikm)  (RFC 5869 §2.2)
 // salt — any byte sequence used to randomise extraction; typically the ephemeral pk.
 // ikm  — input key material, e.g. concatenated DH outputs.

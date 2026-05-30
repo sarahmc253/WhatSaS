@@ -25,11 +25,20 @@ function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
 export function isAuthenticated() { return !!getToken(); }
 
 // ── Private key store (in-memory only, never persisted) ──────────────────
-let _sessionPrivateKey = null;
+let _sessionPrivateKey   = null;
+let _sessionPublicKeyB64 = null;
+let _sessionWrappedKey   = null;  // raw parsed EncryptedPrivateKey — needed for re-wrap on pw change
+let _sessionKekSalt      = null;  // base64 kek_salt from login — needed for re-wrap
 
-export function setPrivateKey(key) { _sessionPrivateKey = key; }
-export function getPrivateKey()    { return _sessionPrivateKey; }
-export function clearPrivateKey()  { _sessionPrivateKey = null; }
+export function setPrivateKey(key)     { _sessionPrivateKey   = key; }
+export function getPrivateKey()        { return _sessionPrivateKey; }
+export function clearPrivateKey()      { _sessionPrivateKey   = null; }
+export function getPublicKeyB64()      { return _sessionPublicKeyB64; }
+export function clearPublicKey()       { _sessionPublicKeyB64 = null; }
+export function getWrappedKey()                   { return _sessionWrappedKey; }
+export function getKekSalt()                      { return _sessionKekSalt; }
+export function clearWrappedKey()                 { _sessionWrappedKey = null; _sessionKekSalt = null; }
+export function setWrappedKey(wrapped, kekSalt)   { _sessionWrappedKey = wrapped; _sessionKekSalt = kekSalt; }
 
 // ── Core fetch wrapper ────────────────────────────────────────────────────
 async function request(method, path, { body = null, auth = false } = {}) {
@@ -66,6 +75,9 @@ export async function login(username, password) {
     });
     if (!data.token) throw new Error('Login succeeded but no token was returned');
     setToken(data.token);
+    if (data.x25519_public_key)  _sessionPublicKeyB64 = data.x25519_public_key;
+    if (data.wrapped_private_key) _sessionWrappedKey = data.wrapped_private_key;
+    if (data.kek_salt)            _sessionKekSalt    = data.kek_salt;
 
     if (data.wrapped_private_key) {
         try {
@@ -96,6 +108,14 @@ export async function register(username, email, password, cryptoPayload) {
     });
 }
 
+export function changePassword(oldPassword, newPassword, newWrappedPrivateKey, newKekSalt) {
+    return request('POST', '/auth/change-password', {
+        body: { old_password: oldPassword, new_password: newPassword,
+                wrapped_private_key: newWrappedPrivateKey, kek_salt: newKekSalt },
+        auth: true,
+    });
+}
+
 export function logout() {
     const token = getToken();
     if (token) {
@@ -106,6 +126,8 @@ export function logout() {
     }
     clearToken();
     clearPrivateKey();
+    clearPublicKey();
+    clearWrappedKey();
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────

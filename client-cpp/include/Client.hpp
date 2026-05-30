@@ -81,8 +81,10 @@ private:
     HttpClient           http_;
     std::string          pinsPath_;
     std::string          authToken_;  // bearer token forwarded to every authenticated request
-    // TOFU key pins: userId → first-seen public key. mutable so const methods can update.
+    // TOFU key pins: username → first-seen public key. mutable so const methods can update.
     mutable std::unordered_map<std::string, std::vector<uint8_t>> pinnedKeys_;
+    // username → server UUID, populated alongside pinnedKeys_ on first fetch.
+    mutable std::unordered_map<std::string, std::string> pinnedIds_;
 
     // Load pins from pinsPath_ into pinnedKeys_. Called once at construction.
     void loadPins();

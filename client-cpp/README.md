@@ -23,9 +23,42 @@ cmake -B build
 cmake --build build
 ```
 
+## Server certificate
+
+The server uses a self-signed TLS certificate. Place it at `client-cpp/certs/server.crt` before running.
+
+> **Note:** `certs/` is gitignored — do not commit the cert file.
+
+### Team members (access to the VM)
+
+SSH into the VM and copy the cert directly:
+
+```bash
+scp -P 2200 student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
+```
+
+Or copy it from within the VM session:
+
+```bash
+ssh student@sas.theburkenator.com -p 2200
+# then copy the cert to your local machine via scp or paste the contents
+```
+
+### External / general setup
+
+Obtain `server.crt` from a team member and place it in the `certs/` directory:
+
+```powershell
+mkdir certs
+copy path\to\server.crt certs\server.crt
+```
+
+The client loads this cert at startup (`loadPinnedCert` in `tls_connect.cpp`) and adds it to the OpenSSL trust store so the TLS handshake with `sas.theburkenator.com` succeeds even though the cert is not signed by a public CA.
+
 ## Run
 
 ```powershell
+# Must be run from the client-cpp\ directory so certs/server.crt resolves correctly
 .\build\sas-client.exe
 ```
 

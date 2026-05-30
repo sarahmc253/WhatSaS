@@ -16,17 +16,14 @@ struct Credentials {
     std::string password;
 };
 
-inline Credentials promptCredentials() {
+struct LoginCredentials {
     std::string username;
-    std::cout << "Username: ";
-    std::getline(std::cin, username);
-
-    std::string email;
-    std::cout << "Email:    ";
-    std::getline(std::cin, email);
-
     std::string password;
-    std::cout << "Password: ";
+};
+
+static std::string readPassword(const char* label = "Password: ") {
+    std::string password;
+    std::cout << label;
 
 #ifdef _WIN32
     int ch;
@@ -74,5 +71,39 @@ inline Credentials promptCredentials() {
 #endif
 
     std::cout << '\n';
-    return { username, email, password };
+    return password;
+}
+
+inline LoginCredentials promptLogin() {
+    std::string username;
+    std::cout << "Username: ";
+    std::getline(std::cin, username);
+    return { username, readPassword() };
+}
+
+// Prompts for old password then new password (with confirmation loop).
+// Returns {oldPassword, newPassword} or {"",""} if stdin closes.
+struct PasswordChange { std::string oldPassword; std::string newPassword; };
+inline PasswordChange promptPasswordChange() {
+    std::string oldPw = readPassword("Old password: ");
+    if (oldPw.empty()) return {};
+
+    while (true) {
+        std::string newPw   = readPassword("New password: ");
+        std::string confirm = readPassword("Confirm new:  ");
+        if (newPw == confirm) return { oldPw, newPw };
+        std::cout << "\033[1;31m        💔 passwords don't match — try again\n\033[0m";
+    }
+}
+
+inline Credentials promptCredentials() {
+    std::string username;
+    std::cout << "Username: ";
+    std::getline(std::cin, username);
+
+    std::string email;
+    std::cout << "Email:    ";
+    std::getline(std::cin, email);
+
+    return { username, email, readPassword() };
 }

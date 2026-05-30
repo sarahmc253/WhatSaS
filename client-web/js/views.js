@@ -9,6 +9,7 @@
 import * as api from './api.js';
 import { getUser, sendMessage } from './api.js';
 import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
+import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -41,6 +42,16 @@ function hexToBytes(hex) {
 }
 
 // ── Crypto ────────────────────────────────────────────────────────────────
+
+// SHA-256 fingerprint of a raw public key, formatted as colon-separated uppercase
+// hex pairs (first 8 bytes only). e.g. "A3:F2:11:8C:44:D0:9E:7B"
+// Used for out-of-band identity verification — matches the C++ client's format.
+async function keyFingerprint(pkBytes) {
+    const hash = await crypto.subtle.digest('SHA-256', pkBytes);
+    return Array.from(new Uint8Array(hash).slice(0, 8))
+        .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+        .join(':');
+}
 
 // TODO: fetch recipient's x25519_public_key and encrypt with HPKE.
 // eslint-disable-next-line no-unused-vars
@@ -163,13 +174,99 @@ export async function renderInbox(container, navigate) {
     container.innerHTML = `
         <div class="inbox-header">
             <h2>Inbox</h2>
-            <button class="btn btn-primary" id="btn-compose">Compose</button>
+            <div class="inbox-actions">
+                <button class="btn btn-primary" id="btn-compose">Compose</button>
+                <button class="btn btn-secondary" id="btn-change-password">🔒 Change Password</button>
+            </div>
         </div>
+        <div id="my-fingerprint" class="key-fingerprint" title="Your key fingerprint — share this with contacts to verify your identity"></div>
+        <section id="change-password-section" class="card" hidden>
+            <h3>Change Password</h3>
+            <form id="change-password-form" novalidate>
+                <div class="form-group">
+                    <label for="cp-old">Current password</label>
+                    <input type="password" id="cp-old" autocomplete="current-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="cp-new">New password</label>
+                    <input type="password" id="cp-new" autocomplete="new-password" required>
+                </div>
+                <div class="form-group">
+                    <label for="cp-confirm">Confirm new password</label>
+                    <input type="password" id="cp-confirm" autocomplete="new-password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Update Password</button>
+                <div id="cp-msg" role="alert"></div>
+            </form>
+        </section>
         <div id="inbox-body">
             <div class="loading"><span class="spinner"></span> Loading…</div>
         </div>`;
 
+    // Compute and display own fingerprint from the login-cached public key
+    const pubB64 = api.getPublicKeyB64();
+    if (pubB64) {
+        try {
+            const pkBytes = Uint8Array.from(atob(pubB64), c => c.charCodeAt(0));
+            const fp = await keyFingerprint(pkBytes);
+            document.getElementById('my-fingerprint').textContent = `🔑 Your fingerprint: ${fp}`;
+        } catch { /* non-fatal */ }
+    }
+
     document.getElementById('btn-compose').addEventListener('click', () => navigate('compose'));
+    document.getElementById('btn-change-password').addEventListener('click', () => {
+        const section = document.getElementById('change-password-section');
+        section.hidden = !section.hidden;
+    });
+
+    document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn     = e.target.querySelector('button[type="submit"]');
+        const msgEl   = document.getElementById('cp-msg');
+        const oldPw   = document.getElementById('cp-old').value;
+        const newPw   = document.getElementById('cp-new').value;
+        const confirm = document.getElementById('cp-confirm').value;
+
+        msgEl.className = msgEl.textContent = '';
+
+        if (newPw !== confirm) {
+            msgEl.className = 'error-msg';
+            msgEl.textContent = 'New passwords do not match.';
+            return;
+        }
+
+        btn.disabled = true;
+        try {
+            const wrappedB64 = api.getWrappedKey();
+            if (!wrappedB64) throw new Error('No key material in session — please log in again.');
+
+            // Decrypt private key with old password
+            const parsed    = JSON.parse(atob(wrappedB64));
+            const encrypted = EncryptedPrivateKey.fromJSON(parsed);
+            const privBytes = await decryptPrivateKey(encrypted, oldPw);
+
+            // Re-encrypt under new password
+            const newEncrypted = await encryptPrivateKey(privBytes, newPw);
+            const newWrappedB64 = btoa(JSON.stringify(newEncrypted.toJSON()));
+            // kek_salt: use the new salt embedded in the encrypted struct (base64)
+            const newKekSalt = btoa(String.fromCharCode(...newEncrypted.salt));
+
+            await api.changePassword(oldPw, newPw, newWrappedB64, newKekSalt);
+
+            // Keep the in-memory wrapped key state consistent with the new password
+            api.setWrappedKey(newWrappedB64, newKekSalt);
+
+            msgEl.className = 'success-msg';
+            msgEl.textContent = 'Password updated successfully!';
+            e.target.reset();
+            document.getElementById('change-password-section').hidden = true;
+        } catch (err) {
+            msgEl.className = 'error-msg';
+            msgEl.textContent = err.message;
+        } finally {
+            btn.disabled = false;
+        }
+    });
 
     const body = document.getElementById('inbox-body');
     let messages;
@@ -323,6 +420,7 @@ export function renderCompose(container, navigate) {
                 <div class="form-group">
                     <label for="c-recipient">Recipient username</label>
                     <input type="text" id="c-recipient" placeholder="Enter username" required>
+                    <div id="recipient-fingerprint" class="key-fingerprint"></div>
                 </div>
                 <div class="form-group">
                     <label for="c-body">Message</label>
@@ -338,6 +436,20 @@ export function renderCompose(container, navigate) {
 
     document.getElementById('btn-back').addEventListener('click',   () => navigate('inbox'));
     document.getElementById('btn-cancel').addEventListener('click', () => navigate('inbox'));
+
+    // Show peer fingerprint when the user finishes typing a recipient username
+    document.getElementById('c-recipient').addEventListener('blur', async (e) => {
+        const username = e.target.value.trim();
+        const fpEl = document.getElementById('recipient-fingerprint');
+        if (!username) { fpEl.textContent = ''; return; }
+        try {
+            const user = await getUser(username);
+            if (!user?.x25519_public_key) { fpEl.textContent = ''; return; }
+            const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
+            const fp = await keyFingerprint(pkBytes);
+            fpEl.textContent = `🔑 ${esc(username)}'s fingerprint: ${fp}`;
+        } catch { fpEl.textContent = ''; }
+    });
 
     const form = document.getElementById('compose-form');
     const msg  = document.getElementById('compose-msg');

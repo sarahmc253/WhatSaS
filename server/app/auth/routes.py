@@ -1,3 +1,4 @@
+import base64
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -6,7 +7,7 @@ import mysql.connector
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 
 from .. import get_db
 
@@ -153,15 +154,98 @@ def login():
 
     return jsonify({
         'token': token,
+        'user_id': str(user['id']),
         'wrapped_private_key': user['wrapped_private_key'],
         'kek_salt': user['kek_salt'],
         'x25519_public_key': user['x25519_public_key'],
     }), 200
 
 
+@auth_bp.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Request body must be a JSON object'}), 400
+
+    invalid = _invalid_fields(data, ['old_password', 'new_password', 'wrapped_private_key', 'kek_salt'])
+    if invalid:
+        return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    user_id = get_jwt_identity()
+    db = get_db()
+    cursor = db.cursor(dictionary=True)
+    try:
+        cursor.execute('SELECT password_hash FROM users WHERE id = %s', (user_id,))
+        user = cursor.fetchone()
+    finally:
+        cursor.close()
+
+    if user is None:
+        return jsonify({'error': 'User not found'}), 404
+
+    try:
+        ph.verify(user['password_hash'], data['old_password'])
+    except VerifyMismatchError:
+        return jsonify({'error': 'Old password is incorrect'}), 401
+
+    # Validate re-wrapped key structure before committing.
+    # Wire format: base64(JSON({salt, kek_nonce, wrapped_dek, dek_nonce, ciphertext}))
+    # kek_salt must be valid base64 decoding to exactly 16 bytes (Argon2id salt).
+    KEK_SALT_LEN = 16
+    WRAPPED_KEY_FIELDS = {'salt', 'kek_nonce', 'wrapped_dek', 'dek_nonce', 'ciphertext'}
+    try:
+        wrapped_json_bytes = base64.b64decode(data['wrapped_private_key'])
+    except (ValueError, base64.binascii.Error):
+        return jsonify({'error': 'wrapped_private_key is not valid base64'}), 400
+    try:
+        import json as _json
+        wrapped_obj = _json.loads(wrapped_json_bytes)
+    except (ValueError, UnicodeDecodeError):
+        return jsonify({'error': 'wrapped_private_key does not contain valid JSON'}), 400
+    missing_fields = WRAPPED_KEY_FIELDS - set(wrapped_obj.keys() if isinstance(wrapped_obj, dict) else [])
+    if missing_fields:
+        return jsonify({'error': f'wrapped_private_key JSON missing fields: {", ".join(sorted(missing_fields))}'}), 400
+    try:
+        kek_salt_bytes = base64.b64decode(data['kek_salt'])
+    except (ValueError, base64.binascii.Error):
+        return jsonify({'error': 'kek_salt is not valid base64'}), 400
+    if len(kek_salt_bytes) != KEK_SALT_LEN:
+        return jsonify({'error': f'kek_salt must decode to {KEK_SALT_LEN} bytes'}), 400
+
+    new_hash = ph.hash(data['new_password'])
+    new_salt = new_hash.split('$')[4]
+
+    cursor = db.cursor()
+    try:
+        cursor.execute(
+            """
+            UPDATE users
+            SET password_hash = %s, password_salt = %s,
+                wrapped_private_key = %s, kek_salt = %s
+            WHERE id = %s
+            """,
+            (new_hash, new_salt,
+             data['wrapped_private_key'], data['kek_salt'],
+             user_id),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cursor.close()
+
+    return jsonify({'message': 'Password changed successfully'}), 200
+
+
 @auth_bp.route('/logout', methods=['POST'])
 @jwt_required()
 def logout():
+    jti = get_jwt()['jti']
+    current_app.revoked_jtis.add(jti)
+
     if current_app.config.get('ANCHORING_ENABLED'):
         user_id = get_jwt_identity()
         app = current_app._get_current_object()

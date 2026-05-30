@@ -323,3 +323,7 @@ textarea { resize: vertical; min-height: 120px; }
 
 .footer-link             { color: var(--primary); text-decoration: none; }
 .footer-link:hover       { text-decoration: underline; }
+
+/* ── Key fingerprint ─────────────────────────────────────────────────────── */
+.key-fingerprint { font-size: .75rem; font-family: monospace; color: var(--muted); margin: .25rem 0 .5rem; min-height: 1em; }
+.inbox-actions { display: flex; gap: .5rem; }

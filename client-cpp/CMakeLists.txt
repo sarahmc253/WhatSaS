@@ -22,7 +22,6 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenSSL REQUIRED)
-find_package(SQLite3 REQUIRED) #SQLite3 for local cache for user. I chose it over MySql for fast lookups, offline capability, etc.
 include(FetchContent)
 FetchContent_Declare(
   nlohmann_json
@@ -67,7 +66,6 @@ target_link_libraries(sas-client PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -85,7 +83,6 @@ target_link_libraries(test_tcp PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -102,7 +99,6 @@ target_link_libraries(test_http PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -127,7 +123,6 @@ target_link_libraries(test_client PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -149,7 +144,6 @@ target_link_libraries(test_conversation PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -171,7 +165,6 @@ target_link_libraries(test_hpke PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -185,7 +178,6 @@ target_link_libraries(test_tamper PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )
@@ -202,7 +194,6 @@ target_link_libraries(test_e2e PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   ${SODIUM_LIB}
-  SQLite::SQLite3
   nlohmann_json::nlohmann_json
   ${PLATFORM_LIBS}
 )

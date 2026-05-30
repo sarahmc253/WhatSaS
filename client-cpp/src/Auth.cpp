@@ -6,11 +6,40 @@
 // ── Accessors ────────────────────────────────────────────────────────────────
 
 const std::string& Auth::getToken()             const { return token_;             }
+const std::string& Auth::getUserId()            const { return userId_;            }
 const std::string& Auth::getWrappedPrivateKey() const { return wrappedPrivateKey_; }
 const std::string& Auth::getKekSalt()           const { return kekSalt_;           }
 
 bool Auth::isLoggedIn() const {
     return !token_.empty();
+}
+
+// ── Instance methods ─────────────────────────────────────────────────────────
+
+void Auth::logout(HttpClient& client, const std::string& baseUrl) {
+    client.post(baseUrl + "/auth/logout", "", "application/json", token_);
+}
+
+void Auth::changePassword(HttpClient& client,
+                          const std::string& baseUrl,
+                          const std::string& oldPassword,
+                          const std::string& newPassword,
+                          const std::string& newWrappedPrivateKey,
+                          const std::string& newKekSalt) {
+    nlohmann::json body;
+    body["old_password"]        = oldPassword;
+    body["new_password"]        = newPassword;
+    body["wrapped_private_key"] = newWrappedPrivateKey;
+    body["kek_salt"]            = newKekSalt;
+
+    const auto resp = client.post(baseUrl + "/auth/change-password", body.dump(),
+                                  "application/json", token_);
+
+    if (resp.statusCode_ < 200 || resp.statusCode_ > 299) {
+        const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_;
+        throw std::runtime_error("Password change failed (HTTP " +
+                                 std::to_string(resp.statusCode_) + "): " + detail);
+    }
 }
 
 // ── Static factories ─────────────────────────────────────────────────────────
@@ -73,6 +102,9 @@ Auth Auth::login(HttpClient& client,
 
     Auth auth;
     auth.token_ = parsed["token"].get<std::string>();
+
+    if (parsed.contains("user_id") && parsed["user_id"].is_string())
+        auth.userId_ = parsed["user_id"].get<std::string>();
 
     if (!parsed.contains("wrapped_private_key") || !parsed["wrapped_private_key"].is_string()) {
         throw std::runtime_error("Login failed: no wrapped_private_key in response");
