@@ -7,7 +7,7 @@
  */
 
 import * as api from './api.js';
-import { getUser, sendMessage } from './api.js';
+import { getUser, sendMessage, getUserId } from './api.js';
 import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
 import { generateKeypair, getPublicKeyBytes, getPrivateKeyBytes } from '../crypto/keypair.js';
 import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
@@ -40,6 +40,19 @@ function hexToBytes(hex) {
         bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
     }
     return bytes;
+}
+
+// Decode hex or base64 string to Uint8Array (C++ sends base64 for ct/nonce; web sends hex).
+function decodeField(str) {
+    if (/^[0-9a-f]+$/i.test(str) && str.length % 2 === 0) return hexToBytes(str);
+    return Uint8Array.from(atob(str), c => c.charCodeAt(0));
+}
+
+// Parse ISO-8601 or RFC 2822 date string to Unix seconds integer.
+function parseTimestamp(str) {
+    if (!str) return 0;
+    const d = new Date(str.includes('T') || str.includes(',') ? str : str.replace(' ', 'T') + 'Z');
+    return isNaN(d) ? 0 : Math.floor(d.getTime() / 1000);
 }
 
 // ── Crypto ────────────────────────────────────────────────────────────────
@@ -301,24 +314,41 @@ messages = data.messages ?? [];
         return;
     }
 
+    // Cache sender public keys to avoid repeated fetches for the same sender within one render.
+    const senderKeyCache = {};
+
     async function tryDecrypt(msg) {
         const privKey = api.getPrivateKey();
         if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk || !msg.sender_x25519_public_key) {
             return '(encrypted)';
         }
         try {
-            const ciphertext  = hexToBytes(msg.ciphertext);
-            const nonce       = hexToBytes(msg.nonce);
-            const ephPubKey   = await crypto.subtle.importKey(
-                'raw', hexToBytes(msg.ephemeral_pk), { name: 'X25519' }, true, [],
+            const ciphertext = decodeField(msg.ciphertext);
+            const nonce      = decodeField(msg.nonce);
+            const ephPkBytes = decodeField(msg.ephemeral_pk);
+            const ephPubKey  = await crypto.subtle.importKey(
+                'raw', ephPkBytes, { name: 'X25519' }, false, ['deriveBits'],
             );
-            const senderPkBytes  = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
-            const senderPublicKey = await crypto.subtle.importKey(
-                'raw', senderPkBytes, { name: 'X25519' }, false, [],
+
+            const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
+            if (!senderKeyCache[msg.sender_username]) {
+                senderKeyCache[msg.sender_username] = await crypto.subtle.importKey(
+                    'raw', senderPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                );
+            }
+            const senderStaticPubKey = senderKeyCache[msg.sender_username];
+
+            const senderId    = msg.sender_id ?? '';
+            const recipientId = msg.recipient_id ?? '';
+            const messageId   = msg.id ?? msg.message_id ?? '';
+            const timestamp   = parseTimestamp(msg.created_at ?? msg.timestamp);
+
+            return await decryptMessage(
+                ciphertext, nonce, ephPubKey, ephPkBytes,
+                privKey, senderStaticPubKey,
+                senderId, recipientId, messageId, timestamp,
             );
-            return await decryptMessage(ciphertext, nonce, ephPubKey, privKey, senderPublicKey);
-        } catch (e) {
-            console.error('[tryDecrypt] error:', e);
+        } catch {
             return '(encrypted)';
         }
     }
@@ -379,44 +409,52 @@ async function handleAction(btn, inboxBody) {
                 const recipientUsername = window.prompt('Forward to username:')?.trim();
                 if (!recipientUsername) { btn.disabled = false; return; }
 
-                const privKey = api.getPrivateKey();
-                if (!privKey) throw new Error('Private key unavailable — please log in again.');
+                const privKey  = api.getPrivateKey();
+                const myUserId = getUserId();
+                if (!privKey || !myUserId) throw new Error('Session key unavailable — please log in again.');
 
-                const [recipientUser, orig] = await Promise.all([
+                const [recipientUser, orig, origSenderUser] = await Promise.all([
                     api.getUser(recipientUsername),
                     api.getMessage(id),
+                    // Fetch sender's public key using the sender_id stored on the card element
+                    api.getUser(btn.closest('.message-card')?.querySelector('.msg-sender')?.textContent?.trim() ?? ''),
                 ]);
 
                 if (!recipientUser?.x25519_public_key) throw new Error('Recipient not found or has no encryption key.');
-                if (!orig?.ciphertext || !orig?.nonce || !orig?.ephemeral_pk || !orig?.sender_x25519_public_key) throw new Error('Original message has no crypto fields.');
+                if (!orig?.ciphertext || !orig?.nonce || !orig?.ephemeral_pk) throw new Error('Original message has no crypto fields.');
+                if (!origSenderUser?.x25519_public_key) throw new Error('Original sender key unavailable.');
 
-                const origEphPubKey = await crypto.subtle.importKey(
-                    'raw', hexToBytes(orig.ephemeral_pk), { name: 'X25519' }, true, [],
+                const origEphPkBytes = decodeField(orig.ephemeral_pk);
+                const origEphPubKey  = await crypto.subtle.importKey(
+                    'raw', origEphPkBytes, { name: 'X25519' }, false, ['deriveBits'],
                 );
-                const origSenderPkBytes  = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
-                const origSenderPublicKey = await crypto.subtle.importKey(
-                    'raw', origSenderPkBytes, { name: 'X25519' }, false, [],
-                );
+                const origSenderKeyBytes = Uint8Array.from(atob(origSenderUser.x25519_public_key), c => c.charCodeAt(0));
+                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+
+                const origCt    = decodeField(orig.ciphertext);
+                const origNonce = decodeField(orig.nonce);
+                // orig from GET /messages/:id includes sender_id, recipient_id, created_at for AD
+                const origTs = parseTimestamp(orig.created_at);
                 const plaintext = await decryptMessage(
-                    hexToBytes(orig.ciphertext),
-                    hexToBytes(orig.nonce),
-                    origEphPubKey,
-                    privKey,
-                    origSenderPublicKey,
+                    origCt, origNonce, origEphPubKey, origEphPkBytes,
+                    privKey, origSenderPubKey,
+                    orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
                 );
 
                 const recipKeyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
-                const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(plaintext, recipPublicKey, privKey);
+                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+                    plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
+                );
 
                 const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-                const ephPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
 
                 await api.forwardMessage(id, {
                     recipientUsername,
+                    message_id:   messageId,
                     ciphertext:   toHex(ciphertext),
                     nonce:        toHex(nonce),
-                    ephemeral_pk: toHex(ephPkBytes),
+                    ephemeral_pk: toHex(fwdEphPkBytes),
                 });
 
                 btn.textContent = 'Forwarded!';
@@ -507,19 +545,25 @@ export function renderCompose(container, navigate) {
                 throw new Error('Recipient not found or has no encryption key.');
             }
 
-            const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-            const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
+            const senderPrivKey = api.getPrivateKey();
+            const senderId      = getUserId();
+            if (!senderPrivKey || !senderId) throw new Error('Session key unavailable — please log in again.');
 
-            const { ephemeralPublicKey, nonce, ciphertext } = await encryptMessage(content, recipientPublicKey, senderPrivateKey);
+            const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
+            const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
+
+            const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+                content, recipientPublicKey, senderPrivKey, senderId, recipientUser.id,
+            );
 
             const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-            const ephemeralPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
 
             await sendMessage({
                 recipient_id: recipientUser.id,
+                message_id:   messageId,
                 ciphertext:   toHex(ciphertext),
                 nonce:        toHex(nonce),
-                ephemeral_pk: toHex(ephemeralPkBytes),
+                ephemeral_pk: toHex(ephPkBytes),
             });
             msg.className = 'success-msg';
             msg.textContent = 'Message sent!';

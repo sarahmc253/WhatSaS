@@ -4,8 +4,10 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <cpuid.h>
 #include "AuthCLI.hpp"
 #include "crypto_utils.hpp"
+#include "key_wrap.hpp"
 #include "ui.hpp"
 #include "../include/Auth.hpp"
 #include "../include/Client.hpp"
@@ -94,50 +96,23 @@ int main(int argc, char* argv[]) {
     try {
         if (choice == AuthChoice::Register) {
             const auto creds = promptCredentials();
-            if (!crypto_aead_aes256gcm_is_available())
-                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
+            { unsigned int a,b,c,d; __get_cpuid(1,&a,&b,&c,&d); if(!((c>>25)&1)) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU"); }
 
-            std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
-            std::vector<uint8_t> sk(crypto_box_SECRETKEYBYTES);
-            crypto_box_keypair(pk.data(), sk.data());
-
-            std::vector<uint8_t> kekSalt(crypto_pwhash_SALTBYTES);
-            randombytes_buf(kekSalt.data(), kekSalt.size());
-
-            std::vector<uint8_t> kek(32);
-            if (crypto_pwhash(
-                    kek.data(), kek.size(),
-                    creds.password.c_str(), creds.password.size(),
-                    kekSalt.data(),
-                    crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                    crypto_pwhash_MEMLIMIT_INTERACTIVE,
-                    crypto_pwhash_ALG_ARGON2ID13) != 0)
-                throw std::runtime_error("key derivation failed — not enough memory for Argon2id");
-
-            unsigned char wrapNonce[crypto_aead_aes256gcm_NPUBBYTES];
-            randombytes_buf(wrapNonce, sizeof(wrapNonce));
-
-            std::vector<uint8_t> wrapped(
-                sizeof(wrapNonce) + crypto_box_SECRETKEYBYTES + crypto_aead_aes256gcm_ABYTES);
-            unsigned long long wrappedCtLen = 0;
-            if (crypto_aead_aes256gcm_encrypt(
-                    wrapped.data() + sizeof(wrapNonce), &wrappedCtLen,
-                    sk.data(), sk.size(),
-                    nullptr, 0, nullptr,
-                    wrapNonce, kek.data()) != 0)
-                throw std::runtime_error("private key wrapping failed");
-
-            std::copy(wrapNonce, wrapNonce + sizeof(wrapNonce), wrapped.begin());
-            wrapped.resize(sizeof(wrapNonce) + wrappedCtLen);
+            // Two-layer key wrapping (KEK→DEK→SK) matching the web client and spec §3.6
+            const auto kp      = generateX25519Keypair();
+            const auto wrapped = wrapPrivateKey(kp, creds.password);
 
             auth = Auth::registerUser(http, BASE_URL,
                                       creds.username, creds.password, creds.email,
-                                      b64Encode(pk.data(), pk.size()),
-                                      b64Encode(wrapped.data(), wrapped.size()),
-                                      b64Encode(kekSalt.data(), kekSalt.size()));
+                                      wrapped.x25519PublicKeyB64,
+                                      wrapped.wrappedPrivateKeyB64,
+                                      wrapped.kekSaltB64);
 
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
-            sessionSk = sk;
+            sessionSk = kp.privateKey;
+
+            std::vector<uint8_t> pk(kp.publicKey);
+            std::vector<uint8_t> sk(kp.privateKey);
             client.emplace(BASE_URL, creds.username,
                            std::move(sk), std::move(pk),
                            "whatsas_pins.txt", auth.getToken());
@@ -149,49 +124,11 @@ int main(int argc, char* argv[]) {
             const auto creds = promptLogin();
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
 
-            const std::vector<uint8_t> kekSaltBytes = b64Decode(auth.getKekSalt());
-            if (kekSaltBytes.size() != crypto_pwhash_SALTBYTES)
-                throw std::runtime_error(
-                    "login response: kek_salt must be " +
-                    std::to_string(crypto_pwhash_SALTBYTES) +
-                    " bytes, got " + std::to_string(kekSaltBytes.size()));
+            { unsigned int a,b,c,d; __get_cpuid(1,&a,&b,&c,&d); if(!((c>>25)&1)) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU"); }
 
-            const std::vector<uint8_t> wrappedBytes = b64Decode(auth.getWrappedPrivateKey());
-            constexpr std::size_t expectedWrappedLen =
-                crypto_aead_aes256gcm_NPUBBYTES +
-                crypto_box_SECRETKEYBYTES +
-                crypto_aead_aes256gcm_ABYTES;
-            if (wrappedBytes.size() != expectedWrappedLen)
-                throw std::runtime_error(
-                    "login response: wrapped_private_key must be " +
-                    std::to_string(expectedWrappedLen) +
-                    " bytes, got " + std::to_string(wrappedBytes.size()));
-
-            if (!crypto_aead_aes256gcm_is_available())
-                throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
-
-            std::vector<uint8_t> kek(32);
-            if (crypto_pwhash(
-                    kek.data(), kek.size(),
-                    creds.password.c_str(), creds.password.size(),
-                    kekSaltBytes.data(),
-                    crypto_pwhash_OPSLIMIT_INTERACTIVE,
-                    crypto_pwhash_MEMLIMIT_INTERACTIVE,
-                    crypto_pwhash_ALG_ARGON2ID13) != 0)
-                throw std::runtime_error("key derivation failed — not enough memory for Argon2id");
-
-            std::vector<uint8_t> sk(crypto_box_SECRETKEYBYTES);
-            unsigned long long skLen = 0;
-            if (crypto_aead_aes256gcm_decrypt(
-                    sk.data(), &skLen,
-                    nullptr,
-                    wrappedBytes.data() + crypto_aead_aes256gcm_NPUBBYTES,
-                    wrappedBytes.size() - crypto_aead_aes256gcm_NPUBBYTES,
-                    nullptr, 0,
-                    wrappedBytes.data(),
-                    kek.data()) != 0)
-                throw std::runtime_error("private key unwrapping failed — wrong password or corrupted data");
-            sk.resize(skLen);
+            // Two-layer unwrap (KEK→DEK→SK), handles both PKCS8 (web) and raw (old C++) inner formats
+            auto sk = unwrapPrivateKey(
+                auth.getWrappedPrivateKey(), auth.getKekSalt(), creds.password);
 
             std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
             if (crypto_scalarmult_base(pk.data(), sk.data()) != 0)

@@ -5,6 +5,7 @@
 #include "message_crypto.hpp"
 
 #include <sodium.h>
+#include <cpuid.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <limits>
@@ -54,9 +55,12 @@ Client::Client(const std::string& baseUrl,
                 "staticSk and staticPk are not a matched X25519 keypair");
         }
     }
-    if (crypto_aead_aes256gcm_is_available() == 0) {
-        throw std::runtime_error(
-            "AES-256-GCM unavailable: hardware AES-NI required");
+    // libsodium's AES-NI detection is broken in MSYS2/MinGW builds — use cpuid directly
+    {
+        unsigned int eax, ebx, ecx, edx;
+        __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+        if (!((ecx >> 25) & 1))
+            throw std::runtime_error("AES-256-GCM unavailable: hardware AES-NI required");
     }
     loadPins();
 }
@@ -160,18 +164,36 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     }
 
     // 2. Encrypt with derived AES-256-GCM key.
-    auto enc = encryptMessage(hpkeResult->aesKey, senderId_, recipientUsername, plaintext);
+    // Use UUIDs for both sender and recipient in the AD so the receiver can reconstruct
+    // the same AD from the server-returned sender_id and recipient_id fields.
+    auto enc = encryptMessage(hpkeResult->aesKey, senderId_, recipientUuid, plaintext);
     sodium_memzero(hpkeResult->aesKey.data(), hpkeResult->aesKey.size());
     if (!enc) {
         return {0, "", "AES-256-GCM encryption failed", false};
     }
 
-    // 3. Build wire body matching server schema: recipient_id=UUID, ephemeral_pk=kem_output.
+    // 3. Build wire body matching server schema.
+    // Send message_id so the server stores it; both sides then use the same value in AD.
+    // Encode ciphertext and nonce as hex to match the web client's wire format.
+    auto ctBytes    = b64Decode(enc->ctB64);
+    auto nonceBytes = b64Decode(enc->nonceB64);
+
+    std::string ctHex(ctBytes.size() * 2 + 1, '\0');
+    sodium_bin2hex(ctHex.data(), ctHex.size(), ctBytes.data(), ctBytes.size());
+    ctHex.resize(ctBytes.size() * 2);
+
+    char nonceHex[25];
+    sodium_bin2hex(nonceHex, sizeof(nonceHex), nonceBytes.data(), nonceBytes.size());
+
+    char ephHex[65];
+    sodium_bin2hex(ephHex, sizeof(ephHex), hpkeResult->ephPk.data(), hpkeResult->ephPk.size());
+
     nlohmann::json body;
     body["recipient_id"] = recipientUuid;
-    body["ciphertext"]   = enc->ctB64;
-    body["nonce"]        = enc->nonceB64;
-    body["ephemeral_pk"] = b64Encode(hpkeResult->ephPk.data(), hpkeResult->ephPk.size());
+    body["message_id"]   = enc->messageId;
+    body["ciphertext"]   = ctHex;
+    body["nonce"]        = std::string(nonceHex);
+    body["ephemeral_pk"] = std::string(ephHex);
 
     return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
 }
@@ -223,25 +245,40 @@ int Client::receiveMessages(MessageStore& store,
         std::string nonceB64   = obj["nonce"];
         std::string ctB64      = obj["ciphertext"];
 
-        // Parse ISO-8601 created_at ("2026-05-25 16:35:57") → time_t
+        // Parse created_at → time_t.
+        // Server may return ISO-8601 ("2026-05-25 16:35:57") or RFC 2822 ("Sat, 30 May 2026 14:13:02 GMT").
+        static const char* RFC2822_MONTHS[] = {
+            "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
+        };
         std::tm tm{};
         std::string createdAt = obj["created_at"].get<std::string>();
-        // replace 'T' separator if present for strptime compat
+        std::time_t ts = -1;
+
+        // Try ISO-8601 first: "YYYY-MM-DD HH:MM:SS" (T separator also accepted)
         if (createdAt.size() > 10 && createdAt[10] == 'T') createdAt[10] = ' ';
-#ifdef _WIN32
-        int y, mo, d, h, mi, s;
-        std::time_t ts = -1;
-        if (std::sscanf(createdAt.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
-            tm.tm_year = y - 1900; tm.tm_mon = mo - 1; tm.tm_mday = d;
-            tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
-            ts = _mkgmtime(&tm);
+        {
+            int y, mo, d, h, mi, s;
+            if (std::sscanf(createdAt.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+                tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo-1; tm.tm_mday = d;
+                tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
+                ts = _mkgmtime(&tm);
+            }
         }
-#else
-        std::time_t ts = -1;
-        if (strptime(createdAt.c_str(), "%Y-%m-%d %H:%M:%S", &tm)) {
-            ts = timegm(&tm);
+        // Try RFC 2822: "Www, DD Mon YYYY HH:MM:SS GMT"
+        if (ts < 0) {
+            char monStr[4] = {};
+            int d, y, h, mi, s;
+            if (std::sscanf(createdAt.c_str(), "%*3s, %d %3s %d %d:%d:%d", &d, monStr, &y, &h, &mi, &s) == 6) {
+                int mo = -1;
+                for (int i = 0; i < 12; ++i)
+                    if (std::strcmp(monStr, RFC2822_MONTHS[i]) == 0) { mo = i; break; }
+                if (mo >= 0) {
+                    tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo; tm.tm_mday = d;
+                    tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
+                    ts = _mkgmtime(&tm);
+                }
+            }
         }
-#endif
         if (ts < 0) {
             std::cerr << "[receiveMessages] skipping: unparseable created_at '" << createdAt
                       << "' for message " << messageId << "\n";
@@ -253,7 +290,18 @@ int Client::receiveMessages(MessageStore& store,
             std::cerr << "[receiveMessages] skipping: missing ephemeral_pk: " << messageId << "\n";
             continue;
         }
-        std::vector<uint8_t> ephPk = b64Decode(obj["ephemeral_pk"].get<std::string>());
+        // ephemeral_pk is hex (web client) or base64 (old C++ client) — try hex first
+        std::string ephPkStr = obj["ephemeral_pk"].get<std::string>();
+        std::vector<uint8_t> ephPk;
+        if (ephPkStr.size() == 64) {
+            // 64 hex chars = 32 bytes
+            ephPk.resize(32);
+            if (sodium_hex2bin(ephPk.data(), 32, ephPkStr.c_str(), ephPkStr.size(),
+                               nullptr, nullptr, nullptr) != 0)
+                ephPk.clear();
+        } else {
+            ephPk = b64Decode(ephPkStr);
+        }
         if (ephPk.size() != 32) {
             std::cerr << "[receiveMessages] skipping: ephemeral_pk must be 32 bytes: " << messageId << "\n";
             continue;
@@ -266,9 +314,18 @@ int Client::receiveMessages(MessageStore& store,
             continue;
         }
 
-        // 6. Decrypt.
-        std::vector<uint8_t> nonce = b64Decode(nonceB64);
-        std::vector<uint8_t> ct    = b64Decode(ctB64);
+        // 6. Decrypt. nonce and ciphertext are hex (new) or base64 (old stored messages).
+        // Detect hex: even length, all lowercase hex chars.
+        auto hexDecode = [](const std::string& s) -> std::vector<uint8_t> {
+            if (s.size() % 2 == 0 && s.find_first_not_of("0123456789abcdef") == std::string::npos) {
+                std::vector<uint8_t> out(s.size() / 2);
+                if (sodium_hex2bin(out.data(), out.size(), s.c_str(), s.size(),
+                                   nullptr, nullptr, nullptr) == 0) return out;
+            }
+            return b64Decode(s);
+        };
+        std::vector<uint8_t> nonce = hexDecode(nonceB64);
+        std::vector<uint8_t> ct    = hexDecode(ctB64);
 
         try {
             // Use senderUuid as senderId in the Message — conv filters by peerId (username),
