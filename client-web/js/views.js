@@ -577,54 +577,6 @@ export function renderCompose(container, navigate) {
     });
 }
 
-// ── Unlock view (re-derive private key after page refresh) ────────────────
-export function renderUnlock(container, navigate) {
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card">
-                <h1>Re-enter password</h1>
-                <p style="color:var(--text-muted,#888);margin-bottom:1rem">Your session is still active but your encryption key needs to be unlocked again.</p>
-                <form id="unlock-form" novalidate>
-                    <div class="form-group">
-                        <label for="u-password">Password</label>
-                        <input type="password" id="u-password" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%">Unlock</button>
-                    <div id="unlock-msg" role="alert"></div>
-                </form>
-            </div>
-        </div>`;
-
-    const form = document.getElementById('unlock-form');
-    const msg  = document.getElementById('unlock-msg');
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn      = form.querySelector('button[type="submit"]');
-        const password = document.getElementById('u-password').value;
-        btn.disabled   = true;
-        msg.className  = msg.textContent = '';
-
-        try {
-            const wrappedB64 = api.getWrappedKey();
-            if (!wrappedB64) throw new Error('No key material — please log in again.');
-
-            const parsed    = JSON.parse(atob(wrappedB64));
-            const encrypted = EncryptedPrivateKey.fromJSON(parsed);
-            const privBytes = await decryptPrivateKey(encrypted, password);
-            const privKey   = await crypto.subtle.importKey(
-                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
-            );
-            api.setPrivateKey(privKey);
-            navigate('inbox');
-        } catch {
-            msg.className   = 'error-msg';
-            msg.textContent = 'Incorrect password.';
-            btn.disabled    = false;
-        }
-    });
-}
-
 // ── Utility ───────────────────────────────────────────────────────────────
 function showInlineError(container, text) {
     const el = document.createElement('div');

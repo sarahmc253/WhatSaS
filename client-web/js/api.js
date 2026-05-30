@@ -15,11 +15,7 @@
 import { decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
 
 const BASE_URL = window.location.origin;
-const TOKEN_KEY       = 'whatsas_token';
-const WRAPPED_KEY_KEY = 'whatsas_wrapped_key';
-const KEK_SALT_KEY    = 'whatsas_kek_salt';
-const USER_ID_KEY     = 'whatsas_user_id';
-const PUB_KEY_KEY     = 'whatsas_pub_key';
+const TOKEN_KEY = 'whatsas_token';
 
 // ── Token helpers ─────────────────────────────────────────────────────────
 function getToken()   { return sessionStorage.getItem(TOKEN_KEY); }
@@ -28,13 +24,12 @@ function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
 
 export function isAuthenticated() { return !!getToken(); }
 
-// ── Session state ─────────────────────────────────────────────────────────
-// Private key is in-memory only. Everything else survives refresh via sessionStorage.
+// ── Private key store (in-memory only, never persisted) ──────────────────
 let _sessionPrivateKey   = null;
-let _sessionPublicKeyB64 = sessionStorage.getItem(PUB_KEY_KEY)    || null;
-let _sessionWrappedKey   = sessionStorage.getItem(WRAPPED_KEY_KEY) || null;
-let _sessionKekSalt      = sessionStorage.getItem(KEK_SALT_KEY)    || null;
-let _sessionUserId       = sessionStorage.getItem(USER_ID_KEY)     || null;
+let _sessionPublicKeyB64 = null;
+let _sessionWrappedKey   = null;  // raw parsed EncryptedPrivateKey — needed for re-wrap on pw change
+let _sessionKekSalt      = null;  // base64 kek_salt from login — needed for re-wrap
+let _sessionUserId       = null;  // logged-in user's UUID — needed for AD in encryptMessage
 
 export function setPrivateKey(key)     { _sessionPrivateKey   = key; }
 export function getPrivateKey()        { return _sessionPrivateKey; }
@@ -44,12 +39,7 @@ export function clearPublicKey()       { _sessionPublicKeyB64 = null; }
 export function getWrappedKey()                   { return _sessionWrappedKey; }
 export function getKekSalt()                      { return _sessionKekSalt; }
 export function clearWrappedKey()                 { _sessionWrappedKey = null; _sessionKekSalt = null; }
-export function setWrappedKey(wrapped, kekSalt) {
-    _sessionWrappedKey = wrapped;
-    _sessionKekSalt    = kekSalt;
-    sessionStorage.setItem(WRAPPED_KEY_KEY, wrapped);
-    sessionStorage.setItem(KEK_SALT_KEY, kekSalt);
-}
+export function setWrappedKey(wrapped, kekSalt)   { _sessionWrappedKey = wrapped; _sessionKekSalt = kekSalt; }
 export function getUserId()            { return _sessionUserId; }
 export function clearUserId()          { _sessionUserId = null; }
 
@@ -88,22 +78,10 @@ export async function login(username, password) {
     });
     if (!data.token) throw new Error('Login succeeded but no token was returned');
     setToken(data.token);
-    if (data.x25519_public_key) {
-        _sessionPublicKeyB64 = data.x25519_public_key;
-        sessionStorage.setItem(PUB_KEY_KEY, data.x25519_public_key);
-    }
-    if (data.wrapped_private_key) {
-        _sessionWrappedKey = data.wrapped_private_key;
-        sessionStorage.setItem(WRAPPED_KEY_KEY, data.wrapped_private_key);
-    }
-    if (data.kek_salt) {
-        _sessionKekSalt = data.kek_salt;
-        sessionStorage.setItem(KEK_SALT_KEY, data.kek_salt);
-    }
-    if (data.user_id) {
-        _sessionUserId = data.user_id;
-        sessionStorage.setItem(USER_ID_KEY, data.user_id);
-    }
+    if (data.x25519_public_key)   _sessionPublicKeyB64 = data.x25519_public_key;
+    if (data.wrapped_private_key) _sessionWrappedKey   = data.wrapped_private_key;
+    if (data.kek_salt)            _sessionKekSalt      = data.kek_salt;
+    if (data.user_id)             _sessionUserId       = data.user_id;
 
     if (data.wrapped_private_key) {
         try {
@@ -154,10 +132,6 @@ export function logout() {
     clearPublicKey();
     clearWrappedKey();
     clearUserId();
-    sessionStorage.removeItem(WRAPPED_KEY_KEY);
-    sessionStorage.removeItem(KEK_SALT_KEY);
-    sessionStorage.removeItem(USER_ID_KEY);
-    sessionStorage.removeItem(PUB_KEY_KEY);
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
