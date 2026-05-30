@@ -4,3 +4,7 @@ client-cpp/build/
 .claude/
 __pycache__/
 .vscode/settings.json
+docs/crypto_design.md
+docs/network_architecture_diagrams.md
+.gitignore
+docs/network_architecture.md

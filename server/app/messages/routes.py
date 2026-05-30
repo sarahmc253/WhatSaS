@@ -1,3 +1,4 @@
+import hashlib
 import re
 import threading
 import uuid
@@ -56,18 +57,19 @@ def send_message():
     message_id = str(uuid.uuid4())
     sender_id = get_jwt_identity()
     now = datetime.now(timezone.utc)
+    content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
     db = get_db()
     cursor = db.cursor()
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, content_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 message_id, sender_id, data['recipient_id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, content_hash,
             ),
         )
         db.commit()
@@ -204,17 +206,18 @@ def forward_message(message_id):
 
     new_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+    content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
     cursor = db.cursor()
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, original_message_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, original_message_id, content_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, message_id,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, message_id, content_hash,
             ),
         )
         db.commit()
@@ -230,6 +233,36 @@ def forward_message(message_id):
         cursor.close()
 
     return jsonify({'id': new_id}), 201
+
+@messages_bp.route('/blockchain-record', methods=['GET'])
+def get_blockchain_record():
+    tx_hash = request.args.get('tx_hash', '').strip()
+
+    if not re.fullmatch(r'0x[0-9a-fA-F]{64}', tx_hash):
+        return jsonify({'error': 'Invalid tx_hash — must be a 66-character 0x-prefixed hex string'}), 400
+
+    db = get_db()
+    try:
+        cursor = db.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                'SELECT merkle_root, block_timestamp FROM blockchain_records WHERE tx_hash = %s',
+                (tx_hash,),
+            )
+            record = cursor.fetchone()
+        finally:
+            cursor.close()
+    except Exception:
+        return jsonify({'error': 'Database error — please try again'}), 500
+
+    if record is None:
+        return jsonify({'error': 'No blockchain record found for this transaction hash'}), 404
+
+    return jsonify({
+        'merkle_root': record['merkle_root'],
+        'block_timestamp': record['block_timestamp'].isoformat() if record['block_timestamp'] else None,
+    }), 200
+
 
 @messages_bp.route('/messages/<string:message_id>/revoke', methods=['POST'])
 @jwt_required()
