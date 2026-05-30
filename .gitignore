@@ -4,3 +4,4 @@ client-cpp/build/
 .claude/
 __pycache__/
 .vscode/settings.json
+docs/transcript_sreejita.md
