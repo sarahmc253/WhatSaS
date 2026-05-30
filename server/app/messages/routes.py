@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import re
 import threading
 import uuid
@@ -11,6 +12,7 @@ from .. import get_db
 from .anchor import anchor_pending
 
 messages_bp = Blueprint('messages', __name__)
+logger = logging.getLogger(__name__)
 
 SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']
 
@@ -235,6 +237,7 @@ def forward_message(message_id):
     return jsonify({'id': new_id}), 201
 
 @messages_bp.route('/blockchain-record', methods=['GET'])
+@jwt_required()
 def get_blockchain_record():
     tx_hash = request.args.get('tx_hash', '').strip()
 
@@ -253,6 +256,7 @@ def get_blockchain_record():
         finally:
             cursor.close()
     except Exception:
+        logger.exception('DB error in get_blockchain_record for tx_hash=%s', tx_hash)
         return jsonify({'error': 'Database error — please try again'}), 500
 
     if record is None:
