@@ -938,3 +938,27 @@ Attempted to add `GET /users/<username>` to `auth/routes.py`.
 **Sarah:** remove all temporary console logs and error debug lines added in views and api
 
 **Claude:** Removed the single remaining debug line from `views.js` (the `renderInbox` messages[0] log). `api.js` was already clean.
+
+---
+
+**Sarah:** show me every call site of encryptMessage in client-web/. what arguments are currently passed in and where does the sender's private key live at the point those calls are made?
+
+**Claude:** Found two call sites in `views.js`: (1) forward flow at line 400 — `encryptMessage(plaintext, recipPublicKey)`, where `privKey` is in scope (fetched via `api.getPrivateKey()`) but only used to decrypt the original message, never passed to `encryptMessage`; (2) compose flow at line 500 — `encryptMessage(content, recipientPublicKey)`, where `api.getPrivateKey()` is never called at all. Noted that `encryptMessage` in `messageEncryption.js` generates its own fresh ephemeral X25519 keypair internally and only takes `(plaintext, recipientPublicKey)` — the sender's long-term private key plays no role in outbound encryption. Identified this as an ECIES-style ephemeral-only scheme: forward secrecy per message, but no sender authentication since the sender's static key never contributes to the key derivation.
+
+---
+
+**Sarah:** add sender authentication to encryptMessage in crypto/messageEncryption.js to match two-DH pattern in client-cpp/src/hpke_utils.hpp
+
+**Claude:** Read `client-cpp/src/hpke_utils.hpp`, `client-web/crypto/messageEncryption.js`, `client-web/crypto/hkdf.js`, and `server/app/messages/routes.py` to understand both sides before touching any code. C++ pattern: DH1 = X25519(eph_sk, recipient_pk), DH2 = X25519(sender_sk, recipient_pk), IKM = DH1‖DH2 (64 bytes), PRK = HKDF-Extract(salt=eph_pk, IKM), key = HKDF-Expand(PRK, info). Current JS used only DH1 and an empty HKDF salt. Updated four files:
+
+- `client-web/crypto/messageEncryption.js`: `encryptMessage` gains `senderPrivateKey` third param; computes DH2 = X25519(senderPrivateKey, recipientPublicKey); concatenates into 64-byte IKM; exports ephemeral public key raw bytes and uses them as HKDF salt instead of `new Uint8Array(0)`. `decryptMessage` gains `senderPublicKey` fifth param; computes DH2 = X25519(recipientPrivateKey, senderPublicKey); same IKM/salt construction. Ephemeral public key imported as `extractable: true` at call sites so `exportKey('raw', ...)` can derive the salt inside the function.
+- `server/app/messages/routes.py`: GET `/messages` query adds `u.x25519_public_key AS sender_x25519_public_key` to the existing JOIN. GET `/messages/<id>` changed from a bare SELECT to a JOIN and returns `sender_x25519_public_key` in the response — required by the forward-decrypt path.
+- `client-web/js/views.js` — three call-site updates: (1) `tryDecrypt` guards on `!msg.sender_x25519_public_key`, imports sender pk from the new field, passes to `decryptMessage`; (2) forward decrypt imports `orig.sender_x25519_public_key` alongside the ephemeral key and passes both to `decryptMessage`; (3) forward re-encrypt passes the in-scope `privKey` as `senderPrivateKey`; (4) compose encrypt fetches `api.getPrivateKey()` and passes it as `senderPrivateKey`.
+
+**Sarah:** [APPROVED]
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Appended all exchanges from the current session to `docs/transcript_sarah.md`.

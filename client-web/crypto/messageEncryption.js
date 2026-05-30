@@ -2,17 +2,35 @@ import { generateKeypair } from './keypair.js';
 import { importKeyMaterial, hkdfDerive } from './hkdf.js';
 import { HKDF_INFO_MSG_ENC } from './constants.js';
 
-export async function encryptMessage(plaintext, recipientPublicKey) {
+// Two-DH DHKEM matching hpke_utils.hpp hpkeSend/hpkeReceive:
+//   DH1 = X25519(eph_sk,    recipient_pk)  — confidentiality / forward secrecy
+//   DH2 = X25519(sender_sk, recipient_pk)  — sender authentication
+//   IKM = DH1 || DH2  (64 bytes)
+//   PRK = HKDF-Extract(salt=eph_pk, IKM)
+//   key = HKDF-Expand(PRK, info)
+
+export async function encryptMessage(plaintext, recipientPublicKey, senderPrivateKey) {
     const { publicKey: ephemeralPublicKey, privateKey: ephemeralPrivateKey } = await generateKeypair();
 
-    const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits(
+    const dh1 = new Uint8Array(await crypto.subtle.deriveBits(
         { name: 'X25519', public: recipientPublicKey },
         ephemeralPrivateKey,
-        256, // X25519 always produces 32 bytes
+        256,
+    ));
+    const dh2 = new Uint8Array(await crypto.subtle.deriveBits(
+        { name: 'X25519', public: recipientPublicKey },
+        senderPrivateKey,
+        256,
     ));
 
-    const keyMaterial  = await importKeyMaterial(sharedSecret);
-    const messageKeyBytes = await hkdfDerive(keyMaterial, HKDF_INFO_MSG_ENC, new Uint8Array(0), 32);
+    const ikm = new Uint8Array(64);
+    ikm.set(dh1, 0);
+    ikm.set(dh2, 32);
+
+    const ephPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', ephemeralPublicKey));
+
+    const keyMaterial     = await importKeyMaterial(ikm);
+    const messageKeyBytes = await hkdfDerive(keyMaterial, HKDF_INFO_MSG_ENC, ephPkBytes, 32);
 
     const messageKey = await crypto.subtle.importKey(
         'raw', messageKeyBytes, { name: 'AES-GCM' }, false, ['encrypt'],
@@ -28,16 +46,27 @@ export async function encryptMessage(plaintext, recipientPublicKey) {
     return { ephemeralPublicKey, nonce, ciphertext };
 }
 
-export async function decryptMessage(ciphertext, nonce, senderEphemeralPublicKey, recipientPrivateKey) {
+export async function decryptMessage(ciphertext, nonce, senderEphemeralPublicKey, recipientPrivateKey, senderPublicKey) {
     try {
-        const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits(
+        const dh1 = new Uint8Array(await crypto.subtle.deriveBits(
             { name: 'X25519', public: senderEphemeralPublicKey },
             recipientPrivateKey,
             256,
         ));
+        const dh2 = new Uint8Array(await crypto.subtle.deriveBits(
+            { name: 'X25519', public: senderPublicKey },
+            recipientPrivateKey,
+            256,
+        ));
 
-        const keyMaterial     = await importKeyMaterial(sharedSecret);
-        const messageKeyBytes = await hkdfDerive(keyMaterial, HKDF_INFO_MSG_ENC, new Uint8Array(0), 32);
+        const ikm = new Uint8Array(64);
+        ikm.set(dh1, 0);
+        ikm.set(dh2, 32);
+
+        const ephPkBytes = new Uint8Array(await crypto.subtle.exportKey('raw', senderEphemeralPublicKey));
+
+        const keyMaterial     = await importKeyMaterial(ikm);
+        const messageKeyBytes = await hkdfDerive(keyMaterial, HKDF_INFO_MSG_ENC, ephPkBytes, 32);
         const messageKey      = await crypto.subtle.importKey(
             'raw', messageKeyBytes, { name: 'AES-GCM' }, false, ['decrypt'],
         );

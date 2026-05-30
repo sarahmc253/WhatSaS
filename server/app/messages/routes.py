@@ -29,6 +29,7 @@ def get_messages():
         cursor.execute(
             """
             SELECT m.id, m.sender_id, u.username AS sender_username,
+                   u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at
             FROM messages m
             JOIN users u ON u.id = m.sender_id
@@ -111,7 +112,13 @@ def get_message(message_id):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            'SELECT sender_id, recipient_id, ciphertext, nonce, ephemeral_pk FROM messages WHERE id = %s',
+            """
+            SELECT m.sender_id, m.recipient_id, m.ciphertext, m.nonce, m.ephemeral_pk,
+                   u.x25519_public_key AS sender_x25519_public_key
+            FROM messages m
+            JOIN users u ON u.id = m.sender_id
+            WHERE m.id = %s
+            """,
             (message_id,),
         )
         message = cursor.fetchone()
@@ -126,6 +133,7 @@ def get_message(message_id):
         'ciphertext': message['ciphertext'],
         'nonce': message['nonce'],
         'ephemeral_pk': message['ephemeral_pk'],
+        'sender_x25519_public_key': message['sender_x25519_public_key'],
     }), 200
 
 _DELETE_FLAG = {
