@@ -164,20 +164,35 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     }
 
     // 2. Encrypt with derived AES-256-GCM key.
-    auto enc = encryptMessage(hpkeResult->aesKey, senderId_, recipientUsername, plaintext);
+    // Use UUIDs for both sender and recipient in the AD so the receiver can reconstruct
+    // the same AD from the server-returned sender_id and recipient_id fields.
+    auto enc = encryptMessage(hpkeResult->aesKey, senderId_, recipientUuid, plaintext);
     sodium_memzero(hpkeResult->aesKey.data(), hpkeResult->aesKey.size());
     if (!enc) {
         return {0, "", "AES-256-GCM encryption failed", false};
     }
 
-    // 3. Build wire body matching server schema: recipient_id=UUID, ephemeral_pk=kem_output.
-    nlohmann::json body;
-    body["recipient_id"] = recipientUuid;
-    body["ciphertext"]   = enc->ctB64;
-    body["nonce"]        = enc->nonceB64;
-    // Web client expects ephemeral_pk as lowercase hex (hexToBytes in views.js:313)
+    // 3. Build wire body matching server schema.
+    // Send message_id so the server stores it; both sides then use the same value in AD.
+    // Encode ciphertext and nonce as hex to match the web client's wire format.
+    auto ctBytes    = b64Decode(enc->ctB64);
+    auto nonceBytes = b64Decode(enc->nonceB64);
+
+    std::string ctHex(ctBytes.size() * 2 + 1, '\0');
+    sodium_bin2hex(ctHex.data(), ctHex.size(), ctBytes.data(), ctBytes.size());
+    ctHex.resize(ctBytes.size() * 2);
+
+    char nonceHex[25];
+    sodium_bin2hex(nonceHex, sizeof(nonceHex), nonceBytes.data(), nonceBytes.size());
+
     char ephHex[65];
     sodium_bin2hex(ephHex, sizeof(ephHex), hpkeResult->ephPk.data(), hpkeResult->ephPk.size());
+
+    nlohmann::json body;
+    body["recipient_id"] = recipientUuid;
+    body["message_id"]   = enc->messageId;
+    body["ciphertext"]   = ctHex;
+    body["nonce"]        = std::string(nonceHex);
     body["ephemeral_pk"] = std::string(ephHex);
 
     return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
@@ -299,9 +314,18 @@ int Client::receiveMessages(MessageStore& store,
             continue;
         }
 
-        // 6. Decrypt.
-        std::vector<uint8_t> nonce = b64Decode(nonceB64);
-        std::vector<uint8_t> ct    = b64Decode(ctB64);
+        // 6. Decrypt. nonce and ciphertext are hex (new) or base64 (old stored messages).
+        // Detect hex: even length, all lowercase hex chars.
+        auto hexDecode = [](const std::string& s) -> std::vector<uint8_t> {
+            if (s.size() % 2 == 0 && s.find_first_not_of("0123456789abcdef") == std::string::npos) {
+                std::vector<uint8_t> out(s.size() / 2);
+                if (sodium_hex2bin(out.data(), out.size(), s.c_str(), s.size(),
+                                   nullptr, nullptr, nullptr) == 0) return out;
+            }
+            return b64Decode(s);
+        };
+        std::vector<uint8_t> nonce = hexDecode(nonceB64);
+        std::vector<uint8_t> ct    = hexDecode(ctB64);
 
         try {
             // Use senderUuid as senderId in the Message — conv filters by peerId (username),
