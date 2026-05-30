@@ -144,7 +144,7 @@ def _run(db, user_id):
 
         # Send chain tx; roll back the reservation on failure so messages can be retried.
         try:
-            tx = contract.functions.storeData(root).build_transaction({
+            tx = contract.functions.storeData(Web3.to_bytes(hexstr=root)).build_transaction({
                 'from': account.address,
                 'nonce': nonce,
                 'gas': 100000,
