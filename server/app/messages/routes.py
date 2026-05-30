@@ -28,7 +28,7 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT m.id, m.sender_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at
             FROM messages m
             JOIN users u ON u.id = m.sender_id
@@ -53,7 +53,13 @@ def send_message():
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
-    message_id = str(uuid.uuid4())
+    # Accept a client-generated message_id (hex string, 32 chars) for AD reconstruction.
+    # Validate format strictly to prevent injection; fall back to server-generated UUID.
+    client_msg_id = data.get('message_id', '')
+    if isinstance(client_msg_id, str) and re.fullmatch(r'[0-9a-f]{32}', client_msg_id):
+        message_id = client_msg_id
+    else:
+        message_id = str(uuid.uuid4()).replace('-', '')
     sender_id = get_jwt_identity()
     now = datetime.now(timezone.utc)
 
@@ -111,7 +117,7 @@ def get_message(message_id):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            'SELECT sender_id, recipient_id, ciphertext, nonce, ephemeral_pk FROM messages WHERE id = %s',
+            'SELECT sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at FROM messages WHERE id = %s',
             (message_id,),
         )
         message = cursor.fetchone()
@@ -123,9 +129,12 @@ def get_message(message_id):
         return jsonify({'error': 'Forbidden'}), 403
     return jsonify({
         'id': message_id,
+        'sender_id': message['sender_id'],
+        'recipient_id': message['recipient_id'],
         'ciphertext': message['ciphertext'],
         'nonce': message['nonce'],
         'ephemeral_pk': message['ephemeral_pk'],
+        'created_at': message['created_at'].isoformat() if hasattr(message['created_at'], 'isoformat') else str(message['created_at']),
     }), 200
 
 _DELETE_FLAG = {
