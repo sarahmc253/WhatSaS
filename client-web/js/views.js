@@ -7,7 +7,7 @@
  */
 
 import * as api from './api.js';
-import { getUser, sendMessage, getUserId } from './api.js';
+import { getUser, sendMessage, getUserId, flushMessages } from './api.js';
 import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
 import { generateKeypair, getPublicKeyBytes, getPrivateKeyBytes } from '../crypto/keypair.js';
 import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
@@ -206,6 +206,7 @@ export async function renderInbox(container, navigate) {
             <h2>Inbox</h2>
             <div class="inbox-actions">
                 <button class="btn btn-primary" id="btn-compose">Compose</button>
+                <button class="btn btn-secondary" id="btn-anchor-now">Anchor now</button>
                 <button class="btn btn-secondary" id="btn-change-password">🔒 Change Password</button>
             </div>
         </div>
@@ -244,6 +245,22 @@ export async function renderInbox(container, navigate) {
     }
 
     document.getElementById('btn-compose').addEventListener('click', () => navigate('compose'));
+
+    document.getElementById('btn-anchor-now').addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        try {
+            await flushMessages();
+            btn.textContent = 'Anchoring…';
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            renderInbox(container, navigate);
+        } catch {
+            btn.disabled = false;
+            btn.textContent = 'Anchor failed';
+            setTimeout(() => { btn.textContent = 'Anchor now'; }, 2000);
+        }
+    });
+
     document.getElementById('btn-change-password').addEventListener('click', () => {
         const section = document.getElementById('change-password-section');
         section.hidden = !section.hidden;
@@ -354,7 +371,22 @@ messages = data.messages ?? [];
     }
 
     const decrypted = await Promise.all(
-        messages.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
+        messages.map(async msg => {
+            const content = await tryDecrypt(msg);
+            if (msg.ciphertext && msg.id) {
+                try {
+                    const ctBytes = decodeField(msg.ciphertext);
+                    const hashBuf = await crypto.subtle.digest('SHA-256', ctBytes);
+                    const hex = '0x' + Array.from(new Uint8Array(hashBuf), b => b.toString(16).padStart(2, '0')).join('');
+                    localStorage.setItem(`hash:${msg.id}`, JSON.stringify({
+                        contentHash: hex,
+                        txHash:      msg.tx_hash ?? null,
+                        createdAt:   msg.created_at ?? null,
+                    }));
+                } catch { /* non-fatal */ }
+            }
+            return { ...msg, content };
+        })
     );
 
     body.innerHTML = `

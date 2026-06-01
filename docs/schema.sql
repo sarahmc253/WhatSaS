@@ -54,11 +54,12 @@ CREATE TABLE `blockchain_records` (
   `block_timestamp` timestamp NULL DEFAULT NULL,
   `recorded_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `merkle_root` varchar(66) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `conv_a` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `conv_b` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recipient_id` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `revert_count` int NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
-  KEY `idx_blockchain_tx_hash` (`tx_hash`)
+  KEY `idx_blockchain_tx_hash` (`tx_hash`),
+  KEY `idx_blockchain_recipient` (`recipient_id`),
+  CONSTRAINT `fk_blockchain_recipient` FOREIGN KEY (`recipient_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 

@@ -69,27 +69,23 @@ def _run(db, user_id):
         if user_id:
             cursor.execute(
                 """
-                SELECT id, content_hash,
-                       LEAST(sender_id, recipient_id)    AS conv_a,
-                       GREATEST(sender_id, recipient_id) AS conv_b
+                SELECT id, content_hash, recipient_id
                 FROM messages
                 WHERE blockchain_record_id IS NULL
                   AND content_hash IS NOT NULL
                   AND (sender_id = %s OR recipient_id = %s)
-                ORDER BY conv_a, conv_b, created_at
+                ORDER BY recipient_id, created_at
                 """,
                 (user_id, user_id),
             )
         else:
             cursor.execute(
                 """
-                SELECT id, content_hash,
-                       LEAST(sender_id, recipient_id)    AS conv_a,
-                       GREATEST(sender_id, recipient_id) AS conv_b
+                SELECT id, content_hash, recipient_id
                 FROM messages
                 WHERE blockchain_record_id IS NULL
                   AND content_hash IS NOT NULL
-                ORDER BY conv_a, conv_b, created_at
+                ORDER BY recipient_id, created_at
                 """
             )
         rows = cursor.fetchall()
@@ -99,10 +95,9 @@ def _run(db, user_id):
     if not rows:
         return
 
-    conversations = {}
+    groups = {}
     for row in rows:
-        key = (row['conv_a'], row['conv_b'])
-        conversations.setdefault(key, []).append(row)
+        groups.setdefault(row['recipient_id'], []).append(row)
 
     cfg = current_app.config
     w3 = Web3(Web3.HTTPProvider(cfg['WEB3_RPC_URL']))
@@ -113,7 +108,7 @@ def _run(db, user_id):
     account = w3.eth.account.from_key(cfg['WALLET_PRIVATE_KEY'])
     nonce = w3.eth.get_transaction_count(account.address)
 
-    for (conv_a, conv_b), msgs in conversations.items():
+    for recipient_id, msgs in groups.items():
         root = _merkle_root([m['content_hash'] for m in msgs])
         ids = [m['id'] for m in msgs]
         record_id = str(uuid.uuid4())
@@ -126,10 +121,10 @@ def _run(db, user_id):
             cursor.execute(
                 """
                 INSERT INTO blockchain_records
-                    (id, merkle_root, conv_a, conv_b, tx_hash, block_number, block_timestamp)
-                VALUES (%s, %s, %s, %s, NULL, NULL, NULL)
+                    (id, merkle_root, recipient_id, tx_hash, block_number, block_timestamp)
+                VALUES (%s, %s, %s, NULL, NULL, NULL)
                 """,
-                (record_id, root, conv_a, conv_b),
+                (record_id, root, recipient_id),
             )
             cursor.execute(
                 f'UPDATE messages SET blockchain_record_id = %s WHERE id IN ({placeholders})',
@@ -137,7 +132,7 @@ def _run(db, user_id):
             )
         except Exception:
             db.rollback()
-            logger.exception('DB reserve failed for conversation (%s, %s)', conv_a, conv_b)
+            logger.exception('DB reserve failed for recipient %s', recipient_id)
             continue
         finally:
             cursor.close()
@@ -158,7 +153,7 @@ def _run(db, user_id):
             tx_hash_hex = '0x' + raw_hash.hex()
         except Exception:
             db.rollback()
-            logger.exception('Chain tx failed for conversation (%s, %s), reservation rolled back', conv_a, conv_b)
+            logger.exception('Chain tx failed for recipient %s, reservation rolled back', recipient_id)
             continue
 
         cursor = db.cursor()
@@ -170,7 +165,7 @@ def _run(db, user_id):
             db.commit()
         except Exception:
             db.rollback()
-            logger.exception('DB commit failed for conversation (%s, %s)', conv_a, conv_b)
+            logger.exception('DB commit failed for recipient %s', recipient_id)
         finally:
             cursor.close()
 

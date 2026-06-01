@@ -200,3 +200,7 @@ export function forwardMessage(id, payload) {
 export function revokeMessage(id) {
     return request('POST', `/messages/${id}/revoke`, { auth: true });
 }
+
+export function flushMessages() {
+    return request('POST', '/messages/flush', { auth: true });
+}
