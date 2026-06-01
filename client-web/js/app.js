@@ -6,7 +6,7 @@
  */
 
 import * as api   from './api.js';
-import { renderLogin, renderInbox, renderCompose } from './views.js';
+import { renderLogin, renderInbox, renderCompose, renderUnlock } from './views.js';
 import { renderVerify } from '../blockchain/blockchainVerifyView.js';
 
 const appEl   = document.getElementById('app');
@@ -37,7 +37,10 @@ async function route() {
         return;
     }
     if (api.isAuthenticated() && !api.getPrivateKey() && !PUBLIC_VIEWS.has(view)) {
-        navigate('login');
+        // Token is valid but private key was lost on page reload — show unlock prompt
+        // rather than forcing a full re-login.
+        navbar.hidden = true;
+        renderUnlock(appEl, navigate, () => route());
         return;
     }
 

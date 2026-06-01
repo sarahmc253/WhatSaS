@@ -73,6 +73,69 @@ async function encryptForRecipient(_recipientUsername, _plaintext) {
     throw new Error('encryptForRecipient is not yet implemented — plaintext must not be sent');
 }
 
+// ── Unlock view (re-derive private key after page reload) ─────────────────
+export function renderUnlock(container, navigate, onUnlocked) {
+    const username = api.getUsername() ?? '';
+    container.innerHTML = `
+        <div class="auth-wrap">
+            <div class="card">
+                <h2>🔒 Session Locked</h2>
+                <p>Your session is still active${username ? ` as <strong>${esc(username)}</strong>` : ''}. Re-enter your password to unlock.</p>
+                <form id="unlock-form" novalidate>
+                    <div class="form-group">
+                        <label for="u-password">Password</label>
+                        <input type="password" id="u-password" autocomplete="current-password" required autofocus>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Unlock</button>
+                    <div id="unlock-msg" role="alert"></div>
+                </form>
+                <p><a href="#" id="unlock-logout">Sign in as a different user</a></p>
+            </div>
+        </div>`;
+
+    document.getElementById('unlock-logout').addEventListener('click', (e) => {
+        e.preventDefault();
+        api.logout();
+        navigate('login');
+    });
+
+    const form = document.getElementById('unlock-form');
+    const msg  = document.getElementById('unlock-msg');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = form.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        msg.className = msg.textContent = '';
+
+        const password     = document.getElementById('u-password').value;
+        const wrappedB64   = api.getStoredWrappedKey();
+        const kekSalt      = api.getStoredKekSalt();
+
+        if (!wrappedB64) {
+            msg.className = 'error-msg';
+            msg.textContent = 'Session expired — please sign in again.';
+            setTimeout(() => { api.logout(); navigate('login'); }, 1500);
+            return;
+        }
+
+        try {
+            const parsed    = JSON.parse(atob(wrappedB64));
+            const encrypted = EncryptedPrivateKey.fromJSON(parsed);
+            const privBytes = await decryptPrivateKey(encrypted, password);
+            const privKey   = await crypto.subtle.importKey(
+                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+            );
+            api.setPrivateKey(privKey);
+            onUnlocked();
+        } catch {
+            msg.className = 'error-msg';
+            msg.textContent = 'Incorrect password.';
+            btn.disabled = false;
+        }
+    });
+}
+
 // ── Login view ────────────────────────────────────────────────────────────
 export function renderLogin(container, navigate) {
     container.innerHTML = `
@@ -578,11 +641,12 @@ export function renderCompose(container, navigate) {
             const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
             await sendMessage({
-                recipient_id: recipientUser.id,
-                message_id:   messageId,
-                ciphertext:   toHex(ciphertext),
-                nonce:        toHex(nonce),
-                ephemeral_pk: toHex(ephPkBytes),
+                recipient_id:             recipientUser.id,
+                message_id:               messageId,
+                ciphertext:               toHex(ciphertext),
+                nonce:                    toHex(nonce),
+                ephemeral_pk:             toHex(ephPkBytes),
+                sender_x25519_public_key: api.getPublicKeyB64(),
             });
             msg.className = 'success-msg';
             msg.textContent = 'Message sent!';

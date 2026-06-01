@@ -29,7 +29,6 @@ let _sessionPrivateKey   = null;
 let _sessionPublicKeyB64 = null;
 let _sessionWrappedKey   = null;  // raw parsed EncryptedPrivateKey — needed for re-wrap on pw change
 let _sessionKekSalt      = null;  // base64 kek_salt from login — needed for re-wrap
-let _sessionUserId       = null;  // logged-in user's UUID — needed for AD in encryptMessage
 
 export function setPrivateKey(key)     { _sessionPrivateKey   = key; }
 export function getPrivateKey()        { return _sessionPrivateKey; }
@@ -40,8 +39,6 @@ export function getWrappedKey()                   { return _sessionWrappedKey; }
 export function getKekSalt()                      { return _sessionKekSalt; }
 export function clearWrappedKey()                 { _sessionWrappedKey = null; _sessionKekSalt = null; }
 export function setWrappedKey(wrapped, kekSalt)   { _sessionWrappedKey = wrapped; _sessionKekSalt = kekSalt; }
-export function getUserId()            { return _sessionUserId; }
-export function clearUserId()          { _sessionUserId = null; }
 
 // ── Core fetch wrapper ────────────────────────────────────────────────────
 async function request(method, path, { body = null, auth = false } = {}) {
@@ -78,10 +75,9 @@ export async function login(username, password) {
     });
     if (!data.token) throw new Error('Login succeeded but no token was returned');
     setToken(data.token);
-    if (data.x25519_public_key)   _sessionPublicKeyB64 = data.x25519_public_key;
-    if (data.wrapped_private_key) _sessionWrappedKey   = data.wrapped_private_key;
-    if (data.kek_salt)            _sessionKekSalt      = data.kek_salt;
-    if (data.user_id)             _sessionUserId       = data.user_id;
+    if (data.x25519_public_key)  _sessionPublicKeyB64 = data.x25519_public_key;
+    if (data.wrapped_private_key) _sessionWrappedKey = data.wrapped_private_key;
+    if (data.kek_salt)            _sessionKekSalt    = data.kek_salt;
 
     if (data.wrapped_private_key) {
         try {
@@ -131,7 +127,6 @@ export function logout() {
     clearPrivateKey();
     clearPublicKey();
     clearWrappedKey();
-    clearUserId();
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
