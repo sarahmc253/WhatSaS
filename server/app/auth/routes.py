@@ -1,4 +1,5 @@
 import base64
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -45,6 +46,16 @@ def register():
     invalid = _invalid_fields(data, REQUIRED_FIELDS)
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    pw = data['password']
+    pw_errors = []
+    if len(pw) < 8:                              pw_errors.append('at least 8 characters')
+    if not re.search(r'[A-Z]', pw):              pw_errors.append('one uppercase letter')
+    if not re.search(r'[a-z]', pw):              pw_errors.append('one lowercase letter')
+    if not re.search(r'[0-9]', pw):              pw_errors.append('one number')
+    if not re.search(r'[^A-Za-z0-9]', pw):       pw_errors.append('one special character')
+    if pw_errors:
+        return jsonify({'error': f"Password must contain: {', '.join(pw_errors)}"}), 400
 
     password_hash = ph.hash(data['password'])
     # Hash format: $argon2id$v=19$m=...,t=...,p=...$<base64-salt>$<base64-hash>

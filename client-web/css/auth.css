@@ -1,4 +1,23 @@
 /* ── Auth views (login, register, unlock) ─────────────────────────────────── */
+
+/* ── Password rules checklist ────────────────────────────────────────────── */
+.pw-rules {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: .3rem .75rem;
+    margin-top: .5rem;
+}
+
+.pw-rules span {
+    font-size: .65rem;
+    color: var(--muted);
+    transition: color .15s;
+}
+
+.pw-rules span.pw-rule-ok {
+    color: var(--success-txt);
+}
 .auth-wrap {
     max-width: 420px;
     margin: 4rem auto;

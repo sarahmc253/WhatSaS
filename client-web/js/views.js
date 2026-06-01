@@ -194,11 +194,22 @@ export function renderLogin(container, navigate) {
     });
 }
 
+// ── Password strength validation ──────────────────────────────────────────
+function validatePassword(pw) {
+    const errors = [];
+    if (pw.length < 8)              errors.push('at least 8 characters');
+    if (!/[A-Z]/.test(pw))          errors.push('one uppercase letter');
+    if (!/[a-z]/.test(pw))          errors.push('one lowercase letter');
+    if (!/[0-9]/.test(pw))          errors.push('one number');
+    if (!/[^A-Za-z0-9]/.test(pw))   errors.push('one special character');
+    return errors;
+}
+
 // ── Register view ─────────────────────────────────────────────────────────
 function renderRegister(container, navigate) {
     container.innerHTML = `
         <div class="auth-wrap">
-            <div class="card">
+            <div class="card" style="position:center">
                 <h1>Create account</h1>
                 <form id="reg-form" novalidate>
                     <div class="form-group">
@@ -212,6 +223,13 @@ function renderRegister(container, navigate) {
                     <div class="form-group">
                         <label for="r-password">Password</label>
                         <input type="password" id="r-password" autocomplete="new-password" required>
+                        <div id="pw-rules" class="pw-rules">
+                            <span data-rule="length">✗ 8+ characters</span>
+                            <span data-rule="upper">✗ Uppercase letter</span>
+                            <span data-rule="lower">✗ Lowercase letter</span>
+                            <span data-rule="number">✗ Number</span>
+                            <span data-rule="special">✗ Special character</span>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="width:100%">Register</button>
                     <div id="reg-msg" role="alert"></div>
@@ -223,8 +241,29 @@ function renderRegister(container, navigate) {
             </div>
         </div>`;
 
-    const form = document.getElementById('reg-form');
-    const msg  = document.getElementById('reg-msg');
+    const form    = document.getElementById('reg-form');
+    const msg     = document.getElementById('reg-msg');
+    const pwInput = document.getElementById('r-password');
+
+    // Live rule indicators
+    const ruleChecks = {
+        length:  pw => pw.length >= 8,
+        upper:   pw => /[A-Z]/.test(pw),
+        lower:   pw => /[a-z]/.test(pw),
+        number:  pw => /[0-9]/.test(pw),
+        special: pw => /[^A-Za-z0-9]/.test(pw),
+    };
+
+    pwInput.addEventListener('input', () => {
+        const pw = pwInput.value;
+        for (const [rule, check] of Object.entries(ruleChecks)) {
+            const el = document.querySelector(`[data-rule="${rule}"]`);
+            if (!el) continue;
+            const ok = check(pw);
+            el.textContent = (ok ? '✓ ' : '✗ ') + el.textContent.slice(2);
+            el.classList.toggle('pw-rule-ok', ok);
+        }
+    });
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -236,6 +275,14 @@ function renderRegister(container, navigate) {
             const username = document.getElementById('r-username').value.trim();
             const email    = document.getElementById('r-email').value.trim();
             const password = document.getElementById('r-password').value;
+
+            const pwErrors = validatePassword(password);
+            if (pwErrors.length > 0) {
+                msg.className = 'error-msg';
+                msg.textContent = `Password must contain: ${pwErrors.join(', ')}.`;
+                btn.disabled = false;
+                return;
+            }
 
             const { publicKey, privateKey } = await generateKeypair();
             const pubKeyBytes = await getPublicKeyBytes(publicKey);
