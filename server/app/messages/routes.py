@@ -14,12 +14,12 @@ from .anchor import anchor_pending
 messages_bp = Blueprint('messages', __name__)
 logger = logging.getLogger(__name__)
 
-SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']
+SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp']
 
 def _invalid_fields(data, fields):
     return [
         f for f in fields
-        if not isinstance(data.get(f), str) or not data[f].strip()
+        if data.get(f) is None or (isinstance(data.get(f), str) and not data[f].strip())
     ]
 
 @messages_bp.route('/messages', methods=['GET'])
@@ -81,8 +81,11 @@ def send_message():
         message_id = client_msg_id
     else:
         message_id = str(uuid.uuid4()).replace('-', '')
+    if not isinstance(data['timestamp'], int):
+        return jsonify({'error': 'timestamp must be a Unix integer'}), 400
+    created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
+
     sender_id = get_jwt_identity()
-    now = datetime.now(timezone.utc)
     content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
     db = get_db()
@@ -95,7 +98,7 @@ def send_message():
             """,
             (
                 message_id, sender_id, data['recipient_id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, content_hash,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, content_hash,
             ),
         )
         db.commit()
@@ -206,9 +209,13 @@ def forward_message(message_id):
     if not isinstance(data, dict):
         return jsonify({'error': 'Request body must be a JSON object'}), 400
 
-    invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk'])
+    invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp'])
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    if not isinstance(data['timestamp'], int):
+        return jsonify({'error': 'timestamp must be a Unix integer'}), 400
+    created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
 
     current_user_id = get_jwt_identity()
     db = get_db()
@@ -256,7 +263,7 @@ def forward_message(message_id):
             """,
             (
                 new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, message_id, content_hash,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, message_id, content_hash,
             ),
         )
         db.commit()
