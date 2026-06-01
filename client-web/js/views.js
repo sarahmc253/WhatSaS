@@ -412,8 +412,11 @@ function buildMessageCard(msg) {
     const anchorBadge = msg.tx_hash
         ? `<span class="badge badge-anchored">&#9875; ${esc(String(msg.tx_hash).slice(0, 10))}</span>`
         : `<span class="badge badge-unanchored">Not anchored</span>`;
-    const merkleEl = msg.merkle_root
+    const merkleEl  = msg.merkle_root
         ? `<code class="merkle-root" title="Click to copy">${esc(String(msg.merkle_root))}</code>`
+        : '';
+    const txHashEl  = msg.tx_hash
+        ? `<code class="merkle-root" title="Click to copy">${esc(String(msg.tx_hash))}</code>`
         : '';
 
     return `
@@ -423,6 +426,7 @@ function buildMessageCard(msg) {
                 ${date ? `<span class="msg-date">${date}</span>` : ''}
                 ${anchorBadge}
             </div>
+            ${txHashEl}
             ${merkleEl}
             <div class="msg-body">${esc(String(body))}</div>
             <div class="msg-actions">
