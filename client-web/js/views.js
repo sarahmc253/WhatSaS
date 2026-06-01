@@ -344,13 +344,13 @@ messages = data.messages ?? [];
             const nonce      = decodeField(msg.nonce);
             const ephPkBytes = decodeField(msg.ephemeral_pk);
             const ephPubKey  = await crypto.subtle.importKey(
-                'raw', ephPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                'raw', ephPkBytes, { name: 'X25519' }, false, [],
             );
 
             const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
             if (!senderKeyCache[msg.sender_username]) {
                 senderKeyCache[msg.sender_username] = await crypto.subtle.importKey(
-                    'raw', senderPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                    'raw', senderPkBytes, { name: 'X25519' }, false, [],
                 );
             }
             const senderStaticPubKey = senderKeyCache[msg.sender_username];
@@ -472,7 +472,7 @@ async function handleAction(btn, inboxBody) {
                     'raw', origEphPkBytes, { name: 'X25519' }, false, ['deriveBits'],
                 );
                 const origSenderKeyBytes = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
-                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, []);
 
                 const origCt    = decodeField(orig.ciphertext);
                 const origNonce = decodeField(orig.nonce);
@@ -485,7 +485,7 @@ async function handleAction(btn, inboxBody) {
                 );
 
                 const recipKeyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
                 const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
                     plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
                 );
@@ -597,13 +597,11 @@ export function renderCompose(container, navigate) {
             console.log('[compose] recipient x25519 key byte length:', keyBytes.byteLength);
             const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
             console.log('[compose] recipient x25519 key first/last 4 bytes:', toHex(keyBytes.slice(0, 4)), '...', toHex(keyBytes.slice(-4)));
-            const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
+            const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
 
             const { ephPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
                 content, recipientPublicKey, senderPrivKey, senderId, recipientUser.id,
             );
-
-            const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
             await sendMessage({
                 recipient_id: recipientUser.id,
