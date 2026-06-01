@@ -413,22 +413,20 @@ async function handleAction(btn, inboxBody) {
                 const myUserId = getUserId();
                 if (!privKey || !myUserId) throw new Error('Session key unavailable — please log in again.');
 
-                const [recipientUser, orig, origSenderUser] = await Promise.all([
+                const [recipientUser, orig] = await Promise.all([
                     api.getUser(recipientUsername),
                     api.getMessage(id),
-                    // Fetch sender's public key using the sender_id stored on the card element
-                    api.getUser(btn.closest('.message-card')?.querySelector('.msg-sender')?.textContent?.trim() ?? ''),
                 ]);
 
                 if (!recipientUser?.x25519_public_key) throw new Error('Recipient not found or has no encryption key.');
                 if (!orig?.ciphertext || !orig?.nonce || !orig?.ephemeral_pk) throw new Error('Original message has no crypto fields.');
-                if (!origSenderUser?.x25519_public_key) throw new Error('Original sender key unavailable.');
+                if (!orig?.sender_x25519_public_key) throw new Error('Original sender key unavailable.');
 
                 const origEphPkBytes = decodeField(orig.ephemeral_pk);
                 const origEphPubKey  = await crypto.subtle.importKey(
                     'raw', origEphPkBytes, { name: 'X25519' }, false, ['deriveBits'],
                 );
-                const origSenderKeyBytes = Uint8Array.from(atob(origSenderUser.x25519_public_key), c => c.charCodeAt(0));
+                const origSenderKeyBytes = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
                 const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
 
                 const origCt    = decodeField(orig.ciphertext);

@@ -18,6 +18,13 @@
 #  include <windows.h>
 #endif
 
+// Portable UTC mktime: _mkgmtime on Windows, timegm on POSIX.
+#ifdef _WIN32
+static inline std::time_t portable_mkgmtime(std::tm* t) { return _mkgmtime(t); }
+#else
+static inline std::time_t portable_mkgmtime(std::tm* t) { return timegm(t); }
+#endif
+
 Client::Client(const std::string& baseUrl,
                const std::string& senderId,
                std::vector<uint8_t> staticSk,
@@ -261,7 +268,7 @@ int Client::receiveMessages(MessageStore& store,
             if (std::sscanf(createdAt.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
                 tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo-1; tm.tm_mday = d;
                 tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
-                ts = _mkgmtime(&tm);
+                ts = portable_mkgmtime(&tm);
             }
         }
         // Try RFC 2822: "Www, DD Mon YYYY HH:MM:SS GMT"
@@ -275,7 +282,7 @@ int Client::receiveMessages(MessageStore& store,
                 if (mo >= 0) {
                     tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo; tm.tm_mday = d;
                     tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
-                    ts = _mkgmtime(&tm);
+                    ts = portable_mkgmtime(&tm);
                 }
             }
         }
