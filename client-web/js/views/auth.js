@@ -156,6 +156,9 @@ function renderRegister(container, navigate) {
                     <div class="form-group" id="r-confirm-group" hidden>
                         <label for="r-confirm">Confirm password</label>
                         <input type="password" id="r-confirm" autocomplete="new-password">
+                        <div class="pw-rules" style="justify-content:flex-start">
+                            <span id="confirm-match-rule">✗ Passwords must match</span>
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary" style="width:100%">Register</button>
                     <div id="reg-msg" role="alert"></div>
@@ -197,8 +200,22 @@ function renderRegister(container, navigate) {
             el.textContent = (ok ? '✓ ' : '✗ ') + el.textContent.slice(2);
             el.classList.toggle('pw-rule-ok', ok);
         }
-        document.getElementById('r-confirm-group').hidden = pw.length === 0;
+        const confirmGroup = document.getElementById('r-confirm-group');
+        confirmGroup.hidden = pw.length === 0;
+        // Re-check match indicator when password changes
+        updateConfirmIndicator();
     });
+
+    function updateConfirmIndicator() {
+        const el = document.getElementById('confirm-match-rule');
+        if (!el) return;
+        const pw      = pwInput.value;
+        const confirm = document.getElementById('r-confirm').value;
+        if (!confirm) { el.textContent = '✗ Passwords must match'; el.classList.remove('pw-rule-ok'); return; }
+        const ok = pw === confirm;
+        el.textContent = (ok ? '✓ ' : '✗ ') + 'Passwords must match';
+        el.classList.toggle('pw-rule-ok', ok);
+    }
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -252,6 +269,8 @@ function renderRegister(container, navigate) {
             btn.disabled = false;
         }
     });
+
+    document.getElementById('r-confirm').addEventListener('input', updateConfirmIndicator);
 
     document.getElementById('show-login').addEventListener('click', () => {
         renderLogin(container, navigate);
