@@ -679,12 +679,12 @@ function buildBubble(msg, myUsername) {
     // Per spec:
     //   Forward  — both sender and recipient
     //   Download — both sender and recipient
-    //   Delete   — both sender and recipient (soft-delete per role)
-    //   Revoke   — sender only (forwarded messages only)
+    //   Delete   — sender only (hard deletes the row)
+    //   Revoke   — sender only (blocks recipient access, row kept)
     const actions = `
         <button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>
         <button class="btn-icon" data-action="download" data-id="${sid}" title="Download">⬇️</button>
-        <button class="btn-icon" data-action="delete"   data-id="${sid}" title="Delete">🗑️</button>
+        ${isSent ? `<button class="btn-icon" data-action="delete" data-id="${sid}" title="Delete">🗑️</button>` : ''}
         ${isSent ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}`;
 
     return `
@@ -698,6 +698,74 @@ function buildBubble(msg, myUsername) {
                 </div>
             </div>
         </div>`;
+}
+
+// Returns the entered username, or null if cancelled.
+function showForwardDialog() {
+    return new Promise(resolve => {
+        // Re-use the existing dialog element if already in DOM, otherwise create one
+        let dlg = document.getElementById('forward-dialog');
+        if (!dlg) {
+            dlg = document.createElement('dialog');
+            dlg.id = 'forward-dialog';
+            dlg.innerHTML = `
+                <form id="forward-form" method="dialog" novalidate>
+                    <h3 style="margin-bottom:1.25rem">Forward message</h3>
+                    <div class="form-group">
+                        <label for="fwd-recipient">Forward to username</label>
+                        <input type="text" id="fwd-recipient" autocomplete="off" placeholder="Enter username" required>
+                        <div id="fwd-fingerprint" class="key-fingerprint"></div>
+                    </div>
+                    <div style="display:flex;gap:.75rem;margin-top:.25rem">
+                        <button type="submit" class="btn btn-primary">Forward</button>
+                        <button type="button" class="btn btn-secondary" id="fwd-cancel">Cancel</button>
+                    </div>
+                    <div id="fwd-msg" role="alert"></div>
+                </form>`;
+            document.body.appendChild(dlg);
+        }
+
+        const form      = dlg.querySelector('#forward-form');
+        const input     = dlg.querySelector('#fwd-recipient');
+        const fpEl      = dlg.querySelector('#fwd-fingerprint');
+        const msgEl     = dlg.querySelector('#fwd-msg');
+        const cancelBtn = dlg.querySelector('#fwd-cancel');
+
+        // Reset state
+        input.value = '';
+        fpEl.textContent = '';
+        msgEl.className = msgEl.textContent = '';
+
+        // Show fingerprint on blur
+        input.addEventListener('blur', async () => {
+            const username = input.value.trim();
+            if (!username) { fpEl.textContent = ''; return; }
+            try {
+                const user = await getUser(username);
+                if (!user?.x25519_public_key) { fpEl.textContent = '(user not found)'; return; }
+                const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
+                const fp = await keyFingerprint(pkBytes);
+                fpEl.textContent = `🔑 ${fp}`;
+            } catch { fpEl.textContent = ''; }
+        }, { once: false });
+
+        cancelBtn.onclick = () => { dlg.close(); resolve(null); };
+
+        form.onsubmit = (e) => {
+            e.preventDefault();
+            const username = input.value.trim();
+            if (!username) {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'Please enter a username.';
+                return;
+            }
+            dlg.close();
+            resolve(username);
+        };
+
+        dlg.showModal();
+        input.focus();
+    });
 }
 
 async function handleAction(btn, inboxBody) {
@@ -737,7 +805,8 @@ async function handleAction(btn, inboxBody) {
             }
 
             case 'forward': {
-                const recipientUsername = window.prompt('Forward to username:')?.trim();
+                // Show a dialog to pick the recipient instead of window.prompt
+                const recipientUsername = await showForwardDialog();
                 if (!recipientUsername) { btn.disabled = false; return; }
 
                 const privKey  = api.getPrivateKey();
@@ -762,8 +831,7 @@ async function handleAction(btn, inboxBody) {
 
                 const origCt    = decodeField(orig.ciphertext);
                 const origNonce = decodeField(orig.nonce);
-                // orig from GET /messages/:id includes sender_id, recipient_id, created_at for AD
-                const origTs = parseTimestamp(orig.created_at);
+                const origTs    = parseTimestamp(orig.created_at);
                 const plaintext = await decryptMessage(
                     origCt, origNonce, origEphPubKey, origEphPkBytes,
                     privKey, origSenderPubKey,
@@ -786,8 +854,13 @@ async function handleAction(btn, inboxBody) {
                     ephemeral_pk: toHex(fwdEphPkBytes),
                 });
 
-                btn.textContent = 'Forwarded!';
-                setTimeout(() => { btn.disabled = false; btn.textContent = 'Forward'; }, 1500);
+                // Cache plaintext so the forwarded copy shows in the sender's sent bubble
+                sessionStorage.setItem(`sent_plain_${messageId}`, plaintext);
+
+                // Visual feedback on the icon button
+                const origLabel = btn.textContent;
+                btn.textContent = '✅';
+                setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 1500);
                 return;
             }
         }
