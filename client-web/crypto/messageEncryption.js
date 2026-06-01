@@ -43,7 +43,13 @@ function generateMsgId() {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function encryptMessage(plaintext, recipientPublicKey, senderPrivateKey, senderId, recipientId) {
-    const { publicKey: ephemeralPublicKey, privateKey: ephemeralPrivateKey } = await generateKeypair();
+    let ephemeralPublicKey, ephemeralPrivateKey;
+    try {
+        ({ publicKey: ephemeralPublicKey, privateKey: ephemeralPrivateKey } = await generateKeypair());
+    } catch (err) {
+        console.error('encryptMessage: generateKeypair() threw:', err);
+        throw err;
+    }
     const ephPkBytes = await getPublicKeyBytes(ephemeralPublicKey);
     const messageId  = generateMsgId();
     const timestamp  = Math.floor(Date.now() / 1000);
