@@ -194,6 +194,26 @@ export function renderLogin(container, navigate) {
     });
 }
 
+// ── TOFU key pinning ──────────────────────────────────────────────────────
+// On first contact with a user, their public key is pinned in localStorage.
+// On subsequent contacts, if the key has changed the user is warned — this
+// catches a compromised server swapping in a malicious key (MITM).
+const TOFU_PREFIX = 'tofu_pk_';
+
+function tofuCheck(username, b64PublicKey) {
+    const stored = localStorage.getItem(TOFU_PREFIX + username);
+    if (!stored) {
+        // First time seeing this user — pin their key
+        localStorage.setItem(TOFU_PREFIX + username, b64PublicKey);
+        return { pinned: true, changed: false };
+    }
+    if (stored !== b64PublicKey) {
+        // Key changed since we last saw this user — possible MITM
+        return { pinned: false, changed: true, storedKey: stored };
+    }
+    return { pinned: false, changed: false };
+}
+
 // ── Password strength validation ──────────────────────────────────────────
 function validatePassword(pw) {
     const errors = [];
@@ -340,6 +360,13 @@ export async function renderInbox(container, navigate) {
                 <div class="form-group">
                     <label for="cp-new">New password</label>
                     <input type="password" id="cp-new" autocomplete="new-password" required>
+                    <div id="cp-pw-rules" class="pw-rules">
+                        <span data-rule="length">✗ 8+ characters</span>
+                        <span data-rule="upper">✗ Uppercase letter</span>
+                        <span data-rule="lower">✗ Lowercase letter</span>
+                        <span data-rule="number">✗ Number</span>
+                        <span data-rule="special">✗ Special character</span>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="cp-confirm">Confirm new password</label>
@@ -375,6 +402,26 @@ export async function renderInbox(container, navigate) {
     document.getElementById('cp-cancel').addEventListener('click', () => cpDialog.close());
     document.addEventListener('open-change-password', () => cpDialog.showModal(), { signal: AbortSignal.timeout(3_600_000) });
 
+    // Live rule indicators for change-password dialog
+    const cpNewInput = document.getElementById('cp-new');
+    const cpRuleChecks = {
+        length:  pw => pw.length >= 8,
+        upper:   pw => /[A-Z]/.test(pw),
+        lower:   pw => /[a-z]/.test(pw),
+        number:  pw => /[0-9]/.test(pw),
+        special: pw => /[^A-Za-z0-9]/.test(pw),
+    };
+    cpNewInput.addEventListener('input', () => {
+        const pw = cpNewInput.value;
+        for (const [rule, check] of Object.entries(cpRuleChecks)) {
+            const el = document.querySelector(`#cp-pw-rules [data-rule="${rule}"]`);
+            if (!el) continue;
+            const ok = check(pw);
+            el.textContent = (ok ? '✓ ' : '✗ ') + el.textContent.slice(2);
+            el.classList.toggle('pw-rule-ok', ok);
+        }
+    });
+
     document.getElementById('change-password-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn     = e.target.querySelector('button[type="submit"]');
@@ -388,6 +435,13 @@ export async function renderInbox(container, navigate) {
         if (newPw !== confirm) {
             msgEl.className = 'error-msg';
             msgEl.textContent = 'New passwords do not match.';
+            return;
+        }
+
+        const pwErrors = validatePassword(newPw);
+        if (pwErrors.length > 0) {
+            msgEl.className = 'error-msg';
+            msgEl.textContent = `Password must contain: ${pwErrors.join(', ')}.`;
             return;
         }
 
@@ -448,6 +502,11 @@ export async function renderInbox(container, navigate) {
 
             const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
             if (!senderKeyCache[msg.sender_username]) {
+                // TOFU: pin or verify sender's key
+                const tofu = tofuCheck(msg.sender_username, msg.sender_x25519_public_key);
+                if (tofu.changed) {
+                    console.warn(`[TOFU] Key change detected for ${msg.sender_username} — possible MITM`);
+                }
                 senderKeyCache[msg.sender_username] = await crypto.subtle.importKey(
                     'raw', senderPkBytes, { name: 'X25519' }, false, ['deriveBits'],
                 );
@@ -530,6 +589,19 @@ export async function renderInbox(container, navigate) {
         const senderId = getUserId();
         if (!privKey || !senderId) throw new Error('Session key unavailable — please log in again.');
 
+        // TOFU: warn if recipient's key has changed since we last saw it
+        const tofu = tofuCheck(partner, recipientUser.x25519_public_key);
+        if (tofu.changed) {
+            const proceed = window.confirm(
+                `⚠️ Warning: ${partner}'s encryption key has changed since your last conversation.\n\n` +
+                `This could indicate a key rotation or a man-in-the-middle attack.\n\n` +
+                `Verify their fingerprint out-of-band before continuing.\n\nSend anyway?`
+            );
+            if (!proceed) throw new Error('Send cancelled — please verify the recipient\'s key fingerprint.');
+            // Update pin to the new key after user confirms
+            localStorage.setItem(TOFU_PREFIX + partner, recipientUser.x25519_public_key);
+        }
+
         const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
         const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
 
@@ -596,13 +668,20 @@ export async function renderInbox(container, navigate) {
                 <button type="submit" class="btn btn-primary send-btn">Send</button>
             </form>`;
 
-        // Show partner's key fingerprint
+        // Show partner's key fingerprint + TOFU warning if key changed
         getUser(partner).then(async user => {
             const fpEl = document.getElementById('thread-fingerprint');
             if (!fpEl || !user?.x25519_public_key) return;
             const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
             const fp = await keyFingerprint(pkBytes);
-            fpEl.textContent = `🔑 ${fp}`;
+            const tofu = tofuCheck(partner, user.x25519_public_key);
+            if (tofu.changed) {
+                fpEl.textContent = `⚠️ Key changed! New: ${fp} — verify out-of-band`;
+                fpEl.style.color = 'var(--danger)';
+            } else {
+                fpEl.textContent = `🔑 ${fp}`;
+                fpEl.style.color = '';
+            }
         }).catch(() => {});
 
         const thread = document.getElementById('chat-thread');
