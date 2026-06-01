@@ -20,7 +20,7 @@
 .verify-hash {
     font-family: SFMono-Regular, Consolas, monospace;
     font-size: .775rem;
-    word-break: break-all;
+    overflow-wrap: anywhere;
     background: var(--border);
     padding: .125rem .375rem;
     border-radius: 4px;

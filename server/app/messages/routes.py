@@ -35,7 +35,7 @@ def get_messages():
                    u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
                    ru.username AS recipient_username,
-                   'received' AS direction
+                   'received' AS direction, 0 AS is_revoked
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
@@ -47,11 +47,11 @@ def get_messages():
                    u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
                    ru.username AS recipient_username,
-                   'sent' AS direction
+                   'sent' AS direction, m.is_revoked
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
-            WHERE m.sender_id = %s AND m.is_revoked = 0
+            WHERE m.sender_id = %s
 
             ORDER BY created_at ASC
             """,
@@ -243,7 +243,7 @@ def forward_message(message_id):
     if message['is_revoked'] and recipient['id'] == message['recipient_id']:
         return jsonify({'error': 'Cannot forward a revoked message back to the original recipient'}), 403
 
-    new_id = str(uuid.uuid4())
+    new_id = str(uuid.uuid4()).replace('-', '')
     now = datetime.now(timezone.utc)
     content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 

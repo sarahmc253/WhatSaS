@@ -240,15 +240,16 @@
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary), #e91e8c);
+    background: rgba(220, 11, 109, 0.82);
     color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: .875rem;
+    font-size: 1.5rem;
     font-weight: 700;
     flex-shrink: 0;
     align-self: flex-end;
+    border: 2px solid var(--border)
 }
 
 /* Sent avatar: white background with pink text */
@@ -265,9 +266,6 @@
     border-radius: 18px;
     box-shadow: 0 1px 3px var(--shadow);
     border: none;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
 }
 
 .bubble.sent {
@@ -286,7 +284,7 @@
 .bubble .msg-body {
     font-size: .9375rem;
     line-height: 1.5;
-    word-break: break-word;
+    overflow-wrap: anywhere;
     white-space: pre-wrap;
     color: inherit;
 }
@@ -360,4 +358,22 @@
 }
 .btn-revoke:hover:not(:disabled) { background: rgba(255,255,255,.3); }
 .btn-revoke:disabled { opacity: .35; cursor: not-allowed; }
-.btn-revoke:disabled { opacity: .35; cursor: not-allowed; }
+
+/* ── Revoked bubble ──────────────────────────────────────────────────────── */
+.bubble-wrap.revoked .bubble { opacity: .6; }
+
+.revoked-badge {
+    font-size: .68rem;
+    padding: .1rem .4rem;
+    border-radius: 4px;
+    background: rgba(185,28,28,.12);
+    color: var(--danger);
+    border: 1px solid rgba(185,28,28,.25);
+    white-space: nowrap;
+}
+
+.bubble.sent .revoked-badge {
+    background: rgba(255,255,255,.18);
+    color: rgba(255,255,255,.85);
+    border-color: rgba(255,255,255,.3);
+}

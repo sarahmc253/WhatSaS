@@ -436,9 +436,10 @@ export async function renderInbox(container, navigate) {
     });
 
     // ── Change Password dialog (opened via navbar custom event) ───────────
-    const cpDialog = document.getElementById('change-password-dialog');
+    const cpDialog   = document.getElementById('change-password-dialog');
+    const inboxAbort = new AbortController();
     document.getElementById('cp-cancel').addEventListener('click', () => cpDialog.close());
-    document.addEventListener('open-change-password', () => cpDialog.showModal(), { signal: AbortSignal.timeout(3_600_000) });
+    document.addEventListener('open-change-password', () => cpDialog.showModal(), { signal: inboxAbort.signal });
 
     // Live rule indicators for change-password dialog
     const cpNewInput = document.getElementById('cp-new');
@@ -617,7 +618,12 @@ export async function renderInbox(container, navigate) {
         sidebar.querySelectorAll('.chat-item').forEach(item => {
             const open = () => renderThread(item.dataset.partner, convMap.get(item.dataset.partner) ?? []);
             item.addEventListener('click', open);
-            item.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+            item.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    open();
+                }
+            });
         });
     }
 
@@ -778,7 +784,7 @@ export async function renderInbox(container, navigate) {
     const knownIds = new Set(decrypted.map(m => String(m.id ?? m.message_id ?? '')));
 
     const pollInterval = setInterval(async () => {
-        if (!body.isConnected) { clearInterval(pollInterval); return; }
+        if (!body.isConnected) { clearInterval(pollInterval); inboxAbort.abort(); return; }
         try {
             const data    = await api.getMessages();
             const fresh   = data.messages ?? [];
@@ -829,30 +835,32 @@ export async function renderInbox(container, navigate) {
 
 // ── Bubble renderers ──────────────────────────────────────────────────────
 function buildBubble(msg, myUsername) {
-    const id      = msg.id ?? msg.message_id ?? '';
-    const isSent  = msg.direction === 'sent' || (msg.sender_username === myUsername);
-    const content = msg.content ?? '(encrypted)';
-    const date    = formatDate(msg.created_at ?? msg.timestamp);
-    const sender  = msg.sender_username ?? 'Unknown';
-    const sid     = esc(String(id));
+    const id        = msg.id ?? msg.message_id ?? '';
+    const isSent    = msg.direction === 'sent' || (msg.sender_username === myUsername);
+    const isRevoked = !!msg.is_revoked;
+    const content   = msg.content ?? '(encrypted)';
+    const date      = formatDate(msg.created_at ?? msg.timestamp);
+    const sender    = msg.sender_username ?? 'Unknown';
+    const sid       = esc(String(id));
 
     const avatarLabel = isSent
         ? esc((myUsername[0] ?? '?').toUpperCase())
         : esc((sender[0] ?? '?').toUpperCase());
 
     // Per spec:
-    //   Forward  — both sender and recipient
+    //   Forward  — both sender and recipient (disabled once revoked)
     //   Download — both sender and recipient
     //   Delete   — sender only (hard deletes the row)
-    //   Revoke   — sender only (blocks recipient access, row kept)
+    //   Revoke   — sender only, only if not already revoked
     const actions = `
-        <button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>
+        ${!isRevoked ? `<button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>` : ''}
         <button class="btn-icon" data-action="download" data-id="${sid}" title="Download">⬇️</button>
         ${isSent ? `<button class="btn-icon" data-action="delete" data-id="${sid}" title="Delete">🗑️</button>` : ''}
-        ${isSent ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}`;
+        ${isSent && !isRevoked ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}
+        ${isRevoked ? `<span class="revoked-badge">Revoked</span>` : ''}`;
 
     return `
-        <div class="bubble-wrap ${isSent ? 'sent' : 'received'}">
+        <div class="bubble-wrap ${isSent ? 'sent' : 'received'}${isRevoked ? ' revoked' : ''}">
             <div class="bubble-avatar">${avatarLabel}</div>
             <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
                 <div class="msg-body">${esc(String(content))}</div>
@@ -900,7 +908,9 @@ function showForwardDialog() {
         fpEl.textContent = '';
         msgEl.className = msgEl.textContent = '';
 
-        // Show fingerprint on blur
+        // Abort controller scoped to this single open — cleans up listeners on close
+        const fwdAbort = new AbortController();
+
         input.addEventListener('blur', async () => {
             const username = input.value.trim();
             if (!username) { fpEl.textContent = ''; return; }
@@ -911,9 +921,9 @@ function showForwardDialog() {
                 const fp = await keyFingerprint(pkBytes);
                 fpEl.textContent = `🔑 ${fp}`;
             } catch { fpEl.textContent = ''; }
-        }, { once: false });
+        }, { signal: fwdAbort.signal });
 
-        cancelBtn.onclick = () => { dlg.close(); resolve(null); };
+        cancelBtn.onclick = () => { fwdAbort.abort(); dlg.close(); resolve(null); };
 
         form.onsubmit = (e) => {
             e.preventDefault();
@@ -923,6 +933,7 @@ function showForwardDialog() {
                 msgEl.textContent = 'Please enter a username.';
                 return;
             }
+            fwdAbort.abort();
             dlg.close();
             resolve(username);
         };

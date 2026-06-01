@@ -33,7 +33,7 @@ body {
     position: sticky;
     top: 0;
     z-index: 10;
-    background-image: linear-gradient(rgba(194, 24, 92, 0.89), rgba(173, 20, 86, 0.904)), url("bows_background.png");
+    background-image: linear-gradient(rgba(194, 24, 92, 0.9), rgba(173, 20, 86, 0.904)), url("bows_background.png");
     padding: 0 1.5rem;
     height: 56px;
     display: flex;
@@ -46,10 +46,10 @@ body {
 #navbar[hidden] { display: none; }
 
 .nav-brand {
-    font-weight: 700;
-    font-size: 1.125rem;
+    font-family: var(--font);
+    font-weight: 450;
+    font-size: 1.5rem;
     color: #fff;
-    letter-spacing: -.02em;
 }
 
 nav { display: flex; gap: .25rem; }

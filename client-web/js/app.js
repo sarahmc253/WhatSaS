@@ -36,6 +36,13 @@ async function route() {
     // Redirect unauthenticated users away from protected views
     // verify is public — no login required to check a message's on-chain record
     const PUBLIC_VIEWS = new Set(['login', 'verify']);
+    const isAuthView   = view === 'login' || view === 'verify';
+
+    // Apply layout class immediately — before any early returns — so there's
+    // never a frame where the chat full-width layout clips auth content.
+    navbar.hidden = !api.isAuthenticated() || isAuthView;
+    appEl.classList.toggle('auth-mode', isAuthView);
+
     if (!api.isAuthenticated() && !PUBLIC_VIEWS.has(view)) {
         navigate('login');
         return;
@@ -43,14 +50,10 @@ async function route() {
     if (api.isAuthenticated() && !api.getPrivateKey() && !PUBLIC_VIEWS.has(view)) {
         // Token is valid but private key was lost on page reload — show unlock prompt
         // rather than forcing a full re-login.
-        navbar.hidden = true;
+        appEl.classList.add('auth-mode');
         renderUnlock(appEl, navigate, () => route());
         return;
     }
-
-    navbar.hidden = !api.isAuthenticated();
-    // auth views get centred layout; chat view goes full-width
-    appEl.classList.toggle('auth-mode', view === 'login' || view === 'verify');
 
     switch (view) {
         case 'login':

@@ -49,11 +49,16 @@ def register():
 
     pw = data['password']
     pw_errors = []
-    if len(pw) < 8:                              pw_errors.append('at least 8 characters')
-    if not re.search(r'[A-Z]', pw):              pw_errors.append('one uppercase letter')
-    if not re.search(r'[a-z]', pw):              pw_errors.append('one lowercase letter')
-    if not re.search(r'[0-9]', pw):              pw_errors.append('one number')
-    if not re.search(r'[^A-Za-z0-9]', pw):       pw_errors.append('one special character')
+    if len(pw) < 8:
+        pw_errors.append('at least 8 characters')
+    if not re.search(r'[A-Z]', pw):
+        pw_errors.append('one uppercase letter')
+    if not re.search(r'[a-z]', pw):
+        pw_errors.append('one lowercase letter')
+    if not re.search(r'[0-9]', pw):
+        pw_errors.append('one number')
+    if not re.search(r'[^A-Za-z0-9]', pw):
+        pw_errors.append('one special character')
     if pw_errors:
         return jsonify({'error': f"Password must contain: {', '.join(pw_errors)}"}), 400
 
