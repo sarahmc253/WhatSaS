@@ -124,7 +124,7 @@ export async function login(username, password) {
             const encrypted = EncryptedPrivateKey.fromJSON(parsed);
             const privBytes = await decryptPrivateKey(encrypted, password);
             const privKey   = await crypto.subtle.importKey(
-                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
+                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveBits'],
             );
             setPrivateKey(privKey);
         } catch (err) {

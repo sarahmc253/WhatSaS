@@ -1148,3 +1148,15 @@ Attempted to add `GET /users/<username>` to `auth/routes.py`.
 **Sarah:** add a 5 second delay after flushMessages succeeds before calling renderInbox so the server has time to submit the chain transaction and write the tx hash to the DB
 
 **Claude:** Added `await new Promise(resolve => setTimeout(resolve, 5000))` after `flushMessages()` succeeds. Button shows "Anchoring…" during the wait, then `renderInbox` is called.
+
+---
+
+**Sarah:** in encryptMessage in messageEncryption.js which importKey or deriveBits call could throw "cannot create a key using the specified key usages". check what usages senderPrivateKey is imported with at login time
+
+**Claude:** Traced the full key lifecycle. `senderPrivateKey` is imported at `api.js:91–93` with `['deriveKey', 'deriveBits']`. Identified two failure points: (1) `generateKey` inside `generateKeypair()` (`keypair.js:16–19`) — called at the top of `encryptMessage` to create the ephemeral key, also requests `['deriveKey', 'deriveBits']`; (2) the `importKey` at login — if it throws, `senderPrivateKey` is never set and the `deriveBits` call on line 53 receives a bad key. Root cause: Firefox (and some Chromium versions) reject `'deriveKey'` as a valid usage for X25519 because raw X25519 doesn't participate in `deriveKey` flows — only `'deriveBits'` is accepted. Nothing in the codebase ever calls `crypto.subtle.deriveKey()`, so `'deriveKey'` is unnecessary. Fixed both `api.js:92` and `keypair.js:19` to use `['deriveBits']` only.
+
+---
+
+**Sarah:** update docs/transcript sarah
+
+**Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
