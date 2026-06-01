@@ -202,5 +202,5 @@ export function revokeMessage(id) {
 }
 
 export function flushMessages() {
-    return request('POST', '/messages/flush', { auth: true });
+    return request('POST', '/flush', { auth: true });
 }
