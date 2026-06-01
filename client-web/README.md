@@ -125,7 +125,7 @@ client-web/
 
 ## Cryptographic Summary
 
-For the full threat model and primitive justifications see [`docs/crypto_design.md`](../docs/crypto_design.md).
+For the full threat model and primitive justifications see the cryptographic design document (to be submitted alongside the project).
 
 | Layer | Primitive |
 |---|---|
@@ -145,7 +145,8 @@ For the full threat model and primitive justifications see [`docs/crypto_design.
 - Ensure the Flask server is running and accessible
 
 **Messages show as `(encrypted)`**
-- Both the sender and recipient must be registered through the same client (web or C++) using compatible key formats
+- Both clients (web and C++) use the same wire format and key encoding — accounts created on either client are interoperable
+- The exception is the C++ Argon2id fallback path, which does not interoperate with the web client's key derivation
 - Check that `sender_x25519_public_key` is present in the server's `/messages` response
 
 **`argon2-browser` not found**
