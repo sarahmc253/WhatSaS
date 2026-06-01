@@ -397,8 +397,8 @@ messages = data.messages ?? [];
         btn.addEventListener('click', () => handleAction(btn, body));
     });
 
-    body.querySelectorAll('code.merkle-root').forEach((el) => {
-        el.addEventListener('click', () => navigator.clipboard.writeText(el.textContent));
+    body.querySelectorAll('[data-copy]').forEach((btn) => {
+        btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
     });
 }
 
@@ -412,12 +412,11 @@ function buildMessageCard(msg) {
     const anchorBadge = msg.tx_hash
         ? `<span class="badge badge-anchored">&#9875; ${esc(String(msg.tx_hash).slice(0, 10))}</span>`
         : `<span class="badge badge-unanchored">Not anchored</span>`;
-    const merkleEl  = msg.merkle_root
-        ? `<code class="merkle-root" title="Click to copy">${esc(String(msg.merkle_root))}</code>`
-        : '';
-    const txHashEl  = msg.tx_hash
-        ? `<code class="merkle-root" title="Click to copy">${esc(String(msg.tx_hash))}</code>`
-        : '';
+    const hashRows = (msg.tx_hash || msg.merkle_root) ? `
+            <div class="msg-hash-rows">
+                ${msg.tx_hash     ? `<div class="msg-hash-row"><span class="msg-hash-label">TX hash:</span><code>${esc(String(msg.tx_hash))}</code><button class="btn-copy" data-copy="${esc(String(msg.tx_hash))}" title="Copy">&#128203;</button></div>` : ''}
+                ${msg.merkle_root ? `<div class="msg-hash-row"><span class="msg-hash-label">Merkle root:</span><code>${esc(String(msg.merkle_root))}</code><button class="btn-copy" data-copy="${esc(String(msg.merkle_root))}" title="Copy">&#128203;</button></div>` : ''}
+            </div>` : '';
 
     return `
         <div class="message-card" data-id="${esc(String(id))}">
@@ -426,8 +425,7 @@ function buildMessageCard(msg) {
                 ${date ? `<span class="msg-date">${date}</span>` : ''}
                 ${anchorBadge}
             </div>
-            ${txHashEl}
-            ${merkleEl}
+            ${hashRows}
             <div class="msg-body">${esc(String(body))}</div>
             <div class="msg-actions">
                 <button class="btn-action" data-action="forward" data-id="${esc(String(id))}">Forward</button>
