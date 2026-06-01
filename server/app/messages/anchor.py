@@ -145,10 +145,11 @@ def _run(db, user_id):
         # Send chain tx; roll back the reservation on failure so messages can be retried.
         try:
             root_bytes = bytes.fromhex(root.removeprefix('0x'))
+            estimated_gas = contract.functions.storeData(root_bytes).estimate_gas({'from': account.address})
             tx = contract.functions.storeData(root_bytes).build_transaction({
                 'from': account.address,
                 'nonce': nonce,
-                'gas': 100000,
+                'gas': int(estimated_gas * 1.2),
                 'gasPrice': w3.eth.gas_price,
             })
             signed = account.sign_transaction(tx)
