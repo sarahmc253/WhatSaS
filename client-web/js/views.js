@@ -234,7 +234,11 @@ function renderRegister(container, navigate) {
                 <form id="reg-form" novalidate>
                     <div class="form-group">
                         <label for="r-username">Username</label>
-                        <input type="text" id="r-username" autocomplete="username" required>
+                        <input type="text" id="r-username" autocomplete="username" required
+                               pattern="[A-Za-z0-9_]{3,32}" title="3–32 characters, letters, numbers and underscores only">
+                        <div id="username-hint" class="pw-rules" style="justify-content:flex-start">
+                            <span id="username-rule">✗ 3–32 chars, letters/numbers/underscores only</span>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="r-email">Email</label>
@@ -251,6 +255,10 @@ function renderRegister(container, navigate) {
                             <span data-rule="special">✗ Special character</span>
                         </div>
                     </div>
+                    <div class="form-group" id="r-confirm-group" hidden>
+                        <label for="r-confirm">Confirm password</label>
+                        <input type="password" id="r-confirm" autocomplete="new-password">
+                    </div>
                     <button type="submit" class="btn btn-primary" style="width:100%">Register</button>
                     <div id="reg-msg" role="alert"></div>
                 </form>
@@ -264,8 +272,18 @@ function renderRegister(container, navigate) {
     const form    = document.getElementById('reg-form');
     const msg     = document.getElementById('reg-msg');
     const pwInput = document.getElementById('r-password');
+    const unInput = document.getElementById('r-username');
 
-    // Live rule indicators
+    // Live username rule indicator
+    unInput.addEventListener('input', () => {
+        const el = document.getElementById('username-rule');
+        if (!el) return;
+        const ok = /^[A-Za-z0-9_]{3,32}$/.test(unInput.value);
+        el.textContent = (ok ? '✓ ' : '✗ ') + '3–32 chars, letters/numbers/underscores only';
+        el.classList.toggle('pw-rule-ok', ok);
+    });
+
+    // Live password rule indicators
     const ruleChecks = {
         length:  pw => pw.length >= 8,
         upper:   pw => /[A-Z]/.test(pw),
@@ -283,6 +301,8 @@ function renderRegister(container, navigate) {
             el.textContent = (ok ? '✓ ' : '✗ ') + el.textContent.slice(2);
             el.classList.toggle('pw-rule-ok', ok);
         }
+        // Show confirm field only once the user has started typing a password
+        document.getElementById('r-confirm-group').hidden = pw.length === 0;
     });
 
     form.addEventListener('submit', async (e) => {
@@ -292,14 +312,32 @@ function renderRegister(container, navigate) {
         msg.className = msg.textContent = '';
 
         try {
-            const username = document.getElementById('r-username').value.trim();
+            const username = unInput.value.trim();
             const email    = document.getElementById('r-email').value.trim();
             const password = document.getElementById('r-password').value;
+            const confirm  = document.getElementById('r-confirm').value;
 
+            // Username format
+            if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) {
+                msg.className = 'error-msg';
+                msg.textContent = 'Username must be 3–32 characters: letters, numbers, and underscores only.';
+                btn.disabled = false;
+                return;
+            }
+
+            // Password strength
             const pwErrors = validatePassword(password);
             if (pwErrors.length > 0) {
                 msg.className = 'error-msg';
                 msg.textContent = `Password must contain: ${pwErrors.join(', ')}.`;
+                btn.disabled = false;
+                return;
+            }
+
+            // Confirm password
+            if (password !== confirm) {
+                msg.className = 'error-msg';
+                msg.textContent = 'Passwords do not match.';
                 btn.disabled = false;
                 return;
             }
