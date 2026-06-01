@@ -32,7 +32,7 @@ This installs `argon2-browser` (used for Argon2id password hashing) into `node_m
 
 The chat background uses `bows_background.png`. If you have this file, place it at:
 
-```
+```text
 client-web/images/bows_background.png
 ```
 
@@ -55,14 +55,14 @@ See `server/README.md` for full server setup instructions including environment 
 
 Once the Flask server is running, open your browser and navigate to:
 
-```
+```text
 https://sas.theburkenator.com
 ```
 
-For **local development**, the server runs on:
+For **local development** (Flask with SSL context on port 5000):
 
-```
-http://localhost:5000
+```text
+https://localhost:5000
 ```
 
 That's it — no separate build or bundling step required.
@@ -71,7 +71,7 @@ That's it — no separate build or bundling step required.
 
 ## Project Structure
 
-```
+```text
 client-web/
 ├── index.html                  # App shell — all views rendered dynamically by JS
 ├── package.json                # npm dependencies
@@ -132,8 +132,8 @@ For the full threat model and primitive justifications see [`docs/crypto_design.
 | Key exchange | DHKEM(X25519) — two DH operations (sender auth) |
 | Key derivation | HKDF-SHA256 (RFC 5869) |
 | Encryption | AES-256-GCM with associated data |
-| Associated data | `{sender_id, recipient_id}` UUIDs |
-| Password hashing | Argon2id (m=65536, t=3, p=4) |
+| Associated data | `{sender_id, recipient_id, message_id, timestamp}` (canonical JSON, no spaces) |
+| Password hashing | Argon2id (m=32768 KiB, t=2, p=4) |
 | Key at rest | AES-256-GCM wrapped private key |
 
 ---
