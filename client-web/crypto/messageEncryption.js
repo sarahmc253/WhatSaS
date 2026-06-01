@@ -43,32 +43,14 @@ function generateMsgId() {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export async function encryptMessage(plaintext, recipientPublicKey, senderPrivateKey, senderId, recipientId) {
-    let ephemeralPublicKey, ephemeralPrivateKey;
-    try {
-        ({ publicKey: ephemeralPublicKey, privateKey: ephemeralPrivateKey } = await generateKeypair());
-    } catch (err) {
-        console.error('encryptMessage: generateKeypair() threw:', err);
-        throw err;
-    }
+    const { publicKey: ephemeralPublicKey, privateKey: ephemeralPrivateKey } = await generateKeypair();
     const ephPkBytes = await getPublicKeyBytes(ephemeralPublicKey);
     const messageId  = generateMsgId();
     const timestamp  = Math.floor(Date.now() / 1000);
 
     // DH1 = X25519(eph_sk, recipient_pk),  DH2 = X25519(sender_sk, recipient_pk)
-    let dh1;
-    try {
-        dh1 = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: recipientPublicKey }, ephemeralPrivateKey, 256));
-    } catch (err) {
-        console.error('encryptMessage: deriveBits DH1 (ephemeralPrivateKey × recipientPublicKey) threw:', err);
-        throw err;
-    }
-    let dh2;
-    try {
-        dh2 = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: recipientPublicKey }, senderPrivateKey, 256));
-    } catch (err) {
-        console.error('encryptMessage: deriveBits DH2 (senderPrivateKey × recipientPublicKey) threw:', err);
-        throw err;
-    }
+    const dh1 = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: recipientPublicKey }, ephemeralPrivateKey, 256));
+    const dh2 = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: recipientPublicKey }, senderPrivateKey, 256));
 
     const messageKey = await deriveAesKey(dh1, dh2, ephPkBytes, 'encrypt');
     const ad    = new TextEncoder().encode(buildAd(senderId, recipientId, messageId, timestamp));

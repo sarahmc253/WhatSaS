@@ -1160,3 +1160,69 @@ Attempted to add `GET /users/<username>` to `auth/routes.py`.
 **Sarah:** update docs/transcript sarah
 
 **Claude:** Updated `docs/transcript_sarah.md` with all exchanges from the session to that point.
+
+---
+
+**Sarah:** In encryptMessage in messageEncryption.js, wrap each deriveBits call in a try/catch that logs which one threw and rethrows, so we can see exactly where the error originates.
+
+**Claude:** Wrapped both `deriveBits` calls in `encryptMessage` with individual try/catch blocks. DH1 logs `deriveBits DH1 (ephemeralPrivateKey × recipientPublicKey) threw:`, DH2 logs `deriveBits DH2 (senderPrivateKey × recipientPublicKey) threw:`. Both rethrow.
+
+---
+
+**Sarah:** In encryptMessage in messageEncryption.js, wrap the generateKeypair() call in a try/catch that logs any error before rethrowing.
+
+**Claude:** Wrapped `generateKeypair()` in a try/catch that logs `encryptMessage: generateKeypair() threw:` before rethrowing.
+
+---
+
+**Sarah:** In the compose submit handler in views.js, after the console.log for keyBytes.length, also log the first 4 and last 4 bytes of keyBytes as hex so we can see if the key looks like valid X25519 data.
+
+**Claude:** Added a `toHex` helper and a `console.log` logging the first and last 4 bytes of `keyBytes` as hex immediately after the byte-length log.
+
+---
+
+**Sarah:** In views.js, find all declarations of const toHex and remove the duplicate — keep one, delete the other.
+
+**Claude:** Found three declarations: line 493 (forward handler — separate scope, kept), line 598 and line 606 (both in the compose submit handler — removed line 606, kept line 598 which is used by both the debug log and the `sendMessage` payload).
+
+---
+
+**Sarah:** In views.js, change all importKey calls for X25519 public keys to use [] as keyUsages instead of ['deriveBits'] — public keys don't need usages declared, only private keys do.
+
+**Claude:** Replaced all three `['deriveBits']` usages on X25519 public key `importKey` calls in `views.js` with `[]`.
+
+---
+
+**Sarah:** In tryDecrypt in views.js, change the importKey calls for ephPubKey and senderStaticPubKey to use [] as keyUsages instead of ['deriveBits'].
+
+**Claude:** Fixed both multi-line `importKey` calls in `tryDecrypt` (the single-line ones had already been replaced in the prior step; these two were formatted across lines and missed).
+
+---
+
+**Sarah:** In api.js, change the flushMessages POST path from /messages/flush to /flush.
+
+**Claude:** Updated `flushMessages` in `api.js` to POST to `/flush`.
+
+---
+
+**Sarah:** In the localStorage hash computation in renderInbox in views.js, change crypto.subtle.digest to hash the raw hex string as UTF-8 bytes instead of the decoded ciphertext bytes — to match how anchor.py computes content_hash with hashlib.sha256(data['ciphertext'].encode('utf-8')).
+
+**Claude:** Replaced `crypto.subtle.digest('SHA-256', ctBytes)` (decoded bytes) with `crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg.ciphertext))` (UTF-8 encoded hex string), removing the now-unused `ctBytes` local.
+
+---
+
+**Sarah:** In buildMessageCard in views.js, if msg.tx_hash exists, add a copyable code element showing the full tx hash below the anchor badge, same pattern as the merkle_root element.
+
+**Claude:** Added `txHashEl` using the same `<code class="merkle-root" title="Click to copy">` pattern as `merkleEl`, rendered below the anchor badge.
+
+---
+
+**Sarah:** In buildMessageCard in views.js, replace the txHashEl and merkleEl code elements with a div containing labeled rows — "TX hash:" and "Merkle root:" — each with a copy button that has data-copy set to the value, then wire the copy buttons in the querySelectorAll loop in renderInbox instead of using the merkle-root class click listener.
+
+**Claude:** Replaced `txHashEl` and `merkleEl` with a single `hashRows` div containing `<div class="msg-hash-row">` entries for each present field, each with a label span, a `<code>` for the value, and a `<button class="btn-copy" data-copy="...">` copy button. Replaced the `code.merkle-root` click listener in `renderInbox` with a `[data-copy]` selector that reads `btn.dataset.copy`.
+
+---
+
+**Sarah:** Remove all temporary debug console.log and try/catch blocks added to messageEncryption.js and views.js today, then update docs/transcript_sarah.md.
+
+**Claude:** In `messageEncryption.js`: restored `generateKeypair()` to a single `const` destructure, restored DH1 and DH2 to single-line `const` assignments. In `views.js`: removed two `console.log` lines for key byte length and first/last hex bytes (kept `toHex` declaration as it is still used by `sendMessage`). Updated `docs/transcript_sarah.md`.
