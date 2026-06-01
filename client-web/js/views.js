@@ -375,8 +375,7 @@ messages = data.messages ?? [];
             const content = await tryDecrypt(msg);
             if (msg.ciphertext && msg.id) {
                 try {
-                    const ctBytes = decodeField(msg.ciphertext);
-                    const hashBuf = await crypto.subtle.digest('SHA-256', ctBytes);
+                    const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg.ciphertext));
                     const hex = '0x' + Array.from(new Uint8Array(hashBuf), b => b.toString(16).padStart(2, '0')).join('');
                     localStorage.setItem(`hash:${msg.id}`, JSON.stringify({
                         contentHash: hex,
