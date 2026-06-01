@@ -31,14 +31,31 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
-                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   ru.username AS recipient_username,
+                   'received' AS direction
             FROM messages m
-            JOIN users u ON u.id = m.sender_id
+            JOIN users u  ON u.id = m.sender_id
+            JOIN users ru ON ru.id = m.recipient_id
             WHERE m.recipient_id = %s AND m.is_revoked = 0
+
+            UNION ALL
+
+            SELECT m.id, m.sender_id, u.username AS sender_username,
+                   u.x25519_public_key AS sender_x25519_public_key,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   ru.username AS recipient_username,
+                   'sent' AS direction
+            FROM messages m
+            JOIN users u  ON u.id = m.sender_id
+            JOIN users ru ON ru.id = m.recipient_id
+            WHERE m.sender_id = %s AND m.is_revoked = 0
+
+            ORDER BY created_at ASC
             """,
-            (current_user_id,),
+            (current_user_id, current_user_id),
         )
         rows = cursor.fetchall()
     finally:

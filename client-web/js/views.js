@@ -263,12 +263,14 @@ function renderRegister(container, navigate) {
 
 // ── Inbox view ────────────────────────────────────────────────────────────
 export async function renderInbox(container, navigate) {
-    // Render header + loading state immediately so the UI isn't blank
+    const myUsername = api.getUsername() ?? '';
+    let currentConvMap = new Map();
+
     container.innerHTML = `
         <div class="inbox-header">
-            <h2>Inbox</h2>
+            <h2>Messages</h2>
             <div class="inbox-actions">
-                <button class="btn btn-primary" id="btn-compose">Compose</button>
+                <button class="btn btn-primary" id="btn-compose">New Chat</button>
                 <button class="btn btn-secondary" id="btn-change-password">🔒 Change Password</button>
             </div>
         </div>
@@ -296,7 +298,6 @@ export async function renderInbox(container, navigate) {
             <div class="loading"><span class="spinner"></span> Loading…</div>
         </div>`;
 
-    // Compute and display own fingerprint from the login-cached public key
     const pubB64 = api.getPublicKeyB64();
     if (pubB64) {
         try {
@@ -306,7 +307,16 @@ export async function renderInbox(container, navigate) {
         } catch { /* non-fatal */ }
     }
 
-    document.getElementById('btn-compose').addEventListener('click', () => navigate('compose'));
+    document.getElementById('btn-compose').addEventListener('click', () => {
+        const partner = window.prompt('Start a chat with (enter username):')?.trim();
+        if (!partner) return;
+        // Open an empty thread immediately; the send bar lets them type the first message
+        if (!currentConvMap) {
+            // convMap not loaded yet — just wait; shouldn't happen in practice
+            return;
+        }
+        renderThread(partner, currentConvMap.get(partner) ?? []);
+    });
     document.getElementById('btn-change-password').addEventListener('click', () => {
         const section = document.getElementById('change-password-section');
         section.hidden = !section.hidden;
@@ -333,20 +343,15 @@ export async function renderInbox(container, navigate) {
             const wrappedB64 = api.getWrappedKey();
             if (!wrappedB64) throw new Error('No key material in session — please log in again.');
 
-            // Decrypt private key with old password
             const parsed    = JSON.parse(atob(wrappedB64));
             const encrypted = EncryptedPrivateKey.fromJSON(parsed);
             const privBytes = await decryptPrivateKey(encrypted, oldPw);
 
-            // Re-encrypt under new password
-            const newEncrypted = await encryptPrivateKey(privBytes, newPw);
+            const newEncrypted  = await encryptPrivateKey(privBytes, newPw);
             const newWrappedB64 = btoa(JSON.stringify(newEncrypted.toJSON()));
-            // kek_salt: use the new salt embedded in the encrypted struct (base64)
-            const newKekSalt = btoa(String.fromCharCode(...newEncrypted.salt));
+            const newKekSalt    = btoa(String.fromCharCode(...newEncrypted.salt));
 
             await api.changePassword(oldPw, newPw, newWrappedB64, newKekSalt);
-
-            // Keep the in-memory wrapped key state consistent with the new password
             api.setWrappedKey(newWrappedB64, newKekSalt);
 
             msgEl.className = 'success-msg';
@@ -362,25 +367,19 @@ export async function renderInbox(container, navigate) {
     });
 
     const body = document.getElementById('inbox-body');
-    let messages;
 
-    try {
-        const data = await api.getMessages();
-messages = data.messages ?? [];
-    } catch (err) {
-        body.innerHTML = `<div class="error-msg">Could not load messages: ${esc(err.message)}</div>`;
-        return;
-    }
-
-    if (messages.length === 0) {
-        body.innerHTML = `<div class="empty-state">Your inbox is empty.</div>`;
-        return;
-    }
-
-    // Cache sender public keys to avoid repeated fetches for the same sender within one render.
+    // ── Decrypt helper ────────────────────────────────────────────────────
     const senderKeyCache = {};
 
     async function tryDecrypt(msg) {
+        // For sent messages, check the sessionStorage plaintext cache first.
+        const msgId = msg.id ?? msg.message_id ?? '';
+        if (msg.direction === 'sent') {
+            const cached = sessionStorage.getItem(`sent_plain_${msgId}`);
+            if (cached) return cached;
+            return '(sent — encrypted)';
+        }
+
         const privKey = api.getPrivateKey();
         if (!privKey || !msg.ciphertext || !msg.nonce || !msg.ephemeral_pk || !msg.sender_x25519_public_key) {
             return '(encrypted)';
@@ -403,42 +402,215 @@ messages = data.messages ?? [];
 
             const senderId    = msg.sender_id ?? '';
             const recipientId = msg.recipient_id ?? '';
-            const messageId   = msg.id ?? msg.message_id ?? '';
             const timestamp   = parseTimestamp(msg.created_at ?? msg.timestamp);
 
             return await decryptMessage(
                 ciphertext, nonce, ephPubKey, ephPkBytes,
                 privKey, senderStaticPubKey,
-                senderId, recipientId, messageId, timestamp,
+                senderId, recipientId, msgId, timestamp,
             );
         } catch {
             return '(encrypted)';
         }
     }
 
+    // ── Group messages into conversations ─────────────────────────────────
+    // Returns Map<partnerUsername, msg[]> sorted by most-recent-first for list.
+    function groupByConversation(msgs) {
+        const convMap = new Map();
+        for (const msg of msgs) {
+            const partner = msg.direction === 'sent'
+                ? (msg.recipient_username ?? 'Unknown')
+                : (msg.sender_username ?? 'Unknown');
+            if (!convMap.has(partner)) convMap.set(partner, []);
+            convMap.get(partner).push(msg);
+        }
+        // Sort conversations by the timestamp of their latest message (newest first)
+        return new Map(
+            [...convMap.entries()].sort((a, b) => {
+                const lastA = a[1].at(-1)?.created_at ?? '';
+                const lastB = b[1].at(-1)?.created_at ?? '';
+                return lastA < lastB ? 1 : -1;
+            })
+        );
+    }
+
+    // ── Render conversation list ──────────────────────────────────────────
+    function renderConvList(convMap) {
+        if (convMap.size === 0) {
+            body.innerHTML = `<div class="empty-state">No messages yet. Start a conversation!</div>`;
+            return;
+        }
+
+        const items = [...convMap.entries()].map(([partner, msgs]) => {
+            const last    = msgs.at(-1);
+            const preview = last?.content ?? '';
+            const date    = formatDate(last?.created_at);
+            const initial = (partner[0] ?? '?').toUpperCase();
+            return `
+                <div class="chat-item" data-partner="${esc(partner)}" role="button" tabindex="0">
+                    <div class="chat-avatar">${esc(initial)}</div>
+                    <div class="chat-item-body">
+                        <div class="chat-item-header">
+                            <span class="chat-item-name">${esc(partner)}</span>
+                            <span class="chat-item-date">${esc(date)}</span>
+                        </div>
+                        <div class="chat-item-preview">${esc(preview.slice(0, 60))}${preview.length > 60 ? '…' : ''}</div>
+                    </div>
+                </div>`;
+        }).join('');
+
+        body.innerHTML = `<div class="chat-list">${items}</div>`;
+
+        body.querySelectorAll('.chat-item').forEach(item => {
+            const open = () => renderThread(item.dataset.partner, convMap.get(item.dataset.partner) ?? []);
+            item.addEventListener('click', open);
+            item.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
+        });
+    }
+
+    // ── Send a message from within the thread ─────────────────────────────
+    async function sendFromThread(partner, content, recipientUser) {
+        const privKey  = api.getPrivateKey();
+        const senderId = getUserId();
+        if (!privKey || !senderId) throw new Error('Session key unavailable — please log in again.');
+
+        const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
+        const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
+
+        const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+            content, recipientPublicKey, privKey, senderId, recipientUser.id,
+        );
+
+        const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+
+        await sendMessage({
+            recipient_id:             recipientUser.id,
+            message_id:               messageId,
+            ciphertext:               toHex(ciphertext),
+            nonce:                    toHex(nonce),
+            ephemeral_pk:             toHex(ephPkBytes),
+            sender_x25519_public_key: api.getPublicKeyB64(),
+        });
+
+        sessionStorage.setItem(`sent_plain_${messageId}`, content);
+
+        // Optimistically append the sent bubble without waiting for the next poll
+        const sentMsg = {
+            id: messageId, direction: 'sent',
+            sender_username: myUsername, recipient_username: partner,
+            content, created_at: new Date().toISOString(),
+        };
+        if (!currentConvMap.has(partner)) currentConvMap.set(partner, []);
+        currentConvMap.get(partner).push(sentMsg);
+        knownIds.add(messageId);
+
+        const thread = document.getElementById('chat-thread');
+        if (thread) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = buildBubble(sentMsg, myUsername);
+            const bubble = tmp.firstElementChild;
+            bubble.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', () => handleAction(btn, body));
+            });
+            thread.appendChild(bubble);
+            thread.scrollTop = thread.scrollHeight;
+        }
+    }
+
+    // ── Render thread ─────────────────────────────────────────────────────
+    function renderThread(partner, msgs) {
+        const bubbles = msgs.map(msg => buildBubble(msg, myUsername)).join('');
+
+        body.innerHTML = `
+            <div class="thread-header">
+                <button class="btn btn-secondary btn-sm" id="btn-back-list">← Back</button>
+                <div class="thread-partner-info">
+                    <span class="thread-partner">${esc(partner)}</span>
+                    <span id="thread-fingerprint" class="key-fingerprint"></span>
+                </div>
+            </div>
+            <div class="chat-thread" id="chat-thread">
+                ${bubbles}
+            </div>
+            <form class="send-bar" id="send-bar" novalidate>
+                <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required>
+                <button type="submit" class="btn btn-primary send-btn">Send</button>
+            </form>`;
+
+        document.getElementById('btn-back-list').addEventListener('click', () => {
+            renderConvList(currentConvMap);
+        });
+
+        // Show partner's key fingerprint
+        getUser(partner).then(async user => {
+            const fpEl = document.getElementById('thread-fingerprint');
+            if (!fpEl || !user?.x25519_public_key) return;
+            const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
+            const fp = await keyFingerprint(pkBytes);
+            fpEl.textContent = `🔑 ${fp}`;
+        }).catch(() => {});
+
+        const thread = document.getElementById('chat-thread');
+        thread.scrollTop = thread.scrollHeight;
+
+        body.querySelectorAll('[data-action]').forEach(btn => {
+            btn.addEventListener('click', () => handleAction(btn, body));
+        });
+
+        // ── Send bar ──────────────────────────────────────────────────────
+        let cachedRecipient = null;
+
+        document.getElementById('send-bar').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input   = document.getElementById('send-input');
+            const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
+            const content = input.value.trim();
+            if (!content) return;
+
+            sendBtn.disabled = true;
+            input.disabled   = true;
+
+            try {
+                if (!cachedRecipient) cachedRecipient = await getUser(partner);
+                if (!cachedRecipient?.x25519_public_key) throw new Error('Cannot find recipient key.');
+                await sendFromThread(partner, content, cachedRecipient);
+                input.value = '';
+            } catch (err) {
+                showInlineError(body, `Send failed: ${err.message}`);
+            } finally {
+                sendBtn.disabled = false;
+                input.disabled   = false;
+                input.focus();
+            }
+        });
+    }
+
+    // ── Initial load ──────────────────────────────────────────────────────
+    let allMessages;
+    try {
+        const data = await api.getMessages();
+        allMessages = data.messages ?? [];
+    } catch (err) {
+        body.innerHTML = `<div class="error-msg">Could not load messages: ${esc(err.message)}</div>`;
+        return;
+    }
+
     const decrypted = await Promise.all(
-        messages.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
+        allMessages.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
     );
 
-    body.innerHTML = `
-        <div class="message-list">
-            ${decrypted.map(buildMessageCard).join('')}
-        </div>`;
+    currentConvMap = groupByConversation(decrypted);
+    renderConvList(currentConvMap);
 
-    body.querySelectorAll('[data-action]').forEach((btn) => {
-        btn.addEventListener('click', () => handleAction(btn, body));
-    });
-
-    // Poll for new messages every 10 seconds while this view is mounted.
-    // Only inserts cards that aren't already in the DOM — no full re-render.
+    // ── Poll for new messages ─────────────────────────────────────────────
     const knownIds = new Set(decrypted.map(m => String(m.id ?? m.message_id ?? '')));
 
     const pollInterval = setInterval(async () => {
-        // Stop polling if the inbox is no longer in the document
         if (!body.isConnected) { clearInterval(pollInterval); return; }
         try {
-            const data = await api.getMessages();
-            const fresh = data.messages ?? [];
+            const data    = await api.getMessages();
+            const fresh   = data.messages ?? [];
             const newMsgs = fresh.filter(m => !knownIds.has(String(m.id ?? m.message_id ?? '')));
             if (newMsgs.length === 0) return;
 
@@ -446,45 +618,68 @@ messages = data.messages ?? [];
                 newMsgs.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
             );
 
-            const list = body.querySelector('.message-list') ?? (() => {
-                // inbox was showing empty-state; replace it
-                body.innerHTML = '<div class="message-list"></div>';
-                return body.querySelector('.message-list');
-            })();
-
             for (const msg of newDecrypted) {
                 knownIds.add(String(msg.id ?? msg.message_id ?? ''));
-                const tmp = document.createElement('div');
-                tmp.innerHTML = buildMessageCard(msg);
-                const card = tmp.firstElementChild;
-                card.querySelectorAll('[data-action]').forEach(btn => {
-                    btn.addEventListener('click', () => handleAction(btn, body));
-                });
-                list.prepend(card);
+                const partner = msg.direction === 'sent'
+                    ? (msg.recipient_username ?? 'Unknown')
+                    : (msg.sender_username ?? 'Unknown');
+                if (!currentConvMap.has(partner)) currentConvMap.set(partner, []);
+                currentConvMap.get(partner).push(msg);
             }
-        } catch { /* non-fatal — silently skip this tick */ }
+
+            // If currently showing the list, re-render it to update previews
+            if (body.querySelector('.chat-list')) {
+                renderConvList(currentConvMap);
+            }
+            // If in a thread, append any new bubbles for that thread
+            const thread = body.querySelector('#chat-thread');
+            if (thread) {
+                const partnerEl = body.querySelector('.thread-partner');
+                const activePartner = partnerEl?.textContent ?? '';
+                const relevant = newDecrypted.filter(m => {
+                    const p = m.direction === 'sent'
+                        ? (m.recipient_username ?? 'Unknown')
+                        : (m.sender_username ?? 'Unknown');
+                    return p === activePartner;
+                });
+                for (const msg of relevant) {
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = buildBubble(msg, myUsername);
+                    const bubble = tmp.firstElementChild;
+                    bubble.querySelectorAll('[data-action]').forEach(btn => {
+                        btn.addEventListener('click', () => handleAction(btn, body));
+                    });
+                    thread.appendChild(bubble);
+                }
+                if (relevant.length > 0) thread.scrollTop = thread.scrollHeight;
+            }
+        } catch { /* non-fatal */ }
     }, 10_000);
 }
 
-function buildMessageCard(msg) {
-    // Gracefully handle whatever field names the server settles on
-    const id     = msg.id ?? msg.message_id ?? '';
-    const sender = msg.sender_username ?? msg.sender ?? msg.sender_id ?? 'Unknown';
-    const body   = msg.content ?? msg.body ?? '(encrypted)';
-    const date   = formatDate(msg.timestamp ?? msg.created_at);
+// ── Bubble renderers ──────────────────────────────────────────────────────
+function buildBubble(msg, myUsername) {
+    const id        = msg.id ?? msg.message_id ?? '';
+    const isSent    = msg.direction === 'sent' || (msg.sender_username === myUsername);
+    const content   = msg.content ?? '(encrypted)';
+    const date      = formatDate(msg.created_at ?? msg.timestamp);
+    const sender    = msg.sender_username ?? 'Unknown';
+
+    const actions = isSent
+        ? `<button class="btn-action" data-action="download" data-id="${esc(String(id))}">Download</button>`
+        : `<button class="btn-action" data-action="forward"  data-id="${esc(String(id))}">Forward</button>
+           <button class="btn-action" data-action="download" data-id="${esc(String(id))}">Download</button>
+           <button class="btn-action danger" data-action="revoke"  data-id="${esc(String(id))}">Revoke</button>
+           <button class="btn-action danger" data-action="delete"  data-id="${esc(String(id))}">Delete</button>`;
 
     return `
-        <div class="message-card" data-id="${esc(String(id))}">
-            <div class="msg-header">
-                <span class="msg-sender">${esc(String(sender))}</span>
-                ${date ? `<span class="msg-date">${date}</span>` : ''}
-            </div>
-            <div class="msg-body">${esc(String(body))}</div>
-            <div class="msg-actions">
-                <button class="btn-action" data-action="forward"  data-id="${esc(String(id))}">Forward</button>
-                <button class="btn-action" data-action="download" data-id="${esc(String(id))}">Download</button>
-                <button class="btn-action danger" data-action="revoke"  data-id="${esc(String(id))}">Revoke</button>
-                <button class="btn-action danger" data-action="delete"  data-id="${esc(String(id))}">Delete</button>
+        <div class="bubble-wrap ${isSent ? 'sent' : 'received'}">
+            <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
+                <div class="msg-body">${esc(String(content))}</div>
+                <div class="bubble-meta">
+                    ${date ? `<span class="msg-date">${date}</span>` : ''}
+                </div>
+                <div class="msg-actions">${actions}</div>
             </div>
         </div>`;
 }
@@ -497,17 +692,17 @@ async function handleAction(btn, inboxBody) {
         switch (action) {
             case 'delete':
                 await api.deleteMessage(id);
-                btn.closest('.message-card')?.remove();
+                (btn.closest('.bubble-wrap') ?? btn.closest('.message-card'))?.remove();
                 break;
 
             case 'revoke':
                 await api.revokeMessage(id);
-                btn.closest('.message-card')?.remove();
+                (btn.closest('.bubble-wrap') ?? btn.closest('.message-card'))?.remove();
                 break;
 
             case 'download': {
                 const card    = btn.closest('.message-card');
-                const sender  = card.querySelector('.msg-sender').textContent;
+                const sender  = card.dataset.sender ?? card.querySelector('.msg-sender')?.textContent ?? 'Unknown';
                 const date    = card.querySelector('.msg-date')?.textContent ?? '';
                 const content = card.querySelector('.msg-body').textContent;
 
@@ -589,111 +784,6 @@ async function handleAction(btn, inboxBody) {
         showInlineError(inboxBody, `Action failed: ${err.message}`);
         btn.disabled = false;
     }
-}
-
-// ── Compose view ──────────────────────────────────────────────────────────
-export function renderCompose(container, navigate) {
-    container.innerHTML = `
-        <div class="compose-header">
-            <button class="btn btn-secondary" id="btn-back">← Back</button>
-            <h2>New Message</h2>
-        </div>
-        <div class="card">
-            <form id="compose-form" novalidate>
-                <div class="form-group">
-                    <label for="c-recipient">Recipient username</label>
-                    <input type="text" id="c-recipient" placeholder="Enter username" required>
-                    <div id="recipient-fingerprint" class="key-fingerprint"></div>
-                </div>
-                <div class="form-group">
-                    <label for="c-body">Message</label>
-                    <textarea id="c-body" placeholder="Write your message…" required></textarea>
-                </div>
-                <div class="compose-actions">
-                    <button type="submit" class="btn btn-primary">Send</button>
-                    <button type="button" class="btn btn-secondary" id="btn-cancel">Cancel</button>
-                </div>
-                <div id="compose-msg" role="alert"></div>
-            </form>
-        </div>`;
-
-    document.getElementById('btn-back').addEventListener('click',   () => navigate('inbox'));
-    document.getElementById('btn-cancel').addEventListener('click', () => navigate('inbox'));
-
-    // Show peer fingerprint when the user finishes typing a recipient username
-    document.getElementById('c-recipient').addEventListener('blur', async (e) => {
-        const username = e.target.value.trim();
-        const fpEl = document.getElementById('recipient-fingerprint');
-        if (!username) { fpEl.textContent = ''; return; }
-        try {
-            const user = await getUser(username);
-            if (!user?.x25519_public_key) { fpEl.textContent = ''; return; }
-            const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
-            const fp = await keyFingerprint(pkBytes);
-            fpEl.textContent = `🔑 ${esc(username)}'s fingerprint: ${fp}`;
-        } catch { fpEl.textContent = ''; }
-    });
-
-    const form = document.getElementById('compose-form');
-    const msg  = document.getElementById('compose-msg');
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        const btn = form.querySelector('button[type="submit"]');
-        btn.disabled = true;
-        msg.className = msg.textContent = '';
-
-        const recipient = document.getElementById('c-recipient').value.trim();
-        const content   = document.getElementById('c-body').value.trim();
-
-        if (!recipient || !content) {
-            msg.className = 'error-msg';
-            msg.textContent = 'Recipient and message are required.';
-            btn.disabled = false;
-            return;
-        }
-
-        try {
-            const senderPrivateKey = api.getPrivateKey();
-            if (!senderPrivateKey) throw new Error('Private key unavailable — please log in again.');
-
-            const recipientUser = await getUser(recipient);
-            if (!recipientUser?.x25519_public_key) {
-                throw new Error('Recipient not found or has no encryption key.');
-            }
-
-            const senderPrivKey = api.getPrivateKey();
-            const senderId      = getUserId();
-            if (!senderPrivKey || !senderId) throw new Error('Session key unavailable — please log in again.');
-
-            const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-            const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
-
-            const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
-                content, recipientPublicKey, senderPrivKey, senderId, recipientUser.id,
-            );
-
-            const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-
-            await sendMessage({
-                recipient_id:             recipientUser.id,
-                message_id:               messageId,
-                ciphertext:               toHex(ciphertext),
-                nonce:                    toHex(nonce),
-                ephemeral_pk:             toHex(ephPkBytes),
-                sender_x25519_public_key: api.getPublicKeyB64(),
-            });
-            msg.className = 'success-msg';
-            msg.textContent = 'Message sent!';
-            form.reset();
-        } catch (err) {
-            msg.className = 'error-msg';
-            msg.textContent = err.message;
-        } finally {
-            btn.disabled = false;
-        }
-    });
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@
  */
 
 import * as api   from './api.js';
-import { renderLogin, renderInbox, renderCompose, renderUnlock } from './views.js';
+import { renderLogin, renderInbox, renderUnlock } from './views.js';
 import { renderVerify } from '../blockchain/blockchainVerifyView.js';
 
 const appEl   = document.getElementById('app');
@@ -14,9 +14,8 @@ const navbar  = document.getElementById('navbar');
 const footer  = document.getElementById('site-footer');
 
 // ── Navbar buttons ────────────────────────────────────────────────────────
-document.getElementById('nav-inbox').addEventListener('click',   () => navigate('inbox'));
-document.getElementById('nav-compose').addEventListener('click', () => navigate('compose'));
-document.getElementById('nav-logout').addEventListener('click',  () => {
+document.getElementById('nav-inbox').addEventListener('click',  () => navigate('inbox'));
+document.getElementById('nav-logout').addEventListener('click', () => {
     api.logout();
     navigate('login');
 });
@@ -53,9 +52,6 @@ async function route() {
             break;
         case 'inbox':
             await renderInbox(appEl, navigate);
-            break;
-        case 'compose':
-            renderCompose(appEl, navigate);
             break;
         case 'verify':
             renderVerify(appEl);
