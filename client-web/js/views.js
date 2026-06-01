@@ -382,7 +382,8 @@ function buildMessageCard(msg) {
             </div>
             <div class="msg-body">${esc(String(body))}</div>
             <div class="msg-actions">
-                <button class="btn-action" data-action="forward" data-id="${esc(String(id))}">Forward</button>
+                <button class="btn-action" data-action="forward"  data-id="${esc(String(id))}">Forward</button>
+                <button class="btn-action" data-action="download" data-id="${esc(String(id))}">Download</button>
                 <button class="btn-action danger" data-action="revoke"  data-id="${esc(String(id))}">Revoke</button>
                 <button class="btn-action danger" data-action="delete"  data-id="${esc(String(id))}">Delete</button>
             </div>
@@ -404,6 +405,26 @@ async function handleAction(btn, inboxBody) {
                 await api.revokeMessage(id);
                 btn.closest('.message-card')?.remove();
                 break;
+
+            case 'download': {
+                const card    = btn.closest('.message-card');
+                const sender  = card.querySelector('.msg-sender').textContent;
+                const date    = card.querySelector('.msg-date')?.textContent ?? '';
+                const content = card.querySelector('.msg-body').textContent;
+
+                const text = `From: ${sender}\nDate: ${date}\n\n${content}`;
+                const blob = new Blob([text], { type: 'text/plain' });
+                const url  = URL.createObjectURL(blob);
+
+                const a    = document.createElement('a');
+                a.href     = url;
+                a.download = `message-${id}.txt`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                btn.disabled = false;
+                return;
+            }
 
             case 'forward': {
                 const recipientUsername = window.prompt('Forward to username:')?.trim();
