@@ -595,6 +595,8 @@ export function renderCompose(container, navigate) {
 
             const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
             console.log('[compose] recipient x25519 key byte length:', keyBytes.byteLength);
+            const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+            console.log('[compose] recipient x25519 key first/last 4 bytes:', toHex(keyBytes.slice(0, 4)), '...', toHex(keyBytes.slice(-4)));
             const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
 
             const { ephPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
