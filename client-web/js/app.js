@@ -15,6 +15,11 @@ const footer  = document.getElementById('site-footer');
 
 // ── Navbar buttons ────────────────────────────────────────────────────────
 document.getElementById('nav-inbox').addEventListener('click',  () => navigate('inbox'));
+document.getElementById('nav-verify').addEventListener('click', () => navigate('verify'));
+document.getElementById('nav-change-password').addEventListener('click', () => {
+    // Dispatch a custom event that renderInbox listens for
+    document.dispatchEvent(new CustomEvent('open-change-password'));
+});
 document.getElementById('nav-logout').addEventListener('click', () => {
     api.logout();
     navigate('login');
@@ -44,7 +49,8 @@ async function route() {
     }
 
     navbar.hidden = !api.isAuthenticated();
-    footer.hidden = view === 'verify';
+    // auth views get centred layout; chat view goes full-width
+    appEl.classList.toggle('auth-mode', view === 'login' || view === 'verify');
 
     switch (view) {
         case 'login':

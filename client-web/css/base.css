@@ -2,22 +2,22 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-    --bg:          #f3f4f6;
+    --bg:          #fdf2f8;
     --surface:     #ffffff;
-    --border:      #e5e7eb;
-    --shadow:      rgba(0,0,0,.07);
-    --primary:     #2563eb;
-    --primary-h:   #1d4ed8;
-    --danger:      #dc2626;
-    --danger-h:    #b91c1c;
-    --text:        #111827;
-    --muted:       #6b7280;
-    --success-bg:  #f0fdf4;
-    --success-bd:  #86efac;
-    --success-txt: #166534;
+    --border:      #f0d6e8;
+    --shadow:      rgba(180,60,120,.07);
+    --primary:     #c2185b;
+    --primary-h:   #ad1457;
+    --danger:      #b91c1c;
+    --danger-h:    #991b1b;
+    --text:        #1a0a12;
+    --muted:       #9e6b85;
+    --success-bg:  #fdf0f8;
+    --success-bd:  #f4a7d0;
+    --success-txt: #8b1a4a;
     --error-bg:    #fef2f2;
     --error-bd:    #fecaca;
-    --radius:      8px;
+    --radius:      10px;
     --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', "Roboto", sans-serif;
 }
 
@@ -33,14 +33,13 @@ body {
     position: sticky;
     top: 0;
     z-index: 10;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    background-image: linear-gradient(rgba(194, 24, 92, 0.89), rgba(173, 20, 86, 0.904)), url("bows_background.png");
     padding: 0 1.5rem;
     height: 56px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    box-shadow: 0 1px 3px var(--shadow);
+    box-shadow: 0 2px 8px rgba(180,60,120,.25);
 }
 
 /* [hidden] on <header> overrides display:flex — restore with CSS */
@@ -49,17 +48,38 @@ body {
 .nav-brand {
     font-weight: 700;
     font-size: 1.125rem;
-    color: var(--primary);
+    color: #fff;
     letter-spacing: -.02em;
 }
 
-nav { display: flex; gap: .375rem; }
+nav { display: flex; gap: .25rem; }
+
+.btn-link {
+    color: rgba(255,255,255,.85) !important;
+}
+.btn-link:hover {
+    color: #fff !important;
+    background: rgba(255,255,255,.15) !important;
+}
 
 /* ── Main content ────────────────────────────────────────────────────────── */
 #app {
+    width: 100%;
+    padding: 0;
+    height: calc(100vh - 56px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Auth views (login/register/unlock) need centred, padded layout */
+#app.auth-mode {
     max-width: 680px;
     margin: 2rem auto;
     padding: 0 1rem;
+    height: auto;
+    display: block;
+    overflow: visible;
 }
 
 /* ── Card ────────────────────────────────────────────────────────────────── */
@@ -212,15 +232,19 @@ textarea { resize: vertical; min-height: 120px; }
     font-size: .9375rem;
 }
 
-/* ── Site footer (public — always visible) ───────────────────────────────── */
-#site-footer {
-    text-align: center;
-    padding: 1.25rem;
-    font-size: .8125rem;
-    color: var(--muted);
-    border-top: 1px solid var(--border);
-    margin-top: 2rem;
+#site-footer { display: none; }
+
+/* ── Change password dialog ──────────────────────────────────────────────── */
+dialog {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(0,0,0,.15);
+    padding: 2rem;
+    max-width: 420px;
+    width: 100%;
+    font-family: var(--font);
 }
 
-.footer-link             { color: var(--primary); text-decoration: none; }
-.footer-link:hover       { text-decoration: underline; }
+dialog::backdrop {
+    background: rgba(0,0,0,.35);
+}

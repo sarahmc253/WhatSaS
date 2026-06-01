@@ -267,17 +267,25 @@ export async function renderInbox(container, navigate) {
     let currentConvMap = new Map();
 
     container.innerHTML = `
-        <div class="inbox-header">
-            <h2>Messages</h2>
-            <div class="inbox-actions">
-                <button class="btn btn-primary" id="btn-compose">New Chat</button>
-                <button class="btn btn-secondary" id="btn-change-password">🔒 Change Password</button>
-            </div>
+        <div class="chat-layout">
+            <aside class="chat-sidebar">
+                <div class="sidebar-header">
+                    <span id="my-fingerprint" class="key-fingerprint" style="margin:0;font-size:.7rem" title="Your key fingerprint"></span>
+                    <button class="btn btn-primary btn-sm" id="btn-compose">New Chat</button>
+                </div>
+                <div class="chat-list" id="conv-list">
+                    <div class="loading"><span class="spinner"></span></div>
+                </div>
+            </aside>
+            <section class="chat-main" id="inbox-body">
+                <div class="chat-empty">Select a conversation or start a new chat</div>
+            </section>
         </div>
-        <div id="my-fingerprint" class="key-fingerprint" title="Your key fingerprint — share this with contacts to verify your identity"></div>
-        <section id="change-password-section" class="card" hidden>
-            <h3>Change Password</h3>
-            <form id="change-password-form" novalidate>
+
+        <!-- Change password modal (triggered from navbar) -->
+        <dialog id="change-password-dialog">
+            <form id="change-password-form" method="dialog" novalidate>
+                <h3 style="margin-bottom:1.25rem">Change Password</h3>
                 <div class="form-group">
                     <label for="cp-old">Current password</label>
                     <input type="password" id="cp-old" autocomplete="current-password" required>
@@ -290,37 +298,35 @@ export async function renderInbox(container, navigate) {
                     <label for="cp-confirm">Confirm new password</label>
                     <input type="password" id="cp-confirm" autocomplete="new-password" required>
                 </div>
-                <button type="submit" class="btn btn-primary">Update Password</button>
+                <div style="display:flex;gap:.75rem;margin-top:.25rem">
+                    <button type="submit" class="btn btn-primary">Update Password</button>
+                    <button type="button" class="btn btn-secondary" id="cp-cancel">Cancel</button>
+                </div>
                 <div id="cp-msg" role="alert"></div>
             </form>
-        </section>
-        <div id="inbox-body">
-            <div class="loading"><span class="spinner"></span> Loading…</div>
-        </div>`;
+        </dialog>`;
 
+    // ── Fingerprint ───────────────────────────────────────────────────────
     const pubB64 = api.getPublicKeyB64();
     if (pubB64) {
         try {
             const pkBytes = Uint8Array.from(atob(pubB64), c => c.charCodeAt(0));
             const fp = await keyFingerprint(pkBytes);
-            document.getElementById('my-fingerprint').textContent = `🔑 Your fingerprint: ${fp}`;
+            document.getElementById('my-fingerprint').textContent = `🔑 ${fp}`;
         } catch { /* non-fatal */ }
     }
 
+    // ── New Chat button ───────────────────────────────────────────────────
     document.getElementById('btn-compose').addEventListener('click', () => {
         const partner = window.prompt('Start a chat with (enter username):')?.trim();
         if (!partner) return;
-        // Open an empty thread immediately; the send bar lets them type the first message
-        if (!currentConvMap) {
-            // convMap not loaded yet — just wait; shouldn't happen in practice
-            return;
-        }
         renderThread(partner, currentConvMap.get(partner) ?? []);
     });
-    document.getElementById('btn-change-password').addEventListener('click', () => {
-        const section = document.getElementById('change-password-section');
-        section.hidden = !section.hidden;
-    });
+
+    // ── Change Password dialog (opened via navbar custom event) ───────────
+    const cpDialog = document.getElementById('change-password-dialog');
+    document.getElementById('cp-cancel').addEventListener('click', () => cpDialog.close());
+    document.addEventListener('open-change-password', () => cpDialog.showModal(), { signal: AbortSignal.timeout(3_600_000) });
 
     document.getElementById('change-password-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -357,7 +363,7 @@ export async function renderInbox(container, navigate) {
             msgEl.className = 'success-msg';
             msgEl.textContent = 'Password updated successfully!';
             e.target.reset();
-            document.getElementById('change-password-section').hidden = true;
+            setTimeout(() => { cpDialog.close(); msgEl.className = msgEl.textContent = ''; }, 1200);
         } catch (err) {
             msgEl.className = 'error-msg';
             msgEl.textContent = err.message;
@@ -366,7 +372,8 @@ export async function renderInbox(container, navigate) {
         }
     });
 
-    const body = document.getElementById('inbox-body');
+    const body    = document.getElementById('inbox-body');   // right panel
+    const sidebar = document.getElementById('conv-list');    // left panel
 
     // ── Decrypt helper ────────────────────────────────────────────────────
     const senderKeyCache = {};
@@ -435,10 +442,10 @@ export async function renderInbox(container, navigate) {
         );
     }
 
-    // ── Render conversation list ──────────────────────────────────────────
-    function renderConvList(convMap) {
+    // ── Render conversation list (left sidebar) ───────────────────────────
+    function renderConvList(convMap, activePartner = null) {
         if (convMap.size === 0) {
-            body.innerHTML = `<div class="empty-state">No messages yet. Start a conversation!</div>`;
+            sidebar.innerHTML = `<div class="empty-state" style="padding:2rem 1rem;font-size:.875rem">No conversations yet</div>`;
             return;
         }
 
@@ -447,8 +454,9 @@ export async function renderInbox(container, navigate) {
             const preview = last?.content ?? '';
             const date    = formatDate(last?.created_at);
             const initial = (partner[0] ?? '?').toUpperCase();
+            const active  = partner === activePartner ? ' active' : '';
             return `
-                <div class="chat-item" data-partner="${esc(partner)}" role="button" tabindex="0">
+                <div class="chat-item${active}" data-partner="${esc(partner)}" role="button" tabindex="0">
                     <div class="chat-avatar">${esc(initial)}</div>
                     <div class="chat-item-body">
                         <div class="chat-item-header">
@@ -460,9 +468,9 @@ export async function renderInbox(container, navigate) {
                 </div>`;
         }).join('');
 
-        body.innerHTML = `<div class="chat-list">${items}</div>`;
+        sidebar.innerHTML = items;
 
-        body.querySelectorAll('.chat-item').forEach(item => {
+        sidebar.querySelectorAll('.chat-item').forEach(item => {
             const open = () => renderThread(item.dataset.partner, convMap.get(item.dataset.partner) ?? []);
             item.addEventListener('click', open);
             item.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') open(); });
@@ -522,25 +530,24 @@ export async function renderInbox(container, navigate) {
     function renderThread(partner, msgs) {
         const bubbles = msgs.map(msg => buildBubble(msg, myUsername)).join('');
 
+        // Highlight active conversation in sidebar
+        renderConvList(currentConvMap, partner);
+
         body.innerHTML = `
             <div class="thread-header">
-                <button class="btn btn-secondary btn-sm" id="btn-back-list">← Back</button>
+                <div class="chat-avatar" style="width:36px;height:36px;font-size:.875rem;flex-shrink:0">${esc((partner[0] ?? '?').toUpperCase())}</div>
                 <div class="thread-partner-info">
                     <span class="thread-partner">${esc(partner)}</span>
-                    <span id="thread-fingerprint" class="key-fingerprint"></span>
+                    <span id="thread-fingerprint" class="key-fingerprint" style="margin:0"></span>
                 </div>
             </div>
             <div class="chat-thread" id="chat-thread">
-                ${bubbles}
+                ${bubbles || '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>'}
             </div>
             <form class="send-bar" id="send-bar" novalidate>
                 <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required>
                 <button type="submit" class="btn btn-primary send-btn">Send</button>
             </form>`;
-
-        document.getElementById('btn-back-list').addEventListener('click', () => {
-            renderConvList(currentConvMap);
-        });
 
         // Show partner's key fingerprint
         getUser(partner).then(async user => {
@@ -627,15 +634,14 @@ export async function renderInbox(container, navigate) {
                 currentConvMap.get(partner).push(msg);
             }
 
-            // If currently showing the list, re-render it to update previews
-            if (body.querySelector('.chat-list')) {
-                renderConvList(currentConvMap);
-            }
-            // If in a thread, append any new bubbles for that thread
+            // Always re-render the sidebar to update previews
+            const partnerEl    = body.querySelector('.thread-partner');
+            const activePartner = partnerEl?.textContent?.trim() ?? '';
+            renderConvList(currentConvMap, activePartner);
+
+            // If a thread is open, append new bubbles for that thread
             const thread = body.querySelector('#chat-thread');
             if (thread) {
-                const partnerEl = body.querySelector('.thread-partner');
-                const activePartner = partnerEl?.textContent ?? '';
                 const relevant = newDecrypted.filter(m => {
                     const p = m.direction === 'sent'
                         ? (m.recipient_username ?? 'Unknown')
@@ -659,27 +665,37 @@ export async function renderInbox(container, navigate) {
 
 // ── Bubble renderers ──────────────────────────────────────────────────────
 function buildBubble(msg, myUsername) {
-    const id        = msg.id ?? msg.message_id ?? '';
-    const isSent    = msg.direction === 'sent' || (msg.sender_username === myUsername);
-    const content   = msg.content ?? '(encrypted)';
-    const date      = formatDate(msg.created_at ?? msg.timestamp);
-    const sender    = msg.sender_username ?? 'Unknown';
+    const id      = msg.id ?? msg.message_id ?? '';
+    const isSent  = msg.direction === 'sent' || (msg.sender_username === myUsername);
+    const content = msg.content ?? '(encrypted)';
+    const date    = formatDate(msg.created_at ?? msg.timestamp);
+    const sender  = msg.sender_username ?? 'Unknown';
+    const sid     = esc(String(id));
 
-    const actions = isSent
-        ? `<button class="btn-action" data-action="download" data-id="${esc(String(id))}">Download</button>`
-        : `<button class="btn-action" data-action="forward"  data-id="${esc(String(id))}">Forward</button>
-           <button class="btn-action" data-action="download" data-id="${esc(String(id))}">Download</button>
-           <button class="btn-action danger" data-action="revoke"  data-id="${esc(String(id))}">Revoke</button>
-           <button class="btn-action danger" data-action="delete"  data-id="${esc(String(id))}">Delete</button>`;
+    const avatarLabel = isSent
+        ? esc((myUsername[0] ?? '?').toUpperCase())
+        : esc((sender[0] ?? '?').toUpperCase());
+
+    // Per spec:
+    //   Forward  — both sender and recipient
+    //   Download — both sender and recipient
+    //   Delete   — both sender and recipient (soft-delete per role)
+    //   Revoke   — sender only (forwarded messages only)
+    const actions = `
+        <button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>
+        <button class="btn-icon" data-action="download" data-id="${sid}" title="Download">⬇️</button>
+        <button class="btn-icon" data-action="delete"   data-id="${sid}" title="Delete">🗑️</button>
+        ${isSent ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}`;
 
     return `
         <div class="bubble-wrap ${isSent ? 'sent' : 'received'}">
+            <div class="bubble-avatar">${avatarLabel}</div>
             <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
                 <div class="msg-body">${esc(String(content))}</div>
-                <div class="bubble-meta">
-                    ${date ? `<span class="msg-date">${date}</span>` : ''}
+                <div class="bubble-footer">
+                    ${date ? `<span class="msg-date">${date}</span>` : '<span></span>'}
+                    <div class="msg-actions">${actions}</div>
                 </div>
-                <div class="msg-actions">${actions}</div>
             </div>
         </div>`;
 }
