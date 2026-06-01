@@ -1,370 +1,12 @@
-/**
- * views.js — render functions for Login, Inbox, and Compose views.
- *
- * Each function writes HTML into `container` (the #app element) then
- * wires up event listeners.  They never touch the DOM outside their
- * container, keeping routing concerns in app.js.
- */
-
-import * as api from './api.js';
-import { getUser, sendMessage, getUserId } from './api.js';
-import { encryptMessage, decryptMessage } from '../crypto/messageEncryption.js';
-import { generateKeypair, getPublicKeyBytes, getPrivateKeyBytes } from '../crypto/keypair.js';
-import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-// Prevent XSS when interpolating any user-supplied string into innerHTML
-function esc(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#x27;');
-}
-
-function formatDate(ts) {
-    if (!ts) return '';
-    // Accept both Unix seconds (number) and ISO strings
-    const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-    return isNaN(d) ? '' : d.toLocaleString();
-}
-
-// ── Helpers (crypto) ─────────────────────────────────────────────────────
-function hexToBytes(hex) {
-    if (hex.length % 2 !== 0) throw new Error('hexToBytes: odd-length hex string');
-    if (/[^0-9a-fA-F]/.test(hex)) throw new Error('hexToBytes: invalid hex character');
-    const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-        bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    }
-    return bytes;
-}
-
-// Decode hex or base64 string to Uint8Array (C++ sends base64 for ct/nonce; web sends hex).
-function decodeField(str) {
-    if (/^[0-9a-f]+$/i.test(str) && str.length % 2 === 0) return hexToBytes(str);
-    return Uint8Array.from(atob(str), c => c.charCodeAt(0));
-}
-
-// Parse ISO-8601 or RFC 2822 date string to Unix seconds integer.
-function parseTimestamp(str) {
-    if (!str) return 0;
-    const d = new Date(str.includes('T') || str.includes(',') ? str : str.replace(' ', 'T') + 'Z');
-    return isNaN(d) ? 0 : Math.floor(d.getTime() / 1000);
-}
-
-// ── Crypto ────────────────────────────────────────────────────────────────
-
-// SHA-256 fingerprint of a raw public key, formatted as colon-separated uppercase
-// hex pairs (first 8 bytes only). e.g. "A3:F2:11:8C:44:D0:9E:7B"
-// Used for out-of-band identity verification — matches the C++ client's format.
-async function keyFingerprint(pkBytes) {
-    const hash = await crypto.subtle.digest('SHA-256', pkBytes);
-    return Array.from(new Uint8Array(hash).slice(0, 8))
-        .map(b => b.toString(16).padStart(2, '0').toUpperCase())
-        .join(':');
-}
-
-// TODO: fetch recipient's x25519_public_key and encrypt with HPKE.
-// eslint-disable-next-line no-unused-vars
-async function encryptForRecipient(_recipientUsername, _plaintext) {
-    throw new Error('encryptForRecipient is not yet implemented — plaintext must not be sent');
-}
-
-// ── Unlock view (re-derive private key after page reload) ─────────────────
-export function renderUnlock(container, navigate, onUnlocked) {
-    const username = api.getUsername() ?? '';
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card">
-                <h2>🔒 Session Locked</h2>
-                <p>Your session is still active${username ? ` as <strong>${esc(username)}</strong>` : ''}. Re-enter your password to unlock.</p>
-                <form id="unlock-form" novalidate>
-                    <div class="form-group">
-                        <label for="u-password">Password</label>
-                        <input type="password" id="u-password" autocomplete="current-password" required autofocus>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Unlock</button>
-                    <div id="unlock-msg" role="alert"></div>
-                </form>
-                <p><a href="#" id="unlock-logout">Sign in as a different user</a></p>
-            </div>
-        </div>`;
-
-    document.getElementById('unlock-logout').addEventListener('click', (e) => {
-        e.preventDefault();
-        api.logout();
-        navigate('login');
-    });
-
-    const form = document.getElementById('unlock-form');
-    const msg  = document.getElementById('unlock-msg');
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = form.querySelector('button[type="submit"]');
-        btn.disabled = true;
-        msg.className = msg.textContent = '';
-
-        const password     = document.getElementById('u-password').value;
-        const wrappedB64   = api.getStoredWrappedKey();
-        const kekSalt      = api.getStoredKekSalt();
-
-        if (!wrappedB64) {
-            msg.className = 'error-msg';
-            msg.textContent = 'Session expired — please sign in again.';
-            setTimeout(() => { api.logout(); navigate('login'); }, 1500);
-            return;
-        }
-
-        try {
-            const parsed    = JSON.parse(atob(wrappedB64));
-            const encrypted = EncryptedPrivateKey.fromJSON(parsed);
-            const privBytes = await decryptPrivateKey(encrypted, password);
-            const privKey   = await crypto.subtle.importKey(
-                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveKey', 'deriveBits'],
-            );
-            api.setPrivateKey(privKey);
-            onUnlocked();
-        } catch {
-            msg.className = 'error-msg';
-            msg.textContent = 'Incorrect password.';
-            btn.disabled = false;
-        }
-    });
-}
-
-// ── Login view ────────────────────────────────────────────────────────────
-export function renderLogin(container, navigate) {
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card">
-                <h1>Sign in</h1>
-                <form id="login-form" novalidate>
-                    <div class="form-group">
-                        <label for="l-username">Username</label>
-                        <input type="text" id="l-username" autocomplete="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="l-password">Password</label>
-                        <input type="password" id="l-password" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
-                    <div id="login-msg" role="alert"></div>
-                </form>
-                <div class="auth-toggle">
-                    No account yet?
-                    <button id="show-register">Register</button>
-                </div>
-            </div>
-        </div>`;
-
-    const form = document.getElementById('login-form');
-    const msg  = document.getElementById('login-msg');
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = form.querySelector('button[type="submit"]');
-        btn.disabled = true;
-        msg.className = msg.textContent = '';
-
-        try {
-            await api.login(
-                document.getElementById('l-username').value.trim(),
-                document.getElementById('l-password').value
-            );
-            if (!api.getPrivateKey()) {
-                msg.className = 'error-msg';
-                msg.textContent = 'Your account is authenticated but your encryption key could not be loaded. Please contact support.';
-                btn.disabled = false;
-                return;
-            }
-            navigate('inbox');
-        } catch (err) {
-            msg.className = 'error-msg';
-            msg.textContent = err.message;
-            btn.disabled = false;
-        }
-    });
-
-    document.getElementById('show-register').addEventListener('click', () => {
-        renderRegister(container, navigate);
-    });
-}
-
-// ── TOFU key pinning ──────────────────────────────────────────────────────
-// On first contact with a user, their public key is pinned in localStorage.
-// On subsequent contacts, if the key has changed the user is warned — this
-// catches a compromised server swapping in a malicious key (MITM).
-const TOFU_PREFIX = 'tofu_pk_';
-
-function tofuCheck(username, b64PublicKey) {
-    const stored = localStorage.getItem(TOFU_PREFIX + username);
-    if (!stored) {
-        // First time seeing this user — pin their key
-        localStorage.setItem(TOFU_PREFIX + username, b64PublicKey);
-        return { pinned: true, changed: false };
-    }
-    if (stored !== b64PublicKey) {
-        // Key changed since we last saw this user — possible MITM
-        return { pinned: false, changed: true, storedKey: stored };
-    }
-    return { pinned: false, changed: false };
-}
-
-// ── Password strength validation ──────────────────────────────────────────
-function validatePassword(pw) {
-    const errors = [];
-    if (pw.length < 8)              errors.push('at least 8 characters');
-    if (!/[A-Z]/.test(pw))          errors.push('one uppercase letter');
-    if (!/[a-z]/.test(pw))          errors.push('one lowercase letter');
-    if (!/[0-9]/.test(pw))          errors.push('one number');
-    if (!/[^A-Za-z0-9]/.test(pw))   errors.push('one special character');
-    return errors;
-}
-
-// ── Register view ─────────────────────────────────────────────────────────
-function renderRegister(container, navigate) {
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card" style="position:center">
-                <h1>Create account</h1>
-                <form id="reg-form" novalidate>
-                    <div class="form-group">
-                        <label for="r-username">Username</label>
-                        <input type="text" id="r-username" autocomplete="username" required
-                               pattern="[A-Za-z0-9_]{3,32}" title="3–32 characters, letters, numbers and underscores only">
-                        <div id="username-hint" class="pw-rules" style="justify-content:flex-start">
-                            <span id="username-rule">✗ 3–32 chars, letters/numbers/underscores only</span>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="r-email">Email</label>
-                        <input type="email" id="r-email" autocomplete="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="r-password">Password</label>
-                        <input type="password" id="r-password" autocomplete="new-password" required>
-                        <div id="pw-rules" class="pw-rules">
-                            <span data-rule="length">✗ 8+ characters</span>
-                            <span data-rule="upper">✗ Uppercase letter</span>
-                            <span data-rule="lower">✗ Lowercase letter</span>
-                            <span data-rule="number">✗ Number</span>
-                            <span data-rule="special">✗ Special character</span>
-                        </div>
-                    </div>
-                    <div class="form-group" id="r-confirm-group" hidden>
-                        <label for="r-confirm">Confirm password</label>
-                        <input type="password" id="r-confirm" autocomplete="new-password">
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%">Register</button>
-                    <div id="reg-msg" role="alert"></div>
-                </form>
-                <div class="auth-toggle">
-                    Already have an account?
-                    <button id="show-login">Sign in</button>
-                </div>
-            </div>
-        </div>`;
-
-    const form    = document.getElementById('reg-form');
-    const msg     = document.getElementById('reg-msg');
-    const pwInput = document.getElementById('r-password');
-    const unInput = document.getElementById('r-username');
-
-    // Live username rule indicator
-    unInput.addEventListener('input', () => {
-        const el = document.getElementById('username-rule');
-        if (!el) return;
-        const ok = /^[A-Za-z0-9_]{3,32}$/.test(unInput.value);
-        el.textContent = (ok ? '✓ ' : '✗ ') + '3–32 chars, letters/numbers/underscores only';
-        el.classList.toggle('pw-rule-ok', ok);
-    });
-
-    // Live password rule indicators
-    const ruleChecks = {
-        length:  pw => pw.length >= 8,
-        upper:   pw => /[A-Z]/.test(pw),
-        lower:   pw => /[a-z]/.test(pw),
-        number:  pw => /[0-9]/.test(pw),
-        special: pw => /[^A-Za-z0-9]/.test(pw),
-    };
-
-    pwInput.addEventListener('input', () => {
-        const pw = pwInput.value;
-        for (const [rule, check] of Object.entries(ruleChecks)) {
-            const el = document.querySelector(`[data-rule="${rule}"]`);
-            if (!el) continue;
-            const ok = check(pw);
-            el.textContent = (ok ? '✓ ' : '✗ ') + el.textContent.slice(2);
-            el.classList.toggle('pw-rule-ok', ok);
-        }
-        // Show confirm field only once the user has started typing a password
-        document.getElementById('r-confirm-group').hidden = pw.length === 0;
-    });
-
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = form.querySelector('button[type="submit"]');
-        btn.disabled = true;
-        msg.className = msg.textContent = '';
-
-        try {
-            const username = unInput.value.trim();
-            const email    = document.getElementById('r-email').value.trim();
-            const password = document.getElementById('r-password').value;
-            const confirm  = document.getElementById('r-confirm').value;
-
-            // Username format
-            if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) {
-                msg.className = 'error-msg';
-                msg.textContent = 'Username must be 3–32 characters: letters, numbers, and underscores only.';
-                btn.disabled = false;
-                return;
-            }
-
-            // Password strength
-            const pwErrors = validatePassword(password);
-            if (pwErrors.length > 0) {
-                msg.className = 'error-msg';
-                msg.textContent = `Password must contain: ${pwErrors.join(', ')}.`;
-                btn.disabled = false;
-                return;
-            }
-
-            // Confirm password
-            if (password !== confirm) {
-                msg.className = 'error-msg';
-                msg.textContent = 'Passwords do not match.';
-                btn.disabled = false;
-                return;
-            }
-
-            const { publicKey, privateKey } = await generateKeypair();
-            const pubKeyBytes = await getPublicKeyBytes(publicKey);
-            const encryptedPrivateKey = await encryptPrivateKey(await getPrivateKeyBytes(privateKey), password);
-            const toB64 = bytes => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''));
-            await api.register(username, email, password, {
-                x25519_public_key:  toB64(pubKeyBytes),
-                wrapped_private_key: btoa(JSON.stringify(encryptedPrivateKey.toJSON())),
-                kek_salt:           toB64(encryptedPrivateKey.salt),
-            });
-            msg.className = 'success-msg';
-            msg.textContent = 'Account created — redirecting to sign in…';
-            setTimeout(() => renderLogin(container, navigate), 1600);
-        } catch (err) {
-            msg.className = 'error-msg';
-            msg.textContent = err.message;
-            btn.disabled = false;
-        }
-    });
-
-    document.getElementById('show-login').addEventListener('click', () => {
-        renderLogin(container, navigate);
-    });
-}
+import * as api from '../api.js';
+import { getUser, sendMessage, getUserId } from '../api.js';
+import { encryptMessage, decryptMessage } from '../../crypto/messageEncryption.js';
+import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../../crypto/keyStorage.js';
+import {
+    esc, formatDate, decodeField, parseTimestamp,
+    keyFingerprint, tofuCheck, TOFU_PREFIX,
+    validatePassword, showInlineError,
+} from './helpers.js';
 
 // ── Inbox view ────────────────────────────────────────────────────────────
 export async function renderInbox(container, navigate) {
@@ -435,15 +77,14 @@ export async function renderInbox(container, navigate) {
         renderThread(partner, currentConvMap.get(partner) ?? []);
     });
 
-    // ── Change Password dialog (opened via navbar custom event) ───────────
+    // ── Change Password dialog ────────────────────────────────────────────
     const cpDialog   = document.getElementById('change-password-dialog');
     const inboxAbort = new AbortController();
     document.getElementById('cp-cancel').addEventListener('click', () => cpDialog.close());
     document.addEventListener('open-change-password', () => cpDialog.showModal(), { signal: inboxAbort.signal });
 
-    // Live rule indicators for change-password dialog
-    const cpNewInput = document.getElementById('cp-new');
-    const cpRuleChecks = {
+    const cpNewInput    = document.getElementById('cp-new');
+    const cpRuleChecks  = {
         length:  pw => pw.length >= 8,
         upper:   pw => /[A-Z]/.test(pw),
         lower:   pw => /[a-z]/.test(pw),
@@ -489,11 +130,10 @@ export async function renderInbox(container, navigate) {
             const wrappedB64 = api.getWrappedKey();
             if (!wrappedB64) throw new Error('No key material in session — please log in again.');
 
-            const parsed    = JSON.parse(atob(wrappedB64));
-            const encrypted = EncryptedPrivateKey.fromJSON(parsed);
-            const privBytes = await decryptPrivateKey(encrypted, oldPw);
-
-            const newEncrypted  = await encryptPrivateKey(privBytes, newPw);
+            const parsed       = JSON.parse(atob(wrappedB64));
+            const encrypted    = EncryptedPrivateKey.fromJSON(parsed);
+            const privBytes    = await decryptPrivateKey(encrypted, oldPw);
+            const newEncrypted = await encryptPrivateKey(privBytes, newPw);
             const newWrappedB64 = btoa(JSON.stringify(newEncrypted.toJSON()));
             const newKekSalt    = btoa(String.fromCharCode(...newEncrypted.salt));
 
@@ -512,14 +152,13 @@ export async function renderInbox(container, navigate) {
         }
     });
 
-    const body    = document.getElementById('inbox-body');   // right panel
-    const sidebar = document.getElementById('conv-list');    // left panel
+    const body    = document.getElementById('inbox-body');
+    const sidebar = document.getElementById('conv-list');
 
     // ── Decrypt helper ────────────────────────────────────────────────────
     const senderKeyCache = {};
 
     async function tryDecrypt(msg) {
-        // For sent messages, check the sessionStorage plaintext cache first.
         const msgId = msg.id ?? msg.message_id ?? '';
         if (msg.direction === 'sent') {
             const cached = sessionStorage.getItem(`sent_plain_${msgId}`);
@@ -541,7 +180,6 @@ export async function renderInbox(container, navigate) {
 
             const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
             if (!senderKeyCache[msg.sender_username]) {
-                // TOFU: pin or verify sender's key
                 const tofu = tofuCheck(msg.sender_username, msg.sender_x25519_public_key);
                 if (tofu.changed) {
                     console.warn(`[TOFU] Key change detected for ${msg.sender_username} — possible MITM`);
@@ -551,7 +189,6 @@ export async function renderInbox(container, navigate) {
                 );
             }
             const senderStaticPubKey = senderKeyCache[msg.sender_username];
-
             const senderId    = msg.sender_id ?? '';
             const recipientId = msg.recipient_id ?? '';
             const timestamp   = parseTimestamp(msg.created_at ?? msg.timestamp);
@@ -567,7 +204,6 @@ export async function renderInbox(container, navigate) {
     }
 
     // ── Group messages into conversations ─────────────────────────────────
-    // Returns Map<partnerUsername, msg[]> sorted by most-recent-first for list.
     function groupByConversation(msgs) {
         const convMap = new Map();
         for (const msg of msgs) {
@@ -577,7 +213,6 @@ export async function renderInbox(container, navigate) {
             if (!convMap.has(partner)) convMap.set(partner, []);
             convMap.get(partner).push(msg);
         }
-        // Sort conversations by the timestamp of their latest message (newest first)
         return new Map(
             [...convMap.entries()].sort((a, b) => {
                 const lastA = a[1].at(-1)?.created_at ?? '';
@@ -633,7 +268,6 @@ export async function renderInbox(container, navigate) {
         const senderId = getUserId();
         if (!privKey || !senderId) throw new Error('Session key unavailable — please log in again.');
 
-        // TOFU: warn if recipient's key has changed since we last saw it
         const tofu = tofuCheck(partner, recipientUser.x25519_public_key);
         if (tofu.changed) {
             const proceed = window.confirm(
@@ -642,7 +276,6 @@ export async function renderInbox(container, navigate) {
                 `Verify their fingerprint out-of-band before continuing.\n\nSend anyway?`
             );
             if (!proceed) throw new Error('Send cancelled — please verify the recipient\'s key fingerprint.');
-            // Update pin to the new key after user confirms
             localStorage.setItem(TOFU_PREFIX + partner, recipientUser.x25519_public_key);
         }
 
@@ -666,7 +299,6 @@ export async function renderInbox(container, navigate) {
 
         sessionStorage.setItem(`sent_plain_${messageId}`, content);
 
-        // Optimistically append the sent bubble without waiting for the next poll
         const sentMsg = {
             id: messageId, direction: 'sent',
             sender_username: myUsername, recipient_username: partner,
@@ -692,8 +324,6 @@ export async function renderInbox(container, navigate) {
     // ── Render thread ─────────────────────────────────────────────────────
     function renderThread(partner, msgs) {
         const bubbles = msgs.map(msg => buildBubble(msg, myUsername)).join('');
-
-        // Highlight active conversation in sidebar
         renderConvList(currentConvMap, partner);
 
         body.innerHTML = `
@@ -712,7 +342,6 @@ export async function renderInbox(container, navigate) {
                 <button type="submit" class="btn btn-primary send-btn">Send</button>
             </form>`;
 
-        // Show partner's key fingerprint + TOFU warning if key changed
         getUser(partner).then(async user => {
             const fpEl = document.getElementById('thread-fingerprint');
             if (!fpEl || !user?.x25519_public_key) return;
@@ -735,7 +364,6 @@ export async function renderInbox(container, navigate) {
             btn.addEventListener('click', () => handleAction(btn, body));
         });
 
-        // ── Send bar ──────────────────────────────────────────────────────
         let cachedRecipient = null;
 
         document.getElementById('send-bar').addEventListener('submit', async (e) => {
@@ -804,12 +432,10 @@ export async function renderInbox(container, navigate) {
                 currentConvMap.get(partner).push(msg);
             }
 
-            // Always re-render the sidebar to update previews
-            const partnerEl    = body.querySelector('.thread-partner');
+            const partnerEl     = body.querySelector('.thread-partner');
             const activePartner = partnerEl?.textContent?.trim() ?? '';
             renderConvList(currentConvMap, activePartner);
 
-            // If a thread is open, append new bubbles for that thread
             const thread = body.querySelector('#chat-thread');
             if (thread) {
                 const relevant = newDecrypted.filter(m => {
@@ -833,7 +459,7 @@ export async function renderInbox(container, navigate) {
     }, 10_000);
 }
 
-// ── Bubble renderers ──────────────────────────────────────────────────────
+// ── Bubble renderer ───────────────────────────────────────────────────────
 function buildBubble(msg, myUsername) {
     const id        = msg.id ?? msg.message_id ?? '';
     const isSent    = msg.direction === 'sent' || (msg.sender_username === myUsername);
@@ -847,11 +473,6 @@ function buildBubble(msg, myUsername) {
         ? esc((myUsername[0] ?? '?').toUpperCase())
         : esc((sender[0] ?? '?').toUpperCase());
 
-    // Per spec:
-    //   Forward  — both sender and recipient (disabled once revoked)
-    //   Download — both sender and recipient
-    //   Delete   — sender only (hard deletes the row)
-    //   Revoke   — sender only, only if not already revoked
     const actions = `
         ${!isRevoked ? `<button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>` : ''}
         <button class="btn-icon" data-action="download" data-id="${sid}" title="Download">⬇️</button>
@@ -872,10 +493,9 @@ function buildBubble(msg, myUsername) {
         </div>`;
 }
 
-// Returns the entered username, or null if cancelled.
+// ── Forward dialog ────────────────────────────────────────────────────────
 function showForwardDialog() {
     return new Promise(resolve => {
-        // Re-use the existing dialog element if already in DOM, otherwise create one
         let dlg = document.getElementById('forward-dialog');
         if (!dlg) {
             dlg = document.createElement('dialog');
@@ -903,12 +523,10 @@ function showForwardDialog() {
         const msgEl     = dlg.querySelector('#fwd-msg');
         const cancelBtn = dlg.querySelector('#fwd-cancel');
 
-        // Reset state
         input.value = '';
         fpEl.textContent = '';
         msgEl.className = msgEl.textContent = '';
 
-        // Abort controller scoped to this single open — cleans up listeners on close
         const fwdAbort = new AbortController();
 
         input.addEventListener('blur', async () => {
@@ -943,6 +561,7 @@ function showForwardDialog() {
     });
 }
 
+// ── Message action handler ────────────────────────────────────────────────
 async function handleAction(btn, inboxBody) {
     const { action, id } = btn.dataset;
     btn.disabled = true;
@@ -968,7 +587,6 @@ async function handleAction(btn, inboxBody) {
                 const text = `From: ${sender}\nDate: ${date}\n\n${content}`;
                 const blob = new Blob([text], { type: 'text/plain' });
                 const url  = URL.createObjectURL(blob);
-
                 const a    = document.createElement('a');
                 a.href     = url;
                 a.download = `message-${id}.txt`;
@@ -980,7 +598,6 @@ async function handleAction(btn, inboxBody) {
             }
 
             case 'forward': {
-                // Show a dialog to pick the recipient instead of window.prompt
                 const recipientUsername = await showForwardDialog();
                 if (!recipientUsername) { btn.disabled = false; return; }
 
@@ -1013,7 +630,7 @@ async function handleAction(btn, inboxBody) {
                     orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
                 );
 
-                const recipKeyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
+                const recipKeyBytes  = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
                 const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
                 const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
                     plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
@@ -1029,10 +646,8 @@ async function handleAction(btn, inboxBody) {
                     ephemeral_pk: toHex(fwdEphPkBytes),
                 });
 
-                // Cache plaintext so the forwarded copy shows in the sender's sent bubble
                 sessionStorage.setItem(`sent_plain_${messageId}`, plaintext);
 
-                // Visual feedback on the icon button
                 const origLabel = btn.textContent;
                 btn.textContent = '✅';
                 setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 1500);
@@ -1040,7 +655,6 @@ async function handleAction(btn, inboxBody) {
             }
         }
 
-        // If no messages remain, show the empty state
         if (!inboxBody.querySelector('.message-card')) {
             inboxBody.innerHTML = `<div class="empty-state">Your inbox is empty.</div>`;
         }
@@ -1048,13 +662,4 @@ async function handleAction(btn, inboxBody) {
         showInlineError(inboxBody, `Action failed: ${err.message}`);
         btn.disabled = false;
     }
-}
-
-// ── Utility ───────────────────────────────────────────────────────────────
-function showInlineError(container, text) {
-    const el = document.createElement('div');
-    el.className = 'error-msg';
-    el.textContent = text;
-    container.prepend(el);
-    setTimeout(() => el.remove(), 4000);
 }

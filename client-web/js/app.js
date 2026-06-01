@@ -6,7 +6,8 @@
  */
 
 import * as api   from './api.js';
-import { renderLogin, renderInbox, renderUnlock } from './views.js';
+import { renderLogin, renderUnlock } from './views/auth.js';
+import { renderInbox } from './views/inbox.js';
 import { renderVerify } from '../blockchain/blockchainVerifyView.js';
 
 const appEl   = document.getElementById('app');
