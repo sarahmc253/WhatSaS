@@ -428,6 +428,42 @@ messages = data.messages ?? [];
     body.querySelectorAll('[data-action]').forEach((btn) => {
         btn.addEventListener('click', () => handleAction(btn, body));
     });
+
+    // Poll for new messages every 10 seconds while this view is mounted.
+    // Only inserts cards that aren't already in the DOM — no full re-render.
+    const knownIds = new Set(decrypted.map(m => String(m.id ?? m.message_id ?? '')));
+
+    const pollInterval = setInterval(async () => {
+        // Stop polling if the inbox is no longer in the document
+        if (!body.isConnected) { clearInterval(pollInterval); return; }
+        try {
+            const data = await api.getMessages();
+            const fresh = data.messages ?? [];
+            const newMsgs = fresh.filter(m => !knownIds.has(String(m.id ?? m.message_id ?? '')));
+            if (newMsgs.length === 0) return;
+
+            const newDecrypted = await Promise.all(
+                newMsgs.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
+            );
+
+            const list = body.querySelector('.message-list') ?? (() => {
+                // inbox was showing empty-state; replace it
+                body.innerHTML = '<div class="message-list"></div>';
+                return body.querySelector('.message-list');
+            })();
+
+            for (const msg of newDecrypted) {
+                knownIds.add(String(msg.id ?? msg.message_id ?? ''));
+                const tmp = document.createElement('div');
+                tmp.innerHTML = buildMessageCard(msg);
+                const card = tmp.firstElementChild;
+                card.querySelectorAll('[data-action]').forEach(btn => {
+                    btn.addEventListener('click', () => handleAction(btn, body));
+                });
+                list.prepend(card);
+            }
+        } catch { /* non-fatal — silently skip this tick */ }
+    }, 10_000);
 }
 
 function buildMessageCard(msg) {
