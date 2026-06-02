@@ -19,7 +19,7 @@ export function renderUnlock(container, navigate, onUnlocked) {
                     <button type="submit" class="btn btn-primary">Unlock</button>
                     <div id="unlock-msg" role="alert"></div>
                 </form>
-                <p><a href="#" id="unlock-logout">Sign in as a different user</a></p>
+                <p><a href="#" id="unlock-logout" style="color: inherit; text-decoration: none; cursor: pointer;">Sign in as a different user</a></p>
             </div>
         </div>`;
 
