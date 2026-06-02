@@ -31,6 +31,7 @@
 
 .chat-sidebar .chat-list {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     border: none;
@@ -81,15 +82,14 @@
 
 .chat-main .chat-thread {
     flex: 1;
+    min-height: 0;
     padding: 1.25rem 1.5rem;
-    max-height: none;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
 }
 
 .chat-main .chat-thread::-webkit-scrollbar { width: 4px; }
