@@ -354,8 +354,70 @@ int main(int argc, char* argv[]) {
                 if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
                 if (convAction == ConvChoice::Refresh) continue;
                 if (convAction == ConvChoice::MessageAction) {
-                    std::cout << C_MUTED "                🗂  message actions coming soon~ 💌\n" C_RESET;
-                    pauseForUser();
+                    const auto& msgs = conv.getMessages();
+                    if (msgs.empty()) {
+                        std::cout << C_MUTED "                no messages to act on\n" C_RESET;
+                        pauseForUser();
+                        continue;
+                    }
+
+                    std::cout << C_MUTED "\n                enter message number (e.g. 3): " C_RESET;
+                    std::string numStr;
+                    if (!std::getline(std::cin, numStr)) continue;
+                    int msgIdx = 0;
+                    try { msgIdx = std::stoi(numStr) - 1; } catch (...) { continue; }
+                    if (msgIdx < 0 || msgIdx >= static_cast<int>(msgs.size())) {
+                        std::cout << C_DANGER "                invalid message number\n" C_RESET;
+                        pauseForUser();
+                        continue;
+                    }
+                    const auto& selected = msgs[msgIdx];
+                    const bool isReceived = (selected.senderId != username);
+
+                    std::cout << C_MUTED
+                              << "\n                message #" << (msgIdx + 1) << " selected\n"
+                              << "                (1)  🗑   delete\n";
+                    if (selected.senderId == username)
+                        std::cout << "                (2)  ↩   revoke\n";
+                    if (isReceived)
+                        std::cout << "                (3)  ➤   forward\n";
+                    std::cout << "                (4)  ✕   cancel\n\n"
+                              << C_PRIMARY "                action: " C_RESET;
+
+                    std::string act;
+                    if (!std::getline(std::cin, act)) continue;
+
+                    if (act == "1") {
+                        const auto r = client->deleteMessage(selected.messageId);
+                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299)
+                            std::cout << C_SUCCESS "                ✓  message deleted\n" C_RESET;
+                        else
+                            std::cout << C_DANGER "                ✗  delete failed (HTTP " << r.statusCode_ << ")\n" C_RESET;
+                        pauseForUser();
+                    } else if (act == "2" && selected.senderId == username) {
+                        const auto r = client->revokeMessage(selected.messageId);
+                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299)
+                            std::cout << C_SUCCESS "                ✓  message revoked\n" C_RESET;
+                        else
+                            std::cout << C_DANGER "                ✗  revoke failed (HTTP " << r.statusCode_ << ")\n" C_RESET;
+                        pauseForUser();
+                    } else if (act == "3" && isReceived) {
+                        std::cout << C_MUTED "                forward to: " C_RESET;
+                        std::string fwdPeer;
+                        if (!std::getline(std::cin, fwdPeer) || fwdPeer.empty()) continue;
+                        const auto fwdPk = client->fetchPeerPublicKey(fwdPeer);
+                        if (fwdPk.empty()) {
+                            std::cout << C_DANGER "                ✗  user not found\n" C_RESET;
+                            pauseForUser();
+                            continue;
+                        }
+                        const auto r = client->forwardMessage(selected.messageId, fwdPeer, fwdPk, selected.plaintext);
+                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299)
+                            std::cout << C_SUCCESS "                ✓  forwarded to " << fwdPeer << "\n" C_RESET;
+                        else
+                            std::cout << C_DANGER "                ✗  forward failed (HTTP " << r.statusCode_ << ")\n" C_RESET;
+                        pauseForUser();
+                    }
                     continue;
                 }
 
