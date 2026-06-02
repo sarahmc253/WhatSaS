@@ -5,7 +5,11 @@
 #include "message_crypto.hpp"
 
 #include <sodium.h>
-#include <cpuid.h>
+#if defined(_MSC_VER)
+#  include <intrin.h>
+#else
+#  include <cpuid.h>
+#endif
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <limits>
@@ -64,9 +68,15 @@ Client::Client(const std::string& baseUrl,
     }
     // libsodium's AES-NI detection is broken in MSYS2/MinGW builds — use cpuid directly
     {
-        unsigned int eax, ebx, ecx, edx;
+#if defined(_MSC_VER)
+        int info[4] = {};
+        __cpuid(info, 1);
+        if (!((info[2] >> 25) & 1))
+#else
+        unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
         __get_cpuid(1, &eax, &ebx, &ecx, &edx);
         if (!((ecx >> 25) & 1))
+#endif
             throw std::runtime_error("AES-256-GCM unavailable: hardware AES-NI required");
     }
     loadPins();
@@ -201,6 +211,16 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     body["ciphertext"]   = ctHex;
     body["nonce"]        = std::string(nonceHex);
     body["ephemeral_pk"] = std::string(ephHex);
+
+    std::cerr << "[sendMessage] recipient_id : " << recipientUuid          << "\n"
+              << "[sendMessage] ciphertext  : " << ctHex                   << "\n"
+              << "[sendMessage] nonce       : " << std::string(nonceHex)   << "\n"
+              << "[sendMessage] ephemeral_pk: " << std::string(ephHex)     << "\n";
+
+    if (recipientUuid.empty() || ctHex.empty() ||
+        std::string(nonceHex).empty() || std::string(ephHex).empty()) {
+        return {0, "", "sendMessage: one or more required fields are empty", false};
+    }
 
     return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
 }
