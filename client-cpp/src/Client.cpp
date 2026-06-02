@@ -213,11 +213,13 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     body["ciphertext"]   = ctHex;
     body["nonce"]        = std::string(nonceHex);
     body["ephemeral_pk"] = std::string(ephHex);
+    body["timestamp"]    = static_cast<int64_t>(std::time(nullptr));
 
     std::cerr << "[sendMessage] recipient_id : " << recipientUuid          << "\n"
               << "[sendMessage] ciphertext  : " << ctHex                   << "\n"
               << "[sendMessage] nonce       : " << std::string(nonceHex)   << "\n"
-              << "[sendMessage] ephemeral_pk: " << std::string(ephHex)     << "\n";
+              << "[sendMessage] ephemeral_pk: " << std::string(ephHex)     << "\n"
+              << "[sendMessage] timestamp   : " << static_cast<int64_t>(std::time(nullptr)) << "\n";
 
     if (recipientUuid.empty() || ctHex.empty() ||
         std::string(nonceHex).empty() || std::string(ephHex).empty()) {
