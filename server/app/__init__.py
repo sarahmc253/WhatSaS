@@ -24,14 +24,24 @@ def log_audit(action, user_id=None, message_id=None, metadata=None):
     try:
         db = get_db()
         cur = db.cursor()
-        ip = request.remote_addr
+        # X-Forwarded-For is set by the nginx reverse proxy in front of Gunicorn.
+        # Take only the first (leftmost) address — that is the original client IP.
+        # Fall back to remote_addr when the header is absent (direct connections / tests).
+        forwarded_for = request.headers.get('X-Forwarded-For')
+        ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
         meta_str = json.dumps(metadata) if metadata else None
-        cur.execute(
-            "INSERT INTO audit_log (user_id, message_id, action, ip_address, metadata) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (user_id, message_id, action, ip, meta_str)
-        )
-        db.commit()
+        try:
+            cur.execute(
+                "INSERT INTO audit_log (user_id, message_id, action, ip_address, metadata) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (user_id, message_id, action, ip, meta_str)
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            cur.close()
     except Exception as e:
         current_app.logger.error("audit log failed [%s]: %s", action, e)
 
