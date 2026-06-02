@@ -913,20 +913,24 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                 const origSenderKeyBytes = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
                 const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, []);
 
-                const origCt    = decodeField(orig.ciphertext);
-                const origNonce = decodeField(orig.nonce);
-                const origTs    = orig.timestamp;
-                console.debug('[forward] AD params', {
-                    sender_id:    orig.sender_id,
-                    recipient_id: orig.recipient_id,
-                    message_id:   orig.id,
-                    timestamp:    origTs,
-                });
-                const plaintext = await decryptMessage(
-                    origCt, origNonce, origEphPubKey, origEphPkBytes,
-                    privKey, origSenderPubKey,
-                    orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
-                );
+                // For sent messages the plaintext is cached in sessionStorage — use it
+                // directly rather than re-decrypting (sender can't decrypt their own messages
+                // without the recipient's private key for DH2).
+                const cachedPlaintext = sessionStorage.getItem(`sent_plain_${id}`);
+
+                let plaintext;
+                if (cachedPlaintext) {
+                    plaintext = cachedPlaintext;
+                } else {
+                    const origCt    = decodeField(orig.ciphertext);
+                    const origNonce = decodeField(orig.nonce);
+                    const origTs    = orig.timestamp;
+                    plaintext = await decryptMessage(
+                        origCt, origNonce, origEphPubKey, origEphPkBytes,
+                        privKey, origSenderPubKey,
+                        orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
+                    );
+                }
 
                 const recipKeyBytes  = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
                 const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
