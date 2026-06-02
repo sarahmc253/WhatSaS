@@ -90,6 +90,7 @@ async function request(method, path, { body = null, auth = false } = {}) {
 
     if (!res.ok) {
         const msg = data.message || data.error || `HTTP ${res.status}`;
+        console.error(`[api] ${method} ${path} → ${res.status}:`, data);
         throw Object.assign(new Error(msg), { status: res.status, data });
     }
 
@@ -128,7 +129,7 @@ export async function login(username, password) {
             );
             setPrivateKey(privKey);
         } catch (err) {
-            console.error('Private key import failed:', err);
+            console.error('[login] private key import failed — wrapped_private_key format mismatch or wrong password:', err);
         }
     }
 

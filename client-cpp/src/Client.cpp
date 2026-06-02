@@ -224,7 +224,12 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
         return {0, "", "sendMessage: one or more required fields are empty", false};
     }
 
-    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
+    auto resp = http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
+    if (resp.ok_) {
+        std::cerr << "[AUDIT] send_message id=" << enc->messageId
+                  << " recipient=" << recipientUsername << "\n";
+    }
+    return resp;
 }
 
 HttpResponse Client::getMessages() const {
