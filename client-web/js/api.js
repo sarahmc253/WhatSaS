@@ -127,9 +127,15 @@ export async function login(username, password) {
             const parsed    = JSON.parse(atob(data.wrapped_private_key));
             const encrypted = EncryptedPrivateKey.fromJSON(parsed);
             const privBytes = await decryptPrivateKey(encrypted, password);
-            const privKey   = await crypto.subtle.importKey(
-                'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveBits'],
-            );
+            let privKey;
+            try {
+                privKey = await crypto.subtle.importKey(
+                    'pkcs8', privBytes, { name: 'X25519' }, false, ['deriveBits'],
+                );
+            } catch (importErr) {
+                console.error('importKey failed:', importErr.message, '| privBytes.length:', privBytes.length);
+                throw importErr;
+            }
             setPrivateKey(privKey);
         } catch (err) {
             console.error('Private key import failed:', err);

@@ -276,22 +276,42 @@ export async function renderInbox(container, navigate) {
         }
 
         const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-        const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
+        console.log('importing recipient key');
+        let recipientPublicKey;
+        try {
+            recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
+        } catch (err) {
+            console.error('importing recipient key failed:', err);
+            throw err;
+        }
 
-        const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
-            content, recipientPublicKey, privKey, senderId, recipientUser.id,
-        );
+        console.log('calling encryptMessage');
+        let ephPkBytes, nonce, ciphertext, messageId;
+        try {
+            ({ ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+                content, recipientPublicKey, privKey, senderId, recipientUser.id,
+            ));
+        } catch (err) {
+            console.error('calling encryptMessage failed:', err);
+            throw err;
+        }
 
         const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
-        await sendMessage({
-            recipient_id:             recipientUser.id,
-            message_id:               messageId,
-            ciphertext:               toHex(ciphertext),
-            nonce:                    toHex(nonce),
-            ephemeral_pk:             toHex(ephPkBytes),
-            sender_x25519_public_key: api.getPublicKeyB64(),
-        });
+        console.log('calling sendMessage');
+        try {
+            await sendMessage({
+                recipient_id:             recipientUser.id,
+                message_id:               messageId,
+                ciphertext:               toHex(ciphertext),
+                nonce:                    toHex(nonce),
+                ephemeral_pk:             toHex(ephPkBytes),
+                sender_x25519_public_key: api.getPublicKeyB64(),
+            });
+        } catch (err) {
+            console.error('calling sendMessage failed:', err);
+            throw err;
+        }
 
         sessionStorage.setItem(`sent_plain_${messageId}`, content);
 
