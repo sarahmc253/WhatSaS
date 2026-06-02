@@ -290,21 +290,46 @@
     color: inherit;
 }
 
-/* Time + actions row: time on the left, icons on the right, both vertically centred */
+/* Sender name shown on received bubbles */
+.bubble-sender {
+    font-size: .72rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: .2rem;
+}
+
+/* Forwarded tag */
+.bubble-forwarded {
+    font-size: .68rem;
+    color: rgba(255,255,255,.7);
+    margin-bottom: .2rem;
+    font-style: italic;
+}
+.bubble.received .bubble-forwarded { color: var(--muted); }
+
+/* Time + actions row: all on one baseline */
 .bubble-footer {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: .625rem;
+    gap: .5rem;
     margin-top: .4rem;
-    min-height: 1.5rem;        /* keeps height stable whether or not actions are present */
+    min-height: 1.5rem;
+}
+
+.bubble-footer-left {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    flex-wrap: wrap;
+    min-width: 0;
 }
 
 .bubble .msg-date {
     font-size: .72rem;
     color: rgba(255,255,255,.8);
     white-space: nowrap;
-    line-height: 1.5rem;       /* matches btn-icon height so they sit on the same line */
+    line-height: 1.5rem;
 }
 .bubble.received .msg-date { color: var(--muted); }
 

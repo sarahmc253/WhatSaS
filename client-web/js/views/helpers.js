@@ -14,7 +14,14 @@ export function esc(str) {
 export function formatDate(ts) {
     if (!ts) return '';
     const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-    return isNaN(d) ? '' : d.toLocaleString();
+    if (isNaN(d)) return '';
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const locale = 'en-IE';
+    const timeStr = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Dublin' });
+    if (isToday) return timeStr;
+    const dateStr = d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Dublin' });
+    return `${dateStr}, ${timeStr}`;
 }
 
 // ── Byte helpers ──────────────────────────────────────────────────────────

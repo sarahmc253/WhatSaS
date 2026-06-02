@@ -521,13 +521,14 @@ export async function renderInbox(container, navigate) {
 
 // ── Bubble renderer ───────────────────────────────────────────────────────
 function buildBubble(msg, myUsername) {
-    const id        = msg.id ?? msg.message_id ?? '';
-    const isSent    = msg.direction === 'sent' || (msg.sender_username === myUsername);
-    const isRevoked = !!msg.is_revoked;
-    const content   = msg.content ?? '(encrypted)';
-    const date      = formatDate(msg.created_at ?? msg.timestamp);
-    const sender    = msg.sender_username ?? 'Unknown';
-    const sid       = esc(String(id));
+    const id          = msg.id ?? msg.message_id ?? '';
+    const isSent      = msg.direction === 'sent' || (msg.sender_username === myUsername);
+    const isRevoked   = !!msg.is_revoked;
+    const isForwarded = !!msg.original_message_id;
+    const content     = msg.content ?? '(encrypted)';
+    const date        = formatDate(msg.created_at ?? msg.timestamp);
+    const sender      = msg.sender_username ?? 'Unknown';
+    const sid         = esc(String(id));
 
     const avatarLabel = isSent
         ? '🧸'
@@ -545,7 +546,6 @@ function buildBubble(msg, myUsername) {
         ? `<span class="badge badge-anchored">&#9875; Anchored</span>`
         : `<span class="badge badge-unanchored">Not anchored</span>`;
 
-    // Hash details only shown on received messages that are anchored — never on sent bubbles
     const hashRows = (!isSent && (msg.tx_hash || msg.merkle_root)) ? `
             <details class="msg-anchor-details">
                 <summary>&#9875; Anchor details</summary>
@@ -559,11 +559,15 @@ function buildBubble(msg, myUsername) {
         <div class="bubble-wrap ${isSent ? 'sent' : 'received'}${isRevoked ? ' revoked' : ''}">
             <div class="bubble-avatar">${avatarLabel}</div>
             <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
+                ${!isSent ? `<div class="bubble-sender">${esc(sender)}</div>` : ''}
+                ${isForwarded ? `<div class="bubble-forwarded">↗ Forwarded</div>` : ''}
                 <div class="msg-body">${esc(String(content))}</div>
                 ${hashRows}
                 <div class="bubble-footer">
-                    ${date ? `<span class="msg-date">${date}</span>` : '<span></span>'}
-                    ${anchorBadge}
+                    <span class="bubble-footer-left">
+                        ${date ? `<span class="msg-date">${date}</span>` : ''}
+                        ${anchorBadge}
+                    </span>
                     <div class="msg-actions">${actions}</div>
                 </div>
             </div>

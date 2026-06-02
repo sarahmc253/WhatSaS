@@ -58,7 +58,8 @@ def get_messages():
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
                    'received' AS direction, 0 AS is_revoked,
-                   br.tx_hash, br.merkle_root
+                   br.tx_hash, br.merkle_root,
+                   m.original_message_id
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
@@ -72,7 +73,8 @@ def get_messages():
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
                    'sent' AS direction, m.is_revoked,
-                   br.tx_hash, br.merkle_root
+                   br.tx_hash, br.merkle_root,
+                   m.original_message_id
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
