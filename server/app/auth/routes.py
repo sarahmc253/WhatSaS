@@ -25,9 +25,10 @@ _DUMMY_HASH = ph.hash("dummy")
 auth_bp = Blueprint('auth', __name__)
 
 REQUIRED_FIELDS = [
-    'username', 'email', 'password',
+    'username', 'password',
     'x25519_public_key', 'wrapped_private_key', 'kek_salt',
 ]
+USERNAME_RE = re.compile(r'^[A-Za-z0-9_]{3,32}$')
 
 def _invalid_fields(data, fields):
     """Return fields that are missing, not a string, or blank after stripping."""
@@ -46,6 +47,9 @@ def register():
     invalid = _invalid_fields(data, REQUIRED_FIELDS)
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    if not USERNAME_RE.match(data['username']):
+        return jsonify({'error': 'Username must be 3–32 characters: letters, numbers, and underscores only.'}), 400
 
     pw = data['password']
     pw_errors = []
@@ -75,13 +79,13 @@ def register():
         cursor.execute(
             """
             INSERT INTO users
-                (id, username, email, password_hash, password_salt,
+                (id, username, password_hash, password_salt,
                  x25519_public_key, wrapped_private_key, kek_salt,
                  tofu_key_pinned_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                user_id, data['username'], data['email'],
+                user_id, data['username'],
                 password_hash, password_salt,
                 data['x25519_public_key'], data['wrapped_private_key'],
                 data['kek_salt'], now,
@@ -91,7 +95,7 @@ def register():
     except mysql.connector.IntegrityError as e:
         db.rollback()
         if e.errno == 1062:
-            return jsonify({'error': 'Username or email already exists'}), 409
+            return jsonify({'error': 'Username already exists'}), 409
         raise
     except Exception:
         db.rollback()

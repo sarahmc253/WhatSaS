@@ -14,7 +14,15 @@ from .anchor import anchor_pending
 messages_bp = Blueprint('messages', __name__)
 logger = logging.getLogger(__name__)
 
+
+@messages_bp.route('/keys', methods=['POST'])
+@jwt_required()
+def publish_key():
+    # C++ client posts here after login — key is already stored at registration, so no-op.
+    return jsonify({'status': 'ok'}), 200
+
 SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp']
+MAX_CIPHERTEXT_BYTES = 4000
 
 def _invalid_fields(data, fields):
     return [
@@ -50,7 +58,8 @@ def get_messages():
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
                    'received' AS direction, 0 AS is_revoked,
-                   br.tx_hash, br.merkle_root
+                   br.tx_hash, br.merkle_root,
+                   m.original_message_id
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
@@ -64,7 +73,8 @@ def get_messages():
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
                    'sent' AS direction, m.is_revoked,
-                   br.tx_hash, br.merkle_root
+                   br.tx_hash, br.merkle_root,
+                   m.original_message_id
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
@@ -91,6 +101,10 @@ def send_message():
     invalid = _invalid_fields(data, SEND_FIELDS)
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    ct = data.get('ciphertext', '')
+    if not isinstance(ct, str) or len(ct) > MAX_CIPHERTEXT_BYTES:
+        return jsonify({'error': 'Message too long — maximum 2,000 characters.'}), 400
 
     # Accept a client-generated message_id (hex string, 32 chars) for AD reconstruction.
     # Validate format strictly to prevent injection; fall back to server-generated UUID.
@@ -238,6 +252,10 @@ def forward_message(message_id):
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
+    fwd_ct = data.get('ciphertext', '')
+    if not isinstance(fwd_ct, str) or len(fwd_ct) > MAX_CIPHERTEXT_BYTES:
+        return jsonify({'error': 'Message too long — maximum 2,000 characters.'}), 400
+
     if not isinstance(data['timestamp'], int):
         return jsonify({'error': 'timestamp must be a Unix integer'}), 400
     ts_error = _validate_timestamp(data['timestamp'])
@@ -363,16 +381,11 @@ def revoke_message(message_id):
     if message['sender_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
 
-    now = datetime.now(timezone.utc)
     cursor = db.cursor()
     try:
         cursor.execute(
             "UPDATE messages SET is_revoked = 1 WHERE id = %s",
             (message_id,),
-        )
-        cursor.execute(
-            "UPDATE message_access SET revoked_at = %s WHERE message_id = %s",
-            (now, message_id),
         )
         db.commit()
     except Exception:

@@ -31,7 +31,7 @@ export async function renderInbox(container, navigate) {
 
         <!-- Change password modal (triggered from navbar) -->
         <dialog id="change-password-dialog">
-            <form id="change-password-form" method="dialog" novalidate>
+            <form id="change-password-form" novalidate>
                 <h3 style="margin-bottom:1.25rem">Change Password</h3>
                 <div class="form-group">
                     <label for="cp-old">Current password</label>
@@ -309,7 +309,7 @@ export async function renderInbox(container, navigate) {
             tmp.innerHTML = buildBubble(sentMsg, myUsername);
             const bubble = tmp.firstElementChild;
             bubble.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
+                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll, renderConvList));
             });
             bubble.querySelectorAll('[data-copy]').forEach(btn => {
                 btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -321,7 +321,27 @@ export async function renderInbox(container, navigate) {
 
     // ── Render thread ─────────────────────────────────────────────────────
     function renderThread(partner, msgs) {
-        const bubbles = msgs.map(msg => buildBubble(msg, myUsername)).join('');
+        let lastDateLabel = null;
+        const bubbles = msgs.map(msg => {
+            const ts = msg.created_at ?? msg.timestamp;
+            const d  = ts ? new Date(typeof ts === 'number' ? ts * 1000 : ts) : null;
+            let divider = '';
+            if (d && !isNaN(d)) {
+                const now   = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const yesterday = new Date(today - 86400000);
+                const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                let label;
+                if (msgDay.getTime() === today.getTime())          label = 'Today';
+                else if (msgDay.getTime() === yesterday.getTime()) label = 'Yesterday';
+                else label = d.toLocaleDateString('en-IE', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Dublin' });
+                if (label !== lastDateLabel) {
+                    lastDateLabel = label;
+                    divider = `<div class="date-divider"><span>${esc(label)}</span></div>`;
+                }
+            }
+            return divider + buildBubble(msg, myUsername);
+        }).join('');
         renderConvList(currentConvMap, partner);
 
         body.innerHTML = `
@@ -336,7 +356,7 @@ export async function renderInbox(container, navigate) {
                 ${bubbles || '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>'}
             </div>
             <form class="send-bar" id="send-bar" novalidate>
-                <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required>
+                <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required maxlength="2000">
                 <button type="submit" class="btn btn-primary send-btn">Send</button>
             </form>`;
 
@@ -359,7 +379,7 @@ export async function renderInbox(container, navigate) {
         thread.scrollTop = thread.scrollHeight;
 
         body.querySelectorAll('[data-action]').forEach(btn => {
-            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
+            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll, renderConvList));
         });
         body.querySelectorAll('[data-copy]').forEach(btn => {
             btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -373,6 +393,10 @@ export async function renderInbox(container, navigate) {
             const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
             const content = input.value.trim();
             if (!content) return;
+            if (content.length > 2000) {
+                showInlineError(body, 'Message too long — maximum 2,000 characters.');
+                return;
+            }
 
             sendBtn.disabled = true;
             input.disabled   = true;
@@ -427,7 +451,7 @@ export async function renderInbox(container, navigate) {
     // ── Poll for new messages ─────────────────────────────────────────────
     const knownIds = new Set(decrypted.map(m => String(m.id ?? m.message_id ?? '')));
 
-    const pollInterval = setInterval(async () => {
+    async function doPoll() {
         if (!body.isConnected) { clearInterval(pollInterval); inboxAbort.abort(); return; }
         try {
             const data    = await api.getMessages();
@@ -439,7 +463,7 @@ export async function renderInbox(container, navigate) {
                 // detect server-side state changes (revoke, edit)
                 for (const msgs of currentConvMap.values()) {
                     const existing = msgs.find(e => String(e.id ?? e.message_id ?? '') === id);
-                    if (existing && (existing.is_revoked !== m.is_revoked || existing.content_hash !== m.content_hash)) return true;
+                    if (existing && (existing.is_revoked !== m.is_revoked || existing.content_hash !== m.content_hash || existing.tx_hash !== m.tx_hash || existing.merkle_root !== m.merkle_root)) return true;
                 }
                 return false;
             });
@@ -464,7 +488,7 @@ export async function renderInbox(container, navigate) {
                             const tmp  = document.createElement('div');
                             tmp.innerHTML = buildBubble(msgs[idx], myUsername);
                             const newBubble = tmp.firstElementChild;
-                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername)));
+                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername, doPoll, renderConvList)));
                             newBubble.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard.writeText(b.dataset.copy)));
                             (wrap ?? liveBubble).replaceWith(newBubble);
                         }
@@ -498,7 +522,7 @@ export async function renderInbox(container, navigate) {
                     tmp.innerHTML = buildBubble(msg, myUsername);
                     const bubble = tmp.firstElementChild;
                     bubble.querySelectorAll('[data-action]').forEach(btn => {
-                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
+                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll, renderConvList));
                     });
                     bubble.querySelectorAll('[data-copy]').forEach(btn => {
                         btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -510,21 +534,24 @@ export async function renderInbox(container, navigate) {
         } catch (err) {
             console.error('[poll] message fetch failed:', err);
         }
-    }, 10_000);
+    }
+
+    const pollInterval = setInterval(doPoll, 10_000);
 }
 
 // ── Bubble renderer ───────────────────────────────────────────────────────
 function buildBubble(msg, myUsername) {
-    const id        = msg.id ?? msg.message_id ?? '';
-    const isSent    = msg.direction === 'sent' || (msg.sender_username === myUsername);
-    const isRevoked = !!msg.is_revoked;
-    const content   = msg.content ?? '(encrypted)';
-    const date      = formatDate(msg.created_at ?? msg.timestamp);
-    const sender    = msg.sender_username ?? 'Unknown';
-    const sid       = esc(String(id));
+    const id          = msg.id ?? msg.message_id ?? '';
+    const isSent      = msg.direction === 'sent' || (msg.sender_username === myUsername);
+    const isRevoked   = !!msg.is_revoked;
+    const isForwarded = !!msg.original_message_id;
+    const content     = msg.content ?? '(encrypted)';
+    const date        = formatDate(msg.created_at ?? msg.timestamp);
+    const sender      = msg.sender_username ?? 'Unknown';
+    const sid         = esc(String(id));
 
     const avatarLabel = isSent
-        ? esc((myUsername[0] ?? '?').toUpperCase())
+        ? '🧸'
         : esc((sender[0] ?? '?').toUpperCase());
 
     const actions = `
@@ -536,23 +563,31 @@ function buildBubble(msg, myUsername) {
         ${isRevoked ? `<span class="revoked-badge">Revoked</span>` : ''}`;
 
     const anchorBadge = msg.tx_hash
-        ? `<span class="badge badge-anchored">&#9875; ${esc(String(msg.tx_hash).slice(0, 10))}</span>`
+        ? `<span class="badge badge-anchored">&#9875; Anchored</span>`
         : `<span class="badge badge-unanchored">Not anchored</span>`;
-    const hashRows = (msg.tx_hash || msg.merkle_root) ? `
-            <div class="msg-hash-rows">
-                ${msg.tx_hash     ? `<div class="msg-hash-row"><span class="msg-hash-label">TX:</span><code>${esc(String(msg.tx_hash))}</code><button class="btn-copy" data-copy="${esc(String(msg.tx_hash))}" title="Copy">&#128203;</button></div>` : ''}
-                ${msg.merkle_root ? `<div class="msg-hash-row"><span class="msg-hash-label">Root:</span><code>${esc(String(msg.merkle_root))}</code><button class="btn-copy" data-copy="${esc(String(msg.merkle_root))}" title="Copy">&#128203;</button></div>` : ''}
-            </div>` : '';
+
+    const hashRows = (!isSent && (msg.tx_hash || msg.merkle_root)) ? `
+            <details class="msg-anchor-details">
+                <summary>&#9875; Anchor details</summary>
+                <div class="msg-hash-rows">
+                    ${msg.tx_hash     ? `<div class="msg-hash-row"><span class="msg-hash-label">TX</span><code class="msg-hash-val">${esc(String(msg.tx_hash))}</code><button class="btn-copy" data-copy="${esc(String(msg.tx_hash))}" title="Copy">&#128203;</button></div>` : ''}
+                    ${msg.merkle_root ? `<div class="msg-hash-row"><span class="msg-hash-label">Root</span><code class="msg-hash-val">${esc(String(msg.merkle_root))}</code><button class="btn-copy" data-copy="${esc(String(msg.merkle_root))}" title="Copy">&#128203;</button></div>` : ''}
+                </div>
+            </details>` : '';
 
     return `
         <div class="bubble-wrap ${isSent ? 'sent' : 'received'}${isRevoked ? ' revoked' : ''}">
             <div class="bubble-avatar">${avatarLabel}</div>
             <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
+                ${!isSent ? `<div class="bubble-sender">${esc(sender)}</div>` : ''}
+                ${isForwarded ? `<div class="bubble-forwarded">↗️ Forwarded</div>` : ''}
                 <div class="msg-body">${esc(String(content))}</div>
                 ${hashRows}
                 <div class="bubble-footer">
-                    ${date ? `<span class="msg-date">${date}</span>` : '<span></span>'}
-                    ${anchorBadge}
+                    <span class="bubble-footer-left">
+                        ${date ? `<span class="msg-date">${date}</span>` : ''}
+                        ${anchorBadge}
+                    </span>
                     <div class="msg-actions">${actions}</div>
                 </div>
             </div>
@@ -592,6 +627,7 @@ function showForwardDialog() {
         input.value = '';
         fpEl.textContent = '';
         msgEl.className = msgEl.textContent = '';
+        form.querySelector('button[type="submit"]').disabled = false;
 
         const fwdAbort = new AbortController();
 
@@ -608,8 +644,9 @@ function showForwardDialog() {
         }, { signal: fwdAbort.signal });
 
         cancelBtn.onclick = () => { fwdAbort.abort(); dlg.close(); resolve(null); };
+        dlg.oncancel     = () => { fwdAbort.abort(); resolve(null); };
 
-        form.onsubmit = (e) => {
+        form.onsubmit = async (e) => {
             e.preventDefault();
             const username = input.value.trim();
             if (!username) {
@@ -617,9 +654,22 @@ function showForwardDialog() {
                 msgEl.textContent = 'Please enter a username.';
                 return;
             }
-            fwdAbort.abort();
-            dlg.close();
-            resolve(username);
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            msgEl.className = '';
+            msgEl.textContent = 'Checking…';
+            try {
+                const user = await getUser(username);
+                if (!user?.id) throw new Error('User not found.');
+                fwdAbort.abort();
+                dlg.close();
+                resolve(username);
+            } catch {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'User not found. Check the username and try again.';
+                fpEl.textContent = '';
+                submitBtn.disabled = false;
+            }
         };
 
         dlg.showModal();
@@ -657,10 +707,11 @@ function showNewChatDialog() {
 
         input.value = '';
         msgEl.className = msgEl.textContent = '';
+        form.querySelector('button[type="submit"]').disabled = false;
 
         const abort = new AbortController();
 
-        form.addEventListener('submit', e => {
+        form.addEventListener('submit', async e => {
             e.preventDefault();
             const val = input.value.trim();
             if (!val) {
@@ -668,9 +719,21 @@ function showNewChatDialog() {
                 msgEl.textContent = 'Please enter a username.';
                 return;
             }
-            abort.abort();
-            dlg.close();
-            resolve(val);
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            msgEl.className = '';
+            msgEl.textContent = 'Checking…';
+            try {
+                const user = await getUser(val);
+                if (!user?.id) throw new Error('User not found.');
+                abort.abort();
+                dlg.close();
+                resolve(val);
+            } catch {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'User not found. Check the username and try again.';
+                submitBtn.disabled = false;
+            }
         }, { signal: abort.signal });
 
         cancelBtn.addEventListener('click', () => {
@@ -729,7 +792,7 @@ function showKeyChangedDialog(partner) {
 }
 
 // ── Message action handler ────────────────────────────────────────────────
-async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
+async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll = () => {}, renderConvList = () => {}) {
     const { action, id } = btn.dataset;
     btn.disabled = true;
 
@@ -738,15 +801,20 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
             case 'delete': {
                 await api.deleteMessage(id);
                 (btn.closest('.bubble-wrap') ?? btn.closest('.message-card'))?.remove();
-                // remove from map so sidebar preview and thread reopens stay consistent
+                const activePartner = inboxBody.querySelector('.thread-partner')?.textContent?.trim() ?? '';
                 for (const [partner, msgs] of currentConvMap) {
                     const idx = msgs.findIndex(m => String(m.id ?? m.message_id ?? '') === id);
                     if (idx !== -1) {
                         msgs.splice(idx, 1);
                         if (msgs.length === 0) currentConvMap.delete(partner);
-                        renderConvList(currentConvMap, inboxBody.querySelector('.thread-partner')?.textContent?.trim() ?? '');
                         break;
                     }
+                }
+                renderConvList(currentConvMap, activePartner);
+                // If the deleted message was the last one in the active thread, show empty state
+                const thread = inboxBody.querySelector('#chat-thread');
+                if (thread && !thread.querySelector('.bubble-wrap')) {
+                    thread.innerHTML = '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>';
                 }
                 break;
             }
@@ -771,7 +839,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                     const tmp = document.createElement('div');
                     tmp.innerHTML = buildBubble(entry, myUsername);
                     const newBubble = tmp.firstElementChild;
-                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername)));
+                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername, doPoll, renderConvList)));
                     wrap.replaceWith(newBubble);
                 } else {
                     wrap?.remove();
@@ -815,6 +883,8 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                     return;
                 }
                 btn.textContent = '✅';
+                // Poll immediately so the tx_hash appears on the bubble without waiting 10s
+                setTimeout(() => doPoll(), 3000);
                 setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 2000);
                 return;
             }
@@ -843,14 +913,24 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                 const origSenderKeyBytes = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
                 const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, []);
 
-                const origCt    = decodeField(orig.ciphertext);
-                const origNonce = decodeField(orig.nonce);
-                const origTs    = parseTimestamp(orig.created_at);
-                const plaintext = await decryptMessage(
-                    origCt, origNonce, origEphPubKey, origEphPkBytes,
-                    privKey, origSenderPubKey,
-                    orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
-                );
+                // For sent messages the plaintext is cached in sessionStorage — use it
+                // directly rather than re-decrypting (sender can't decrypt their own messages
+                // without the recipient's private key for DH2).
+                const cachedPlaintext = sessionStorage.getItem(`sent_plain_${id}`);
+
+                let plaintext;
+                if (cachedPlaintext) {
+                    plaintext = cachedPlaintext;
+                } else {
+                    const origCt    = decodeField(orig.ciphertext);
+                    const origNonce = decodeField(orig.nonce);
+                    const origTs    = orig.timestamp;
+                    plaintext = await decryptMessage(
+                        origCt, origNonce, origEphPubKey, origEphPkBytes,
+                        privKey, origSenderPubKey,
+                        orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
+                    );
+                }
 
                 const recipKeyBytes  = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
                 const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
@@ -860,7 +940,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
 
                 const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
-                await api.forwardMessage(id, {
+                const fwdResult = await api.forwardMessage(id, {
                     recipientUsername,
                     message_id:   messageId,
                     ciphertext:   toHex(ciphertext),
@@ -869,7 +949,10 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                     timestamp,
                 });
 
-                sessionStorage.setItem(`sent_plain_${messageId}`, plaintext);
+                // Server generates a new ID for the forwarded message — cache under that ID
+                // so tryDecrypt finds the plaintext when the poll fetches the sent message.
+                const serverAssignedId = fwdResult?.id ?? messageId;
+                sessionStorage.setItem(`sent_plain_${serverAssignedId}`, plaintext);
 
                 const origLabel = btn.textContent;
                 btn.textContent = '✅';

@@ -147,13 +147,13 @@ export async function login(username, password) {
     return data;
 }
 
-export async function register(username, email, password, cryptoPayload) {
+export async function register(username, password, cryptoPayload) {
     const { x25519_public_key, wrapped_private_key, kek_salt } = cryptoPayload ?? {};
     if (!x25519_public_key || !wrapped_private_key || !kek_salt) {
         throw new Error('Registration blocked: E2E crypto material is not yet implemented');
     }
     return request('POST', '/auth/register', {
-        body: { username, email, password, ...cryptoPayload }
+        body: { username, password, ...cryptoPayload }
     });
 }
 

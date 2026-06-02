@@ -133,6 +133,19 @@ inline std::string promptMessage(const std::string& peerId)
         std::cout << M "        💔 message cannot be empty\n" R;
         return "";
     }
+    // Count Unicode code points (not bytes) so emoji/multibyte text isn't over-rejected.
+    std::size_t codePoints = 0;
+    for (std::size_t i = 0; i < text.size(); ) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        if      (c < 0x80)  { ++codePoints; i += 1; }
+        else if (c < 0xE0)  { ++codePoints; i += 2; }
+        else if (c < 0xF0)  { ++codePoints; i += 3; }
+        else                { ++codePoints; i += 4; }
+    }
+    if (codePoints > 2000) {
+        std::cout << RED "        💔 message too long — maximum 2,000 characters\n" R;
+        return "";
+    }
     return text;
 }
 

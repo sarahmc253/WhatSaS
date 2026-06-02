@@ -12,7 +12,6 @@
 
 struct Credentials {
     std::string username;
-    std::string email;
     std::string password;
 };
 
@@ -101,9 +100,5 @@ inline Credentials promptCredentials() {
     std::cout << "Username: ";
     std::getline(std::cin, username);
 
-    std::string email;
-    std::cout << "Email:    ";
-    std::getline(std::cin, email);
-
-    return { username, email, readPassword() };
+    return { username, readPassword() };
 }

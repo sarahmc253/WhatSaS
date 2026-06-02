@@ -31,6 +31,7 @@
 
 .chat-sidebar .chat-list {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     border: none;
@@ -81,15 +82,14 @@
 
 .chat-main .chat-thread {
     flex: 1;
+    min-height: 0;
     padding: 1.25rem 1.5rem;
-    max-height: none;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
 }
 
 .chat-main .chat-thread::-webkit-scrollbar { width: 4px; }
@@ -111,9 +111,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: var(--muted);
+    color: rgba(255,255,255,.85);
     font-size: .9375rem;
+    font-weight: 500;
     gap: .5rem;
+    text-shadow: 0 1px 3px rgba(0,0,0,.3);
 }
 
 /* ── Avatar ──────────────────────────────────────────────────────────────── */
@@ -159,7 +161,6 @@
     display: flex;
     flex-direction: column;
     gap: .5rem;
-    max-height: 62vh;
     overflow-y: auto;
     padding: .75rem 0;
 }
@@ -289,23 +290,84 @@
     color: inherit;
 }
 
-/* Time + actions row: time on the left, icons on the right, both vertically centred */
-.bubble-footer {
+/* Sender name shown on received bubbles */
+.bubble-sender {
+    font-size: .72rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: .2rem;
+}
+
+/* Forwarded tag */
+.bubble-forwarded {
+    font-size: .68rem;
+    font-style: italic;
+    font-weight: 600;
+    color: rgba(255,255,255,.85);
+    border-left: 2px solid rgba(255,255,255,.5);
+    padding-left: .4rem;
+    margin-bottom: .35rem;
+}
+.bubble.received .bubble-forwarded {
+    color: var(--muted);
+    border-left-color: var(--border);
+}
+
+/* ── WhatsApp-style date divider ─────────────────────────────────────────── */
+.date-divider {
     display: flex;
     align-items: center;
+    gap: .75rem;
+    margin: .75rem 0 .5rem;
+    color: rgba(255,255,255,.75);
+    font-size: .72rem;
+    font-weight: 600;
+}
+.date-divider::before,
+.date-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,.25);
+}
+.date-divider span {
+    background: rgba(0,0,0,.18);
+    padding: .15rem .65rem;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+/* ── Bubble footer — all items on same baseline ───────────────────────────── */
+.bubble-footer {
+    display: flex;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: .625rem;
+    gap: .5rem;
     margin-top: .4rem;
-    min-height: 1.5rem;        /* keeps height stable whether or not actions are present */
+}
+
+.bubble-footer-left {
+    display: flex;
+    align-items: flex-end;
+    gap: .35rem;
+    flex-wrap: wrap;
+    min-width: 0;
+    line-height: 1.5rem;
 }
 
 .bubble .msg-date {
     font-size: .72rem;
     color: rgba(255,255,255,.8);
     white-space: nowrap;
-    line-height: 1.5rem;       /* matches btn-icon height so they sit on the same line */
+    line-height: 1.5rem;
 }
 .bubble.received .msg-date { color: var(--muted); }
+
+/* keep badge on same line as buttons */
+.bubble-footer .badge {
+    line-height: 1.5rem;
+    vertical-align: middle;
+}
 
 /* ── Bubble action icons ─────────────────────────────────────────────────── */
 .bubble .msg-actions {
@@ -359,8 +421,115 @@
 .btn-revoke:hover:not(:disabled) { background: rgba(255,255,255,.3); }
 .btn-revoke:disabled { opacity: .35; cursor: not-allowed; }
 
+/* ── Anchor details disclosure ───────────────────────────────────────────── */
+.msg-anchor-details {
+    margin: .375rem 0 .25rem;
+    font-size: .78rem;
+}
+
+.msg-anchor-details summary {
+    cursor: pointer;
+    color: var(--muted);
+    user-select: none;
+    padding: .15rem 0;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+}
+
+.msg-anchor-details summary::-webkit-details-marker { display: none; }
+.msg-anchor-details summary::before { content: '▶'; font-size: .6rem; transition: transform .15s; }
+.msg-anchor-details[open] summary::before { transform: rotate(90deg); }
+
+.msg-hash-rows {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    margin-top: .4rem;
+}
+
+.msg-hash-row {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    min-width: 0;
+}
+
+.msg-hash-label {
+    font-size: .7rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    flex-shrink: 0;
+    width: 2.5rem;
+}
+
+.msg-hash-val {
+    font-size: .68rem;
+    font-family: monospace;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 26ch;
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-copy {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: .75rem;
+    padding: 0 .15rem;
+    flex-shrink: 0;
+    line-height: 1;
+    opacity: .6;
+    transition: opacity .12s;
+}
+.btn-copy:hover { opacity: 1; }
+
 /* ── Revoked bubble ──────────────────────────────────────────────────────── */
 .bubble-wrap.revoked .bubble { opacity: .6; }
+
+/* ── Anchor / unanchored badge ───────────────────────────────────────────── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    font-size: .68rem;
+    padding: .1rem .45rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.badge-anchored {
+    background: rgba(21,128,61,.12);
+    color: #166534;
+    border: 1px solid rgba(21,128,61,.25);
+}
+
+.bubble.sent .badge-anchored {
+    background: rgba(255,255,255,.2);
+    color: rgba(255,255,255,.9);
+    border-color: rgba(255,255,255,.3);
+}
+
+.badge-unanchored {
+    background: rgba(107,114,128,.1);
+    color: var(--muted);
+    border: 1px solid rgba(107,114,128,.2);
+}
+
+.bubble.sent .badge-unanchored {
+    background: rgba(255,255,255,.12);
+    color: rgba(255,255,255,.6);
+    border-color: rgba(255,255,255,.2);
+}
 
 .revoked-badge {
     font-size: .68rem;

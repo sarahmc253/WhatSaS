@@ -6,6 +6,17 @@
     <meta name="contract-address" content="0x1F26Bfe3086E03F5c968fCB070C1e4D6cAbaB38B">
     <meta name="sepolia-rpc-url" content="https://sepolia.infura.io/v3/8ba71a7911e74488a3ac48750accc930">
     <title>WhatSaS</title>
+    <link id="favicon" rel="icon" href="data:,">
+    <script>
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        ctx.font = '52px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🧸', 32, 36);
+        document.getElementById('favicon').href = canvas.toDataURL();
+    </script>
     <link rel="stylesheet" href="css/base.css">
     <link rel="stylesheet" href="css/auth.css">
     <link rel="stylesheet" href="css/chat.css">
