@@ -45,26 +45,30 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT m.id, m.sender_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
-                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
-                   'received' AS direction, 0 AS is_revoked
+                   'received' AS direction, 0 AS is_revoked,
+                   br.tx_hash, br.merkle_root
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
+            LEFT JOIN blockchain_records br ON br.id = m.blockchain_record_id
             WHERE m.recipient_id = %s AND m.is_revoked = 0
 
             UNION ALL
 
-            SELECT m.id, m.sender_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
-                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
-                   'sent' AS direction, m.is_revoked
+                   'sent' AS direction, m.is_revoked,
+                   br.tx_hash, br.merkle_root
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
+            LEFT JOIN blockchain_records br ON br.id = m.blockchain_record_id
             WHERE m.sender_id = %s
 
             ORDER BY created_at ASC
@@ -110,12 +114,12 @@ def send_message():
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, content_hash)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, timestamp, content_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 message_id, sender_id, data['recipient_id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, content_hash,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, data['timestamp'], content_hash,
             ),
         )
         db.commit()
@@ -161,7 +165,7 @@ def get_message(message_id):
         cursor.execute(
             """
             SELECT m.sender_id, m.recipient_id, m.ciphertext, m.nonce, m.ephemeral_pk,
-                   m.created_at, u.x25519_public_key AS sender_x25519_public_key
+                   m.created_at, m.timestamp, u.x25519_public_key AS sender_x25519_public_key
             FROM messages m
             JOIN users u ON u.id = m.sender_id
             WHERE m.id = %s
@@ -184,6 +188,7 @@ def get_message(message_id):
         'ephemeral_pk': message['ephemeral_pk'],
         'sender_x25519_public_key': message['sender_x25519_public_key'],
         'created_at': message['created_at'].isoformat() if hasattr(message['created_at'], 'isoformat') else str(message['created_at']),
+        'timestamp': message['timestamp'],
     }), 200
 
 @messages_bp.route('/messages/<string:message_id>', methods=['DELETE'])
