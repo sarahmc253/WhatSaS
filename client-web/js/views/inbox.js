@@ -895,7 +895,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
 
                 const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
-                await api.forwardMessage(id, {
+                const fwdResult = await api.forwardMessage(id, {
                     recipientUsername,
                     message_id:   messageId,
                     ciphertext:   toHex(ciphertext),
@@ -904,7 +904,10 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                     timestamp,
                 });
 
-                sessionStorage.setItem(`sent_plain_${messageId}`, plaintext);
+                // Server generates a new ID for the forwarded message — cache under that ID
+                // so tryDecrypt finds the plaintext when the poll fetches the sent message.
+                const serverAssignedId = fwdResult?.id ?? messageId;
+                sessionStorage.setItem(`sent_plain_${serverAssignedId}`, plaintext);
 
                 const origLabel = btn.textContent;
                 btn.textContent = '✅';
