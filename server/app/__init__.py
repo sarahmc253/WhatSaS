@@ -1,9 +1,8 @@
-import json
 import logging
 import os
 import mysql.connector
 from datetime import timedelta
-from flask import Flask, g, current_app, request
+from flask import Flask, g, current_app
 from flask_jwt_extended import JWTManager
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -19,32 +18,6 @@ def get_db():
             database=current_app.config['DB_NAME']
         )
     return g.db
-
-def log_audit(action, user_id=None, message_id=None, metadata=None):
-    try:
-        db = get_db()
-        cur = db.cursor()
-        # X-Forwarded-For is set by the nginx reverse proxy in front of Gunicorn.
-        # Take only the first (leftmost) address — that is the original client IP.
-        # Fall back to remote_addr when the header is absent (direct connections / tests).
-        forwarded_for = request.headers.get('X-Forwarded-For')
-        ip = forwarded_for.split(',')[0].strip() if forwarded_for else request.remote_addr
-        meta_str = json.dumps(metadata) if metadata else None
-        try:
-            cur.execute(
-                "INSERT INTO audit_log (user_id, message_id, action, ip_address, metadata) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (user_id, message_id, action, ip, meta_str)
-            )
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            cur.close()
-    except Exception as e:
-        current_app.logger.error("audit log failed [%s]: %s", action, e)
-
 
 def create_app():
     app = Flask(__name__)
@@ -117,11 +90,9 @@ def create_app():
     from .auth.routes import auth_bp
     from .messages.routes import messages_bp
     from .users.routes import users_bp
-    from .audit.routes import audit_bp
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(messages_bp, url_prefix='')
     app.register_blueprint(users_bp, url_prefix='/users')
-    app.register_blueprint(audit_bp, url_prefix='')
 
     if app.config['ANCHORING_ENABLED']:
         # In debug mode the reloader forks a child process; only start the scheduler

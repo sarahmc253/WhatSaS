@@ -207,33 +207,24 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     char ephHex[65];
     sodium_bin2hex(ephHex, sizeof(ephHex), hpkeResult->ephPk.data(), hpkeResult->ephPk.size());
 
-    const int64_t sendTs = static_cast<int64_t>(std::time(nullptr));
-
     nlohmann::json body;
     body["recipient_id"] = recipientUuid;
     body["message_id"]   = enc->messageId;
     body["ciphertext"]   = ctHex;
     body["nonce"]        = std::string(nonceHex);
     body["ephemeral_pk"] = std::string(ephHex);
-    body["timestamp"]    = sendTs;
 
     std::cerr << "[sendMessage] recipient_id : " << recipientUuid          << "\n"
               << "[sendMessage] ciphertext  : " << ctHex                   << "\n"
               << "[sendMessage] nonce       : " << std::string(nonceHex)   << "\n"
-              << "[sendMessage] ephemeral_pk: " << std::string(ephHex)     << "\n"
-              << "[sendMessage] timestamp   : " << sendTs                  << "\n";
+              << "[sendMessage] ephemeral_pk: " << std::string(ephHex)     << "\n";
 
     if (recipientUuid.empty() || ctHex.empty() ||
         std::string(nonceHex).empty() || std::string(ephHex).empty()) {
         return {0, "", "sendMessage: one or more required fields are empty", false};
     }
 
-    auto resp = http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
-    if (resp.ok_) {
-        std::cerr << "[AUDIT] send_message id=" << enc->messageId
-                  << " recipient=" << recipientUsername << "\n";
-    }
-    return resp;
+    return http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
 }
 
 HttpResponse Client::getMessages() const {

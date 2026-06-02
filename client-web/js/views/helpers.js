@@ -35,14 +35,9 @@ export function decodeField(str) {
 }
 
 // Parse ISO-8601 or RFC 2822 date string to Unix seconds integer.
-// Always interprets the value as UTC — MySQL may return "2026-06-02T14:30:00"
-// without a Z suffix, which browsers parse as local time and break AD reconstruction.
 export function parseTimestamp(str) {
     if (!str) return 0;
-    // Normalise: replace space separator with T, then ensure Z suffix if no tz info present.
-    let s = str.replace(' ', 'T');
-    if (!s.endsWith('Z') && !/[+-][0-9]{2}:[0-9]{2}$/.test(s)) s += 'Z';
-    const d = new Date(s);
+    const d = new Date(str.includes('T') || str.includes(',') ? str : str.replace(' ', 'T') + 'Z');
     return isNaN(d) ? 0 : Math.floor(d.getTime() / 1000);
 }
 
