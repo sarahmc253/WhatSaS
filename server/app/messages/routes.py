@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import mysql.connector
 from flask import Blueprint, current_app, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from .. import get_db
+from .. import get_db, log_audit
 from .anchor import anchor_pending
 
 messages_bp = Blueprint('messages', __name__)
@@ -146,6 +146,7 @@ def send_message():
     finally:
         cursor.close()
 
+    log_audit('send_message', user_id=sender_id, message_id=message_id)
     return jsonify({'id': message_id}), 201
 
 
@@ -191,6 +192,7 @@ def get_message(message_id):
         return jsonify({'error': 'Message not found'}), 404
     if message['sender_id'] != current_user_id and message['recipient_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
+    log_audit('read_message', user_id=current_user_id, message_id=message_id)
     return jsonify({
         'id': message_id,
         'sender_id': message['sender_id'],
@@ -233,6 +235,7 @@ def delete_message(message_id):
     finally:
         cursor.close()
 
+    log_audit('delete_message', user_id=current_user_id, message_id=message_id)
     return jsonify({'message': f'message {message_id} deleted'}), 200
 
 @messages_bp.route('/messages/<string:message_id>/forward', methods=['POST'])
@@ -319,6 +322,8 @@ def forward_message(message_id):
     finally:
         cursor.close()
 
+    log_audit('send_message', user_id=current_user_id, message_id=new_id,
+              metadata={'forwarded_from': message_id})
     return jsonify({'id': new_id}), 201
 
 @messages_bp.route('/blockchain-record', methods=['GET'])
@@ -387,4 +392,5 @@ def revoke_message(message_id):
     finally:
         cursor.close()
 
+    log_audit('revoke_message', user_id=current_user_id, message_id=message_id)
     return jsonify({'message': f'message {message_id} revoked'}), 200

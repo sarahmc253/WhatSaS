@@ -10,7 +10,7 @@ from argon2.exceptions import VerifyMismatchError
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 
-from .. import get_db
+from .. import get_db, log_audit
 
 # Argon2id params (explicit to ensure stability across library versions):
 # time_cost=3       — number of iterations; increases CPU cost for attackers
@@ -140,11 +140,13 @@ def login():
             ph.verify(_DUMMY_HASH, data['password'])
         except Exception:
             pass
+        log_audit('failed_auth', metadata={'username': data['username']})
         return jsonify({'error': 'Invalid credentials'}), 401
 
     try:
         ph.verify(user['password_hash'], data['password'])
     except VerifyMismatchError:
+        log_audit('failed_auth', user_id=user['id'], metadata={'username': data['username']})
         return jsonify({'error': 'Invalid credentials'}), 401
 
     if ph.check_needs_rehash(user['password_hash']):
@@ -171,6 +173,8 @@ def login():
         identity=str(user['id']),
         additional_claims={'username': user['username']},
     )
+
+    log_audit('login', user_id=user['id'])
 
     return jsonify({
         'token': token,
@@ -257,6 +261,8 @@ def change_password():
     finally:
         cursor.close()
 
+    log_audit('key_rotation', user_id=user_id)
+
     return jsonify({'message': 'Password changed successfully'}), 200
 
 
@@ -265,6 +271,7 @@ def change_password():
 def logout():
     jti = get_jwt()['jti']
     current_app.revoked_jtis.add(jti)
+    log_audit('logout', user_id=get_jwt_identity())
 
     if current_app.config.get('ANCHORING_ENABLED'):
         user_id = get_jwt_identity()
