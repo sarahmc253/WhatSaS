@@ -916,6 +916,12 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                 const origCt    = decodeField(orig.ciphertext);
                 const origNonce = decodeField(orig.nonce);
                 const origTs    = orig.timestamp;
+                console.debug('[forward] AD params', {
+                    sender_id:    orig.sender_id,
+                    recipient_id: orig.recipient_id,
+                    message_id:   orig.id,
+                    timestamp:    origTs,
+                });
                 const plaintext = await decryptMessage(
                     origCt, origNonce, origEphPubKey, origEphPkBytes,
                     privKey, origSenderPubKey,
