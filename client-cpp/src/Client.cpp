@@ -84,17 +84,66 @@ Client::Client(const std::string& baseUrl,
     loadPins();
 }
 
+// Hex-encode len bytes of buf into a std::string.
+static std::string toHex(const unsigned char* buf, size_t len) {
+    static const char hex[] = "0123456789abcdef";
+    std::string out;
+    out.reserve(len * 2);
+    for (size_t i = 0; i < len; ++i) {
+        out += hex[(buf[i] >> 4) & 0xf];
+        out += hex[buf[i] & 0xf];
+    }
+    return out;
+}
+
+// Compute HMAC-SHA256 over `body` keyed with `key` (must be 32 bytes).
+static std::array<unsigned char, crypto_auth_hmacsha256_BYTES>
+computeHmac(const std::string& body, const std::vector<uint8_t>& key) {
+    std::array<unsigned char, crypto_auth_hmacsha256_BYTES> mac{};
+    crypto_auth_hmacsha256(mac.data(),
+        reinterpret_cast<const unsigned char*>(body.data()), body.size(),
+        key.data());
+    return mac;
+}
+
 // File format: one line per pin — "<username> <base64(pk)> <uuid>\n"
-// Lines starting with '#' are ignored. Malformed lines are skipped with a warning.
+// Lines starting with '#HMAC ' carry the HMAC-SHA256 trailer; other '#' lines are ignored.
+// Malformed lines are skipped with a warning.
 // The uuid column was added later; lines with only two tokens are loaded without UUID
 // (remap check will only activate once the UUID is seen from the server again).
 void Client::loadPins() {
     std::ifstream f(pinsPath_);
     if (!f.is_open()) return;  // file doesn't exist yet — that's fine on first run
+
+    std::string storedHmac;
+    std::string body;       // accumulates all non-HMAC lines for verification
+    std::vector<std::pair<std::string,std::string>> rawLines; // (userId, rest) pre-parse
+
     std::string line;
     while (std::getline(f, line)) {
+        if (line.size() > 6 && line.substr(0, 6) == "#HMAC ") {
+            storedHmac = line.substr(6);
+            continue;
+        }
+        body += line + "\n";
         if (line.empty() || line[0] == '#') continue;
-        std::istringstream ss(line);
+        rawLines.push_back({line, ""});
+    }
+
+    if (!storedHmac.empty()) {
+        auto mac = computeHmac(body, staticSk_);
+        std::string expected = toHex(mac.data(), mac.size());
+        if (storedHmac != expected) {
+            std::cerr << "[loadPins] HMAC mismatch — pins file may have been tampered with; "
+                         "ignoring all pins\n";
+            return;
+        }
+    } else {
+        std::cerr << "[loadPins] no HMAC trailer found — treating as legacy file\n";
+    }
+
+    for (const auto& [rawLine, _] : rawLines) {
+        std::istringstream ss(rawLine);
         std::string userId, pkB64, uuid;
         if (!(ss >> userId >> pkB64)) {
             std::cerr << "[loadPins] skipping malformed line in " << pinsPath_ << "\n";
@@ -125,13 +174,17 @@ bool Client::savePins() const {
             std::cerr << "[savePins] cannot write to " << tmp << "\n";
             return false;
         }
-        f << "# WhatSaS TOFU key pins — do not edit manually\n";
+        // Build body first so we can HMAC it before writing.
+        std::string body;
+        body += "# WhatSaS TOFU key pins — do not edit manually\n";
         for (const auto& [userId, pk] : pinnedKeys_) {
-            f << userId << " " << b64Encode(pk.data(), pk.size());
+            body += userId + " " + b64Encode(pk.data(), pk.size());
             auto idIt = pinnedIds_.find(userId);
-            if (idIt != pinnedIds_.end()) f << " " << idIt->second;
-            f << "\n";
+            if (idIt != pinnedIds_.end()) body += " " + idIt->second;
+            body += "\n";
         }
+        auto mac = computeHmac(body, staticSk_);
+        f << body << "#HMAC " << toHex(mac.data(), mac.size()) << "\n";
         // flush + close before rename so all bytes are on disk
         f.flush();
         if (!f.good()) {
