@@ -20,6 +20,7 @@ const PUBLIC_KEY_KEY = 'whatsas_pubkey';
 const WRAPPED_KEY_KEY = 'whatsas_wrapped';
 const KEK_SALT_KEY   = 'whatsas_keksalt';
 const USERNAME_KEY   = 'whatsas_username';
+const USER_ID_KEY    = 'whatsas_userid';
 
 // ── Token helpers ─────────────────────────────────────────────────────────
 function getToken()   { return sessionStorage.getItem(TOKEN_KEY); }
@@ -40,8 +41,8 @@ let _sessionKekSalt      = null;
 let _sessionUserId       = null;  // logged-in user's UUID — needed for AD in encryptMessage
 
 export function setPrivateKey(key)   { _sessionPrivateKey   = key; }
-export function getUserId()          { return _sessionUserId; }
-export function clearUserId()        { _sessionUserId = null; }
+export function getUserId()          { return _sessionUserId ?? sessionStorage.getItem(USER_ID_KEY); }
+export function clearUserId()        { _sessionUserId = null; sessionStorage.removeItem(USER_ID_KEY); }
 export function getPrivateKey()      { return _sessionPrivateKey; }
 export function clearPrivateKey()    { _sessionPrivateKey   = null; }
 
@@ -116,7 +117,10 @@ export async function login(username, password) {
         sessionStorage.setItem(KEK_SALT_KEY, data.kek_salt);
     }
     if (data.username) sessionStorage.setItem(USERNAME_KEY, data.username);
-    if (data.user_id)  _sessionUserId = data.user_id;
+    if (data.user_id) {
+        _sessionUserId = data.user_id;
+        sessionStorage.setItem(USER_ID_KEY, data.user_id);
+    }
 
     if (data.wrapped_private_key) {
         try {
