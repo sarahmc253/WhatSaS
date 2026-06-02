@@ -6,7 +6,8 @@
  */
 
 import * as api   from './api.js';
-import { renderLogin, renderInbox, renderCompose } from './views.js';
+import { renderLogin, renderUnlock } from './views/auth.js';
+import { renderInbox } from './views/inbox.js';
 import { renderVerify } from '../blockchain/blockchainVerifyView.js';
 
 const appEl   = document.getElementById('app');
@@ -14,9 +15,13 @@ const navbar  = document.getElementById('navbar');
 const footer  = document.getElementById('site-footer');
 
 // ── Navbar buttons ────────────────────────────────────────────────────────
-document.getElementById('nav-inbox').addEventListener('click',   () => navigate('inbox'));
-document.getElementById('nav-compose').addEventListener('click', () => navigate('compose'));
-document.getElementById('nav-logout').addEventListener('click',  () => {
+document.getElementById('nav-inbox').addEventListener('click',  () => navigate('inbox'));
+document.getElementById('nav-verify').addEventListener('click', () => navigate('verify'));
+document.getElementById('nav-change-password').addEventListener('click', () => {
+    // Dispatch a custom event that renderInbox listens for
+    document.dispatchEvent(new CustomEvent('open-change-password'));
+});
+document.getElementById('nav-logout').addEventListener('click', () => {
     api.logout();
     navigate('login');
 });
@@ -32,17 +37,24 @@ async function route() {
     // Redirect unauthenticated users away from protected views
     // verify is public — no login required to check a message's on-chain record
     const PUBLIC_VIEWS = new Set(['login', 'verify']);
+    const isAuthView   = view === 'login' || view === 'verify';
+
+    // Apply layout class immediately — before any early returns — so there's
+    // never a frame where the chat full-width layout clips auth content.
+    navbar.hidden = !api.isAuthenticated() || isAuthView;
+    appEl.classList.toggle('auth-mode', isAuthView);
+
     if (!api.isAuthenticated() && !PUBLIC_VIEWS.has(view)) {
         navigate('login');
         return;
     }
     if (api.isAuthenticated() && !api.getPrivateKey() && !PUBLIC_VIEWS.has(view)) {
-        navigate('login');
+        // Token is valid but private key was lost on page reload — show unlock prompt
+        // rather than forcing a full re-login.
+        appEl.classList.add('auth-mode');
+        renderUnlock(appEl, navigate, () => route());
         return;
     }
-
-    navbar.hidden = !api.isAuthenticated();
-    footer.hidden = view === 'verify';
 
     switch (view) {
         case 'login':
@@ -50,9 +62,6 @@ async function route() {
             break;
         case 'inbox':
             await renderInbox(appEl, navigate);
-            break;
-        case 'compose':
-            renderCompose(appEl, navigate);
             break;
         case 'verify':
             renderVerify(appEl);

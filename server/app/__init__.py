@@ -39,10 +39,10 @@ def create_app():
     app.config['DB_NAME'] = os.getenv('DB_NAME')
     app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')
-    # 15 minutes balances security and usability: short enough to limit exposure if a token
-    # is stolen, at the cost of requiring re-login for long sessions. A refresh token endpoint
-    # would remove that UX penalty, but adds scope — chosen not to implement for now.
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(minutes=15)
+    # 1 hour balances security and usability: short enough to limit exposure if a token
+    # is stolen, while covering a typical user session without forced re-login. A refresh
+    # token endpoint would allow indefinite sessions, but adds scope — not implemented.
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=1)
 
     web3_vars = ['WEB3_RPC_URL', 'CONTRACT_ADDRESS', 'WALLET_PRIVATE_KEY']
     missing_web3 = [v for v in web3_vars if not os.getenv(v)]

@@ -31,14 +31,31 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
-                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   ru.username AS recipient_username,
+                   'received' AS direction, 0 AS is_revoked
             FROM messages m
-            JOIN users u ON u.id = m.sender_id
+            JOIN users u  ON u.id = m.sender_id
+            JOIN users ru ON ru.id = m.recipient_id
             WHERE m.recipient_id = %s AND m.is_revoked = 0
+
+            UNION ALL
+
+            SELECT m.id, m.sender_id, u.username AS sender_username,
+                   u.x25519_public_key AS sender_x25519_public_key,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   ru.username AS recipient_username,
+                   'sent' AS direction, m.is_revoked
+            FROM messages m
+            JOIN users u  ON u.id = m.sender_id
+            JOIN users ru ON ru.id = m.recipient_id
+            WHERE m.sender_id = %s
+
+            ORDER BY created_at ASC
             """,
-            (current_user_id,),
+            (current_user_id, current_user_id),
         )
         rows = cursor.fetchall()
     finally:
@@ -149,11 +166,6 @@ def get_message(message_id):
         'created_at': message['created_at'].isoformat() if hasattr(message['created_at'], 'isoformat') else str(message['created_at']),
     }), 200
 
-_DELETE_FLAG = {
-    'sender': 'UPDATE messages SET is_deleted_sender = 1 WHERE id = %s',
-    'recipient': 'UPDATE messages SET is_deleted_recipient = 1 WHERE id = %s',
-}
-
 @messages_bp.route('/messages/<string:message_id>', methods=['DELETE'])
 @jwt_required()
 def delete_message(message_id):
@@ -162,27 +174,28 @@ def delete_message(message_id):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            'SELECT sender_id, recipient_id FROM messages WHERE id = %s',
+            'SELECT sender_id FROM messages WHERE id = %s',
             (message_id,),
         )
         message = cursor.fetchone()
     finally:
         cursor.close()
+
     if message is None:
         return jsonify({'error': 'Message not found'}), 404
-    if message['sender_id'] != current_user_id and message['recipient_id'] != current_user_id:
-        return jsonify({'error': 'Forbidden'}), 403
-    role = 'sender' if message['sender_id'] == current_user_id else 'recipient'
-    sql = _DELETE_FLAG[role]
+    if message['sender_id'] != current_user_id:
+        return jsonify({'error': 'Forbidden — you can only delete messages you sent'}), 403
+
     cursor = db.cursor()
     try:
-        cursor.execute(sql, (message_id,))
+        cursor.execute('DELETE FROM messages WHERE id = %s', (message_id,))
         db.commit()
     except Exception:
         db.rollback()
         raise
     finally:
         cursor.close()
+
     return jsonify({'message': f'message {message_id} deleted'}), 200
 
 @messages_bp.route('/messages/<string:message_id>/forward', methods=['POST'])
@@ -202,7 +215,10 @@ def forward_message(message_id):
 
     cursor = db.cursor(dictionary=True)
     try:
-        cursor.execute('SELECT sender_id, recipient_id FROM messages WHERE id = %s', (message_id,))
+        cursor.execute(
+            'SELECT sender_id, recipient_id, is_revoked FROM messages WHERE id = %s',
+            (message_id,),
+        )
         message = cursor.fetchone()
     finally:
         cursor.close()
@@ -223,7 +239,11 @@ def forward_message(message_id):
     if recipient is None:
         return jsonify({'error': 'Recipient not found'}), 404
 
-    new_id = str(uuid.uuid4())
+    # A revoked message cannot be forwarded back to the person it was revoked from
+    if message['is_revoked'] and recipient['id'] == message['recipient_id']:
+        return jsonify({'error': 'Cannot forward a revoked message back to the original recipient'}), 403
+
+    new_id = str(uuid.uuid4()).replace('-', '')
     now = datetime.now(timezone.utc)
     content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
@@ -293,10 +313,7 @@ def revoke_message(message_id):
     cursor = db.cursor(dictionary=True)
     try:
         cursor.execute(
-            """
-            SELECT id, sender_id FROM messages
-            WHERE id = %s AND original_message_id IS NOT NULL
-            """,
+            'SELECT id, sender_id FROM messages WHERE id = %s',
             (message_id,),
         )
         message = cursor.fetchone()
@@ -304,7 +321,7 @@ def revoke_message(message_id):
         cursor.close()
 
     if message is None:
-        return jsonify({'error': 'Forwarded message not found'}), 404
+        return jsonify({'error': 'Message not found'}), 404
 
     if message['sender_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
