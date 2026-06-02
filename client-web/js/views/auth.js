@@ -3,28 +3,38 @@ import { generateKeypair, getPublicKeyBytes, getPrivateKeyBytes } from '../../cr
 import { encryptPrivateKey, decryptPrivateKey, EncryptedPrivateKey } from '../../crypto/keyStorage.js';
 import { esc, keyFingerprint, validatePassword } from './helpers.js';
 
-// ── Unlock view (re-derive private key after page reload) ─────────────────
+const BEAR_SVG = `<div class="bear-emoji" aria-hidden="true">🧸</div>`;
+
+function teddyShell(formHTML) {
+    return `
+    <div class="auth-wrap">
+        ${BEAR_SVG}
+        <div class="auth-card">
+            ${formHTML}
+        </div>
+    </div>`;
+}
+
+// ── Unlock view ───────────────────────────────────────────────────────────────
 export function renderUnlock(container, navigate, onUnlocked) {
     const username = api.getUsername() ?? '';
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card">
-                <h2>🔒 Session Locked</h2>
-                <p>Your session is still active${username ? ` as <strong>${esc(username)}</strong>` : ''}. Re-enter your password to unlock.</p>
-                <form id="unlock-form" novalidate>
-                    <div class="form-group">
-                        <label for="u-password">Password</label>
-                        <input type="password" id="u-password" autocomplete="current-password" required autofocus>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Unlock</button>
-                    <div id="unlock-msg" role="alert"></div>
-                </form>
-                <p><a href="#" id="unlock-logout" style="color: inherit; text-decoration: none; cursor: pointer;">Sign in as a different user</a></p>
+    container.innerHTML = teddyShell(`
+        <h1>Welcome back!</h1>
+        <p class="auth-sub">Your session is still active${username ? ` as <strong>${esc(username)}</strong>` : ''}.</p>
+        <form id="unlock-form" novalidate>
+            <div class="form-group">
+                <label for="u-password">Password</label>
+                <input type="password" id="u-password" autocomplete="current-password" required autofocus placeholder="Enter your password">
             </div>
-        </div>`;
+            <button type="submit" class="btn btn-primary" style="width:100%">Unlock</button>
+            <div id="unlock-msg" role="alert"></div>
+        </form>
+        <div class="auth-toggle">
+            Not you? <button id="unlock-logout">Sign in as someone else</button>
+        </div>
+    `);
 
-    document.getElementById('unlock-logout').addEventListener('click', (e) => {
-        e.preventDefault();
+    document.getElementById('unlock-logout').addEventListener('click', () => {
         api.logout();
         navigate('login');
     });
@@ -65,30 +75,26 @@ export function renderUnlock(container, navigate, onUnlocked) {
     });
 }
 
-// ── Login view ────────────────────────────────────────────────────────────
+// ── Login view ────────────────────────────────────────────────────────────────
 export function renderLogin(container, navigate) {
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card">
-                <h1>Sign in</h1>
-                <form id="login-form" novalidate>
-                    <div class="form-group">
-                        <label for="l-username">Username</label>
-                        <input type="text" id="l-username" autocomplete="username" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="l-password">Password</label>
-                        <input type="password" id="l-password" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
-                    <div id="login-msg" role="alert"></div>
-                </form>
-                <div class="auth-toggle">
-                    No account yet?
-                    <button id="show-register">Register</button>
-                </div>
+    container.innerHTML = teddyShell(`
+        <h1>Welcome back!</h1>
+        <form id="login-form" novalidate>
+            <div class="form-group">
+                <label for="l-username">Username</label>
+                <input type="text" id="l-username" autocomplete="username" required placeholder="your_username">
             </div>
-        </div>`;
+            <div class="form-group">
+                <label for="l-password">Password</label>
+                <input type="password" id="l-password" autocomplete="current-password" required placeholder="••••••••">
+            </div>
+            <div id="login-msg" role="alert"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
+        </form>
+        <div class="auth-toggle">
+            No account yet? <button id="show-register">Register</button>
+        </div>
+    `);
 
     const form = document.getElementById('login-form');
     const msg  = document.getElementById('login-msg');
@@ -123,52 +129,46 @@ export function renderLogin(container, navigate) {
     });
 }
 
-// ── Register view ─────────────────────────────────────────────────────────
+// ── Register view ─────────────────────────────────────────────────────────────
 function renderRegister(container, navigate) {
-    container.innerHTML = `
-        <div class="auth-wrap">
-            <div class="card">
-                <h1>Create account</h1>
-                <form id="reg-form" novalidate>
-                    <div class="form-group">
-                        <label for="r-username">Username</label>
-                        <input type="text" id="r-username" autocomplete="username" required
-                               pattern="[A-Za-z0-9_]{3,32}" title="3–32 characters, letters, numbers and underscores only">
-                        <div id="username-hint" class="pw-rules" style="justify-content:flex-start">
-                            <span id="username-rule">✗ 3–32 chars, letters/numbers/underscores only</span>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="r-email">Email</label>
-                        <input type="email" id="r-email" autocomplete="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="r-password">Password</label>
-                        <input type="password" id="r-password" autocomplete="new-password" required>
-                        <div id="pw-rules" class="pw-rules">
-                            <span data-rule="length">✗ 8+ characters</span>
-                            <span data-rule="upper">✗ Uppercase letter</span>
-                            <span data-rule="lower">✗ Lowercase letter</span>
-                            <span data-rule="number">✗ Number</span>
-                            <span data-rule="special">✗ Special character</span>
-                        </div>
-                    </div>
-                    <div class="form-group" id="r-confirm-group" hidden>
-                        <label for="r-confirm">Confirm password</label>
-                        <input type="password" id="r-confirm" autocomplete="new-password">
-                        <div class="pw-rules" style="justify-content:flex-start">
-                            <span id="confirm-match-rule">✗ Passwords must match</span>
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%">Register</button>
-                    <div id="reg-msg" role="alert"></div>
-                </form>
-                <div class="auth-toggle">
-                    Already have an account?
-                    <button id="show-login">Sign in</button>
+    container.innerHTML = teddyShell(`
+        <h1>Create account</h1>
+        <form id="reg-form" novalidate>
+            <div class="reg-row">
+                <div class="form-group">
+                    <label for="r-username">Username</label>
+                    <input type="text" id="r-username" autocomplete="username" required
+                           pattern="[A-Za-z0-9_]{3,32}" placeholder="your_username">
+                    <div class="pw-rules"><span id="username-rule">✗ 3–32 chars, a-z/0-9/_</span></div>
+                </div>
+                <div class="form-group">
+                    <label for="r-email">Email</label>
+                    <input type="email" id="r-email" autocomplete="email" required placeholder="bear@woods.com">
                 </div>
             </div>
-        </div>`;
+            <div class="form-group">
+                <label for="r-password">Password</label>
+                <input type="password" id="r-password" autocomplete="new-password" required placeholder="••••••••">
+                <div id="pw-rules" class="pw-rules">
+                    <span data-rule="length">✗ 8+ chars</span>
+                    <span data-rule="upper">✗ Uppercase</span>
+                    <span data-rule="lower">✗ Lowercase</span>
+                    <span data-rule="number">✗ Number</span>
+                    <span data-rule="special">✗ Special char</span>
+                </div>
+            </div>
+            <div class="form-group" id="r-confirm-group" hidden>
+                <label for="r-confirm">Confirm password</label>
+                <input type="password" id="r-confirm" autocomplete="new-password" placeholder="••••••••">
+                <div class="pw-rules"><span id="confirm-match-rule">✗ Passwords must match</span></div>
+            </div>
+            <div id="reg-msg" role="alert"></div>
+            <button type="submit" class="btn btn-primary" style="width:100%">Create account</button>
+        </form>
+        <div class="auth-toggle">
+            Already have an account? <button id="show-login">Sign in</button>
+        </div>
+    `);
 
     const form    = document.getElementById('reg-form');
     const msg     = document.getElementById('reg-msg');
@@ -200,19 +200,16 @@ function renderRegister(container, navigate) {
             el.textContent = (ok ? '✓ ' : '✗ ') + el.textContent.slice(2);
             el.classList.toggle('pw-rule-ok', ok);
         }
-        const confirmGroup = document.getElementById('r-confirm-group');
-        confirmGroup.hidden = pw.length === 0;
-        // Re-check match indicator when password changes
+        document.getElementById('r-confirm-group').hidden = pw.length === 0;
         updateConfirmIndicator();
     });
 
     function updateConfirmIndicator() {
         const el = document.getElementById('confirm-match-rule');
         if (!el) return;
-        const pw      = pwInput.value;
         const confirm = document.getElementById('r-confirm').value;
         if (!confirm) { el.textContent = '✗ Passwords must match'; el.classList.remove('pw-rule-ok'); return; }
-        const ok = pw === confirm;
+        const ok = pwInput.value === confirm;
         el.textContent = (ok ? '✓ ' : '✗ ') + 'Passwords must match';
         el.classList.toggle('pw-rule-ok', ok);
     }
@@ -226,7 +223,7 @@ function renderRegister(container, navigate) {
         try {
             const username = unInput.value.trim();
             const email    = document.getElementById('r-email').value.trim();
-            const password = document.getElementById('r-password').value;
+            const password = pwInput.value;
             const confirm  = document.getElementById('r-confirm').value;
 
             if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) {
@@ -271,8 +268,5 @@ function renderRegister(container, navigate) {
     });
 
     document.getElementById('r-confirm').addEventListener('input', updateConfirmIndicator);
-
-    document.getElementById('show-login').addEventListener('click', () => {
-        renderLogin(container, navigate);
-    });
+    document.getElementById('show-login').addEventListener('click', () => renderLogin(container, navigate));
 }

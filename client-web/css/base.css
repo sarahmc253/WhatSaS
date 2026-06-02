@@ -72,15 +72,7 @@ nav { display: flex; gap: .25rem; }
     overflow: hidden;
 }
 
-/* Auth views (login/register/unlock) need centred, padded layout */
-#app.auth-mode {
-    max-width: 680px;
-    margin: 2rem auto;
-    padding: 0 1rem;
-    height: auto;
-    display: block;
-    overflow: visible;
-}
+/* Auth views handled entirely by auth.css */
 
 /* ── Card ────────────────────────────────────────────────────────────────── */
 .card {
