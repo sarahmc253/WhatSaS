@@ -612,7 +612,7 @@ function showForwardDialog() {
 
         cancelBtn.onclick = () => { fwdAbort.abort(); dlg.close(); resolve(null); };
 
-        form.onsubmit = (e) => {
+        form.onsubmit = async (e) => {
             e.preventDefault();
             const username = input.value.trim();
             if (!username) {
@@ -620,9 +620,22 @@ function showForwardDialog() {
                 msgEl.textContent = 'Please enter a username.';
                 return;
             }
-            fwdAbort.abort();
-            dlg.close();
-            resolve(username);
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            msgEl.className = '';
+            msgEl.textContent = 'Checking…';
+            try {
+                const user = await getUser(username);
+                if (!user?.id) throw new Error('User not found.');
+                fwdAbort.abort();
+                dlg.close();
+                resolve(username);
+            } catch {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'User not found. Check the username and try again.';
+                fpEl.textContent = '';
+                submitBtn.disabled = false;
+            }
         };
 
         dlg.showModal();
@@ -663,7 +676,7 @@ function showNewChatDialog() {
 
         const abort = new AbortController();
 
-        form.addEventListener('submit', e => {
+        form.addEventListener('submit', async e => {
             e.preventDefault();
             const val = input.value.trim();
             if (!val) {
@@ -671,9 +684,21 @@ function showNewChatDialog() {
                 msgEl.textContent = 'Please enter a username.';
                 return;
             }
-            abort.abort();
-            dlg.close();
-            resolve(val);
+            const submitBtn = form.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            msgEl.className = '';
+            msgEl.textContent = 'Checking…';
+            try {
+                const user = await getUser(val);
+                if (!user?.id) throw new Error('User not found.');
+                abort.abort();
+                dlg.close();
+                resolve(val);
+            } catch {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'User not found. Check the username and try again.';
+                submitBtn.disabled = false;
+            }
         }, { signal: abort.signal });
 
         cancelBtn.addEventListener('click', () => {
