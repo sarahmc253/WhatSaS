@@ -522,7 +522,7 @@ function buildBubble(msg, myUsername) {
     const sid       = esc(String(id));
 
     const avatarLabel = isSent
-        ? esc((myUsername[0] ?? '?').toUpperCase())
+        ? '🧸'
         : esc((sender[0] ?? '?').toUpperCase());
 
     const actions = `
