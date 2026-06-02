@@ -270,7 +270,14 @@ export async function renderInbox(container, navigate) {
 
         const tofu = tofuCheck(partner, recipientUser.x25519_public_key);
         if (tofu.changed) {
-            const proceed = await showKeyChangedDialog(partner);
+            console.log('showing key changed dialog');
+            let proceed;
+            try {
+                proceed = await showKeyChangedDialog(partner);
+            } catch (err) {
+                console.error('showing key changed dialog', err);
+                throw err;
+            }
             if (!proceed) throw new Error('Send cancelled — please verify the recipient\'s key fingerprint.');
             localStorage.setItem(TOFU_PREFIX + partner, recipientUser.x25519_public_key);
         }
@@ -389,26 +396,33 @@ export async function renderInbox(container, navigate) {
         let cachedRecipient = null;
 
         document.getElementById('send-bar').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const input   = document.getElementById('send-input');
-            const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
-            const content = input.value.trim();
-            if (!content) return;
-
-            sendBtn.disabled = true;
-            input.disabled   = true;
-
             try {
-                if (!cachedRecipient) cachedRecipient = await getUser(partner);
-                if (!cachedRecipient?.x25519_public_key) throw new Error('Cannot find recipient key.');
-                await sendFromThread(partner, content, cachedRecipient);
-                input.value = '';
+                e.preventDefault();
+                const input   = document.getElementById('send-input');
+                const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
+                const content = input.value.trim();
+                if (!content) return;
+
+                sendBtn.disabled = true;
+                input.disabled   = true;
+
+                try {
+                    console.log('getting cached recipient');
+                    if (!cachedRecipient) cachedRecipient = await getUser(partner);
+                    if (!cachedRecipient?.x25519_public_key) throw new Error('Cannot find recipient key.');
+                    console.log('calling sendFromThread');
+                    await sendFromThread(partner, content, cachedRecipient);
+                    input.value = '';
+                } catch (err) {
+                    showInlineError(body, `Send failed: ${err.message}`);
+                } finally {
+                    sendBtn.disabled = false;
+                    input.disabled   = false;
+                    input.focus();
+                }
             } catch (err) {
-                showInlineError(body, `Send failed: ${err.message}`);
-            } finally {
-                sendBtn.disabled = false;
-                input.disabled   = false;
-                input.focus();
+                console.error('send handler error:', err);
+                throw err;
             }
         });
     }
