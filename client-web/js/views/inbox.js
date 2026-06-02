@@ -71,8 +71,8 @@ export async function renderInbox(container, navigate) {
     }
 
     // ── New Chat button ───────────────────────────────────────────────────
-    document.getElementById('btn-compose').addEventListener('click', () => {
-        const partner = window.prompt('Start a chat with (enter username):')?.trim();
+    document.getElementById('btn-compose').addEventListener('click', async () => {
+        const partner = await showNewChatDialog();
         if (!partner) return;
         renderThread(partner, currentConvMap.get(partner) ?? []);
     });
@@ -175,23 +175,20 @@ export async function renderInbox(container, navigate) {
             const nonce      = decodeField(msg.nonce);
             const ephPkBytes = decodeField(msg.ephemeral_pk);
             const ephPubKey  = await crypto.subtle.importKey(
-                'raw', ephPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                'raw', ephPkBytes, { name: 'X25519' }, false, [],
             );
 
             const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
             if (!senderKeyCache[msg.sender_username]) {
                 const tofu = tofuCheck(msg.sender_username, msg.sender_x25519_public_key);
-                if (tofu.changed) {
-                    console.warn(`[TOFU] Key change detected for ${msg.sender_username} — possible MITM`);
-                }
                 senderKeyCache[msg.sender_username] = await crypto.subtle.importKey(
-                    'raw', senderPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                    'raw', senderPkBytes, { name: 'X25519' }, false, [],
                 );
             }
             const senderStaticPubKey = senderKeyCache[msg.sender_username];
             const senderId    = msg.sender_id ?? '';
             const recipientId = msg.recipient_id ?? '';
-            const timestamp   = parseTimestamp(msg.created_at ?? msg.timestamp);
+            const timestamp   = msg.timestamp ?? 0;
 
             return await decryptMessage(
                 ciphertext, nonce, ephPubKey, ephPkBytes,
@@ -270,19 +267,15 @@ export async function renderInbox(container, navigate) {
 
         const tofu = tofuCheck(partner, recipientUser.x25519_public_key);
         if (tofu.changed) {
-            const proceed = window.confirm(
-                `⚠️ Warning: ${partner}'s encryption key has changed since your last conversation.\n\n` +
-                `This could indicate a key rotation or a man-in-the-middle attack.\n\n` +
-                `Verify their fingerprint out-of-band before continuing.\n\nSend anyway?`
-            );
+            const proceed = await showKeyChangedDialog(partner);
             if (!proceed) throw new Error('Send cancelled — please verify the recipient\'s key fingerprint.');
             localStorage.setItem(TOFU_PREFIX + partner, recipientUser.x25519_public_key);
         }
 
         const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-        const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
+        const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
 
-        const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+        const { ephPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
             content, recipientPublicKey, privKey, senderId, recipientUser.id,
         );
 
@@ -295,6 +288,7 @@ export async function renderInbox(container, navigate) {
             nonce:                    toHex(nonce),
             ephemeral_pk:             toHex(ephPkBytes),
             sender_x25519_public_key: api.getPublicKeyB64(),
+            timestamp,
         });
 
         sessionStorage.setItem(`sent_plain_${messageId}`, content);
@@ -532,6 +526,7 @@ function buildBubble(msg, myUsername) {
     const actions = `
         ${!isRevoked ? `<button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>` : ''}
         <button class="btn-icon" data-action="download" data-id="${sid}" title="Download">⬇️</button>
+        ${!isSent && !isRevoked && !msg.tx_hash ? `<button class="btn-icon" data-action="anchor" data-id="${sid}" title="Anchor to blockchain">⚓</button>` : ''}
         ${isSent ? `<button class="btn-icon" data-action="delete" data-id="${sid}" title="Delete">🗑️</button>` : ''}
         ${isSent && !isRevoked ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}
         ${isRevoked ? `<span class="revoked-badge">Revoked</span>` : ''}`;
@@ -628,6 +623,107 @@ function showForwardDialog() {
     });
 }
 
+// ── New Chat dialog ───────────────────────────────────────────────────────
+function showNewChatDialog() {
+    return new Promise(resolve => {
+        let dlg = document.getElementById('new-chat-dialog');
+        if (!dlg) {
+            dlg = document.createElement('dialog');
+            dlg.id = 'new-chat-dialog';
+            dlg.innerHTML = `
+                <form id="new-chat-form" method="dialog" novalidate>
+                    <h3 style="margin-bottom:1.25rem">New chat</h3>
+                    <div class="form-group">
+                        <label for="nc-username">Username</label>
+                        <input type="text" id="nc-username" autocomplete="off" placeholder="Enter username" required>
+                    </div>
+                    <div style="display:flex;gap:.75rem;margin-top:1rem">
+                        <button type="submit" class="btn btn-primary">Start chat</button>
+                        <button type="button" class="btn btn-secondary" id="nc-cancel">Cancel</button>
+                    </div>
+                    <div id="nc-msg" role="alert" style="margin-top:.5rem"></div>
+                </form>`;
+            document.body.appendChild(dlg);
+        }
+
+        const form      = dlg.querySelector('#new-chat-form');
+        const input     = dlg.querySelector('#nc-username');
+        const msgEl     = dlg.querySelector('#nc-msg');
+        const cancelBtn = dlg.querySelector('#nc-cancel');
+
+        input.value = '';
+        msgEl.className = msgEl.textContent = '';
+
+        const abort = new AbortController();
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            const val = input.value.trim();
+            if (!val) {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'Please enter a username.';
+                return;
+            }
+            abort.abort();
+            dlg.close();
+            resolve(val);
+        }, { signal: abort.signal });
+
+        cancelBtn.addEventListener('click', () => {
+            abort.abort();
+            dlg.close();
+            resolve(null);
+        }, { signal: abort.signal });
+
+        dlg.addEventListener('cancel', () => { abort.abort(); resolve(null); }, { signal: abort.signal });
+
+        dlg.showModal();
+        input.focus();
+    });
+}
+
+// ── Key-changed warning dialog ────────────────────────────────────────────
+function showKeyChangedDialog(partner) {
+    return new Promise(resolve => {
+        let dlg = document.getElementById('key-changed-dialog');
+        if (!dlg) {
+            dlg = document.createElement('dialog');
+            dlg.id = 'key-changed-dialog';
+            dlg.innerHTML = `
+                <div style="max-width:26rem">
+                    <h3 style="margin-bottom:.75rem">⚠️ Encryption key changed</h3>
+                    <p id="kc-body" style="margin-bottom:1rem;font-size:.9rem;line-height:1.5"></p>
+                    <div class="warning-msg" style="margin-bottom:1rem;font-size:.85rem">
+                        This could indicate a key rotation or a man-in-the-middle attack.
+                        Verify their fingerprint out-of-band before continuing.
+                    </div>
+                    <div style="display:flex;gap:.75rem">
+                        <button class="btn btn-primary" id="kc-proceed">Send anyway</button>
+                        <button class="btn btn-secondary" id="kc-cancel">Cancel</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(dlg);
+        }
+
+        dlg.querySelector('#kc-body').textContent =
+            `${partner}'s encryption key has changed since your last conversation.`;
+
+        const abort = new AbortController();
+
+        dlg.querySelector('#kc-proceed').addEventListener('click', () => {
+            abort.abort(); dlg.close(); resolve(true);
+        }, { signal: abort.signal });
+
+        dlg.querySelector('#kc-cancel').addEventListener('click', () => {
+            abort.abort(); dlg.close(); resolve(false);
+        }, { signal: abort.signal });
+
+        dlg.addEventListener('cancel', () => { abort.abort(); resolve(false); }, { signal: abort.signal });
+
+        dlg.showModal();
+    });
+}
+
 // ── Message action handler ────────────────────────────────────────────────
 async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
     const { action, id } = btn.dataset;
@@ -699,6 +795,26 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                 return;
             }
 
+            case 'anchor': {
+                const origLabel = btn.textContent;
+                btn.textContent = '⏳';
+                try {
+                    await api.triggerAnchor();
+                } catch (err) {
+                    if (err.status === 503) {
+                        showInlineError(inboxBody, 'Anchoring is not enabled on this server.');
+                    } else {
+                        throw err;
+                    }
+                    btn.disabled = false;
+                    btn.textContent = origLabel;
+                    return;
+                }
+                btn.textContent = '✅';
+                setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 2000);
+                return;
+            }
+
             case 'forward': {
                 const recipientUsername = await showForwardDialog();
                 if (!recipientUsername) { btn.disabled = false; return; }
@@ -718,10 +834,10 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
 
                 const origEphPkBytes = decodeField(orig.ephemeral_pk);
                 const origEphPubKey  = await crypto.subtle.importKey(
-                    'raw', origEphPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                    'raw', origEphPkBytes, { name: 'X25519' }, false, [],
                 );
                 const origSenderKeyBytes = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
-                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, []);
 
                 const origCt    = decodeField(orig.ciphertext);
                 const origNonce = decodeField(orig.nonce);
@@ -733,7 +849,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                 );
 
                 const recipKeyBytes  = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
                 const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
                     plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
                 );
