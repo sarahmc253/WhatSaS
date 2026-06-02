@@ -193,6 +193,7 @@ export async function renderInbox(container, navigate) {
             const recipientId = msg.recipient_id ?? '';
             const timestamp   = parseTimestamp(msg.created_at ?? msg.timestamp);
 
+            console.log('decryptMessage AD:', { senderId, recipientId, msgId, timestamp });
             return await decryptMessage(
                 ciphertext, nonce, ephPubKey, ephPkBytes,
                 privKey, senderStaticPubKey,
