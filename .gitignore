@@ -5,7 +5,3 @@ client-cpp/build/
 __pycache__/
 .vscode/settings.json
 docs/transcript_sreejita.md
-"terminal.integrated.env.windows": {
-    "CMAKE_GENERATOR": "MinGW Makefiles"
-}
-

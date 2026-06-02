@@ -32,7 +32,7 @@ static bool hasAesNi() {
     return (info[2] >> 25) & 1;
 #elif defined(__GNUC__) || defined(__clang__)
     unsigned int a = 0, b = 0, c = 0, d = 0;
-    __get_cpuid(1, &a, &b, &c, &d);
+    if (!__get_cpuid(1, &a, &b, &c, &d)) return false;
     return (c >> 25) & 1;
 #else
     return true;

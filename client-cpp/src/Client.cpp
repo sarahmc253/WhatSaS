@@ -7,7 +7,7 @@
 #include <sodium.h>
 #if defined(_MSC_VER)
 #  include <intrin.h>
-#else
+#elif defined(__GNUC__) || defined(__clang__)
 #  include <cpuid.h>
 #endif
 #include <nlohmann/json.hpp>
@@ -68,15 +68,17 @@ Client::Client(const std::string& baseUrl,
     }
     // libsodium's AES-NI detection is broken in MSYS2/MinGW builds — use cpuid directly
     {
+        bool aesni = false;
 #if defined(_MSC_VER)
         int info[4] = {};
         __cpuid(info, 1);
-        if (!((info[2] >> 25) & 1))
-#else
+        aesni = (info[2] >> 25) & 1;
+#elif defined(__GNUC__) || defined(__clang__)
         unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
-        __get_cpuid(1, &eax, &ebx, &ecx, &edx);
-        if (!((ecx >> 25) & 1))
+        if (__get_cpuid(1, &eax, &ebx, &ecx, &edx))
+            aesni = (ecx >> 25) & 1;
 #endif
+        if (!aesni)
             throw std::runtime_error("AES-256-GCM unavailable: hardware AES-NI required");
     }
     loadPins();
