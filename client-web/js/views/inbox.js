@@ -915,7 +915,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
 
                 const origCt    = decodeField(orig.ciphertext);
                 const origNonce = decodeField(orig.nonce);
-                const origTs    = parseTimestamp(orig.created_at);
+                const origTs    = orig.timestamp;
                 const plaintext = await decryptMessage(
                     origCt, origNonce, origEphPubKey, origEphPkBytes,
                     privKey, origSenderPubKey,
