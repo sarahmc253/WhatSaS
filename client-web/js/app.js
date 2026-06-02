@@ -1,3 +1,7 @@
+if (location.protocol === 'http:' && location.hostname !== 'localhost') {
+    location.replace('https:' + location.href.slice(5));
+}
+
 /**
  * app.js — entry point.
  *
