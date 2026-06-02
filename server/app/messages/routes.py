@@ -47,7 +47,7 @@ def get_messages():
             """
             SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
-                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
                    'received' AS direction, 0 AS is_revoked,
                    br.tx_hash, br.merkle_root
@@ -61,7 +61,7 @@ def get_messages():
 
             SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
-                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
+                   m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at, m.timestamp,
                    ru.username AS recipient_username,
                    'sent' AS direction, m.is_revoked,
                    br.tx_hash, br.merkle_root
