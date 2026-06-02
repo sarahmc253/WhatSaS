@@ -514,7 +514,9 @@ export async function renderInbox(container, navigate) {
         } catch (err) {
             console.error('[poll] message fetch failed:', err);
         }
-    }, 10_000);
+    }
+
+    const pollInterval = setInterval(doPoll, 10_000);
 }
 
 // ── Bubble renderer ───────────────────────────────────────────────────────
