@@ -280,7 +280,7 @@ inline ConvChoice showConversationMenu()
 inline void showGoodbye()
 {
 
-   "💖  bye bye! stay cute ✨\n\n" C_RESET;
+    std::cout << C_MUTED "💖  bye bye! stay cute ✨\n\n" C_RESET;
 }
 
 // Colour macros intentionally left defined so main.cpp can use them.
