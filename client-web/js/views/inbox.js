@@ -31,7 +31,7 @@ export async function renderInbox(container, navigate) {
 
         <!-- Change password modal (triggered from navbar) -->
         <dialog id="change-password-dialog">
-            <form id="change-password-form" method="dialog" novalidate>
+            <form id="change-password-form" novalidate>
                 <h3 style="margin-bottom:1.25rem">Change Password</h3>
                 <div class="form-group">
                     <label for="cp-old">Current password</label>
