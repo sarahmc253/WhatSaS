@@ -335,7 +335,7 @@ export async function renderInbox(container, navigate) {
                 ${bubbles || '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>'}
             </div>
             <form class="send-bar" id="send-bar" novalidate>
-                <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required>
+                <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required maxlength="2000">
                 <button type="submit" class="btn btn-primary send-btn">Send</button>
             </form>`;
 
@@ -372,6 +372,10 @@ export async function renderInbox(container, navigate) {
             const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
             const content = input.value.trim();
             if (!content) return;
+            if (content.length > 2000) {
+                showInlineError(body, 'Message too long — maximum 2,000 characters.');
+                return;
+            }
 
             sendBtn.disabled = true;
             input.disabled   = true;

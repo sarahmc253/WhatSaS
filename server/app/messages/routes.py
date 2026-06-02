@@ -92,6 +92,9 @@ def send_message():
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
+    if len(data.get('ciphertext', '')) > 4000:
+        return jsonify({'error': 'Message too long — maximum 2,000 characters.'}), 400
+
     # Accept a client-generated message_id (hex string, 32 chars) for AD reconstruction.
     # Validate format strictly to prevent injection; fall back to server-generated UUID.
     client_msg_id = data.get('message_id', '')

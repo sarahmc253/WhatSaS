@@ -133,6 +133,10 @@ inline std::string promptMessage(const std::string& peerId)
         std::cout << M "        💔 message cannot be empty\n" R;
         return "";
     }
+    if (text.size() > 2000) {
+        std::cout << RED "        💔 message too long — maximum 2,000 characters\n" R;
+        return "";
+    }
     return text;
 }
 
