@@ -3,7 +3,7 @@ import logging
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import mysql.connector
 from flask import Blueprint, current_app, request, jsonify
@@ -14,13 +14,27 @@ from .anchor import anchor_pending
 messages_bp = Blueprint('messages', __name__)
 logger = logging.getLogger(__name__)
 
-SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk']
+SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp']
 
 def _invalid_fields(data, fields):
     return [
         f for f in fields
-        if not isinstance(data.get(f), str) or not data[f].strip()
+        if data.get(f) is None or (isinstance(data.get(f), str) and not data[f].strip())
     ]
+
+_MAX_FUTURE = timedelta(minutes=5)
+_MAX_PAST   = timedelta(days=365)
+
+def _validate_timestamp(ts):
+    if ts < 0:
+        return 'timestamp must not be negative'
+    now = datetime.now(timezone.utc)
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    if dt > now + _MAX_FUTURE:
+        return 'timestamp is more than 5 minutes in the future'
+    if dt < now - _MAX_PAST:
+        return 'timestamp is more than 1 year in the past'
+    return None
 
 @messages_bp.route('/messages', methods=['GET'])
 @jwt_required()
@@ -81,8 +95,14 @@ def send_message():
         message_id = client_msg_id
     else:
         message_id = str(uuid.uuid4()).replace('-', '')
+    if not isinstance(data['timestamp'], int):
+        return jsonify({'error': 'timestamp must be a Unix integer'}), 400
+    ts_error = _validate_timestamp(data['timestamp'])
+    if ts_error:
+        return jsonify({'error': ts_error}), 400
+    created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
+
     sender_id = get_jwt_identity()
-    now = datetime.now(timezone.utc)
     content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
     db = get_db()
@@ -95,7 +115,7 @@ def send_message():
             """,
             (
                 message_id, sender_id, data['recipient_id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, content_hash,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, content_hash,
             ),
         )
         db.commit()
@@ -206,9 +226,16 @@ def forward_message(message_id):
     if not isinstance(data, dict):
         return jsonify({'error': 'Request body must be a JSON object'}), 400
 
-    invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk'])
+    invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp'])
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    if not isinstance(data['timestamp'], int):
+        return jsonify({'error': 'timestamp must be a Unix integer'}), 400
+    ts_error = _validate_timestamp(data['timestamp'])
+    if ts_error:
+        return jsonify({'error': ts_error}), 400
+    created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
 
     current_user_id = get_jwt_identity()
     db = get_db()
@@ -256,7 +283,7 @@ def forward_message(message_id):
             """,
             (
                 new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], now, message_id, content_hash,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, message_id, content_hash,
             ),
         )
         db.commit()

@@ -16,7 +16,7 @@ export async function generateKeypair() {
     const { publicKey, privateKey } = await crypto.subtle.generateKey(
         { name: 'X25519' },
         true,               // extractable — private key exported as pkcs8 for storage; public key as raw for publishing
-        ['deriveKey', 'deriveBits'],
+        ['deriveBits'],
     );
     return { publicKey, privateKey };
 }

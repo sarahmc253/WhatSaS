@@ -3,6 +3,7 @@
  *
  * Publicly accessible at #verify (no authentication required).
  * Uses ethers.js v6 UMD loaded globally as window.ethers.
+ * Imports merkleRoot() from ../crypto/merkle.js for local root computation.
  *
  * Flow:
  *   Step 1 — User pastes a Sepolia tx hash → "Fetch from chain"
@@ -13,11 +14,13 @@
  * and has not been altered since anchoring.
  *
  * How keccak256 matching works:
- *   - Server builds Merkle root of conversation's content_hash values (ordered by created_at)
+ *   - Server builds Merkle root of all content_hash values received by one user (ordered by created_at)
  *   - Calls storeData(merkle_root) — contract stores the bytes32 root directly, no re-hashing
  *   - getRecord() returns that bytes32 root
  *   - User pastes their saved Merkle root hex → page normalises and compares directly to on-chain bytes32
  */
+
+import { merkleRoot } from '../crypto/merkle.js';
 
 // ABI fragments — event for log parsing to extract recordId; getRecord to fetch hash+timestamp
 const DATA_STORED_EVENT_ABI = [
@@ -94,13 +97,17 @@ export function renderVerify(container) {
                 <div class="verify-onchain-info" id="onchain-info"></div>
 
                 <div class="form-group" style="margin-top:1.5rem">
-                    <label for="v-content">Merkle root (saved locally by your client)</label>
+                    <label for="v-content">Merkle root (from your inbox)</label>
                     <textarea id="v-content"
-                              placeholder="Paste your locally saved Merkle root hex string (0x…)"
+                              placeholder="Paste the Merkle root hex string (0x…)"
                               style="min-height:80px; font-family:monospace; font-size:.875rem;"></textarea>
+                    <div style="margin-top:.5rem">
+                        <button class="btn btn-secondary" id="btn-compute-local" type="button">Compute from my messages</button>
+                        <span id="compute-status" style="margin-left:.75rem;font-size:.8rem;color:var(--muted)"></span>
+                    </div>
                     <p style="font-size:.8rem;color:var(--muted);margin-top:.375rem">
-                        The keccak256 Merkle root your client computed from the conversation's
-                        message hashes before anchoring. Retrieve it from the server DB:
+                        The Merkle root covers all messages received by you in this anchor batch.
+                        Copy it from the anchored badge on any message in your inbox, or retrieve it from the server:
                         <code style="font-size:.75rem">SELECT merkle_root FROM blockchain_records WHERE tx_hash = '…'</code>
                     </p>
                 </div>
@@ -120,6 +127,57 @@ export function renderVerify(container) {
     });
     document.getElementById('btn-verify').addEventListener('click', handleVerify);
     document.getElementById('btn-reset').addEventListener('click', handleReset);
+    document.getElementById('btn-compute-local').addEventListener('click', handleComputeLocal);
+}
+
+// ── Compute local Merkle root ──────────────────────────────────────────────
+function handleComputeLocal() {
+    const statusEl = document.getElementById('compute-status');
+    const textarea = document.getElementById('v-content');
+    const txHash   = document.getElementById('v-txhash').value.trim().toLowerCase();
+
+    statusEl.textContent = '';
+
+    if (!txHash) {
+        statusEl.textContent = 'Enter a transaction hash first.';
+        return;
+    }
+
+    const entries = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key.startsWith('hash:')) continue;
+        try {
+            const entry = JSON.parse(localStorage.getItem(key));
+            if (entry?.txHash?.toLowerCase() === txHash) {
+                entries.push(entry);
+            }
+        } catch { /* malformed entry — skip */ }
+    }
+
+    if (entries.length === 0) {
+        statusEl.textContent = 'No locally stored hashes match this transaction — load your inbox first.';
+        return;
+    }
+
+    // Mirror anchor.py ORDER BY created_at so the Merkle tree is identical.
+    // Null/invalid createdAt sorts before valid timestamps; two null/invalid values
+    // compare as equal (return 0) to satisfy the comparator contract and keep order stable.
+    entries.sort((a, b) => {
+        const ta = a.createdAt == null ? NaN : new Date(a.createdAt).getTime();
+        const tb = b.createdAt == null ? NaN : new Date(b.createdAt).getTime();
+        if (isNaN(ta) && isNaN(tb)) return 0;
+        if (isNaN(ta)) return -1;
+        if (isNaN(tb)) return 1;
+        return ta - tb;
+    });
+
+    try {
+        textarea.value = merkleRoot(entries.map(e => e.contentHash));
+        statusEl.textContent = `Computed from ${entries.length} message${entries.length === 1 ? '' : 's'}.`;
+    } catch (err) {
+        statusEl.textContent = `Compute failed: ${esc(err.message)}`;
+    }
 }
 
 // ── Step 1: fetch tx from chain ────────────────────────────────────────────
@@ -141,6 +199,7 @@ async function handleFetch() {
     verifyResult.className = '';
     verifyResult.innerHTML = '';
     document.getElementById('v-content').value = '';
+    document.getElementById('compute-status').textContent = '';
 
     if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
         setStatus(statusEl, 'error', 'Enter a valid 66-character hex transaction hash (starting with 0x).');
@@ -261,7 +320,7 @@ function handleVerify() {
     if (match) {
         resultEl.className = 'success-msg';
         resultEl.innerHTML =
-            `<strong>PASS</strong> — Merkle root matches on-chain record. Conversation batch integrity verified.<br>
+            `<strong>PASS</strong> — Merkle root matches on-chain record. Recipient message batch integrity verified.<br>
             Recorded on-chain at <strong>${esc(formatDate(state.timestamp))}</strong>.<br>
             <span class="verify-hash-line">Root: <code class="verify-hash">${esc(normalised)}</code></span>`;
     } else {
@@ -286,6 +345,7 @@ function handleReset() {
     verifyResult.className = '';
     verifyResult.innerHTML = '';
 
+    document.getElementById('compute-status').textContent = '';
     document.getElementById('step-verify').hidden = true;
     window._verifyState = null;
 }
