@@ -316,6 +316,9 @@ export async function renderInbox(container, navigate) {
             bubble.querySelectorAll('[data-action]').forEach(btn => {
                 btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
             });
+            bubble.querySelectorAll('[data-copy]').forEach(btn => {
+                btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
+            });
             thread.appendChild(bubble);
             thread.scrollTop = thread.scrollHeight;
         }
@@ -363,6 +366,9 @@ export async function renderInbox(container, navigate) {
         body.querySelectorAll('[data-action]').forEach(btn => {
             btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
         });
+        body.querySelectorAll('[data-copy]').forEach(btn => {
+            btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
+        });
 
         let cachedRecipient = null;
 
@@ -402,7 +408,21 @@ export async function renderInbox(container, navigate) {
     }
 
     const decrypted = await Promise.all(
-        allMessages.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
+        allMessages.map(async msg => {
+            const content = await tryDecrypt(msg);
+            if (msg.ciphertext && msg.id) {
+                try {
+                    const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg.ciphertext));
+                    const hex = '0x' + Array.from(new Uint8Array(hashBuf), b => b.toString(16).padStart(2, '0')).join('');
+                    localStorage.setItem(`hash:${msg.id}`, JSON.stringify({
+                        contentHash: hex,
+                        txHash:      msg.tx_hash ?? null,
+                        createdAt:   msg.created_at ?? null,
+                    }));
+                } catch { /* non-fatal */ }
+            }
+            return { ...msg, content };
+        })
     );
 
     currentConvMap = groupByConversation(decrypted);
@@ -449,6 +469,7 @@ export async function renderInbox(container, navigate) {
                             tmp.innerHTML = buildBubble(msgs[idx], myUsername);
                             const newBubble = tmp.firstElementChild;
                             newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername)));
+                            newBubble.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard.writeText(b.dataset.copy)));
                             (wrap ?? liveBubble).replaceWith(newBubble);
                         }
                     }
@@ -483,6 +504,9 @@ export async function renderInbox(container, navigate) {
                     bubble.querySelectorAll('[data-action]').forEach(btn => {
                         btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
                     });
+                    bubble.querySelectorAll('[data-copy]').forEach(btn => {
+                        btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
+                    });
                     thread.appendChild(bubble);
                 }
                 if (relevant.length > 0) thread.scrollTop = thread.scrollHeight;
@@ -512,13 +536,24 @@ function buildBubble(msg, myUsername) {
         ${isSent && !isRevoked ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}
         ${isRevoked ? `<span class="revoked-badge">Revoked</span>` : ''}`;
 
+    const anchorBadge = msg.tx_hash
+        ? `<span class="badge badge-anchored">&#9875; ${esc(String(msg.tx_hash).slice(0, 10))}</span>`
+        : `<span class="badge badge-unanchored">Not anchored</span>`;
+    const hashRows = (msg.tx_hash || msg.merkle_root) ? `
+            <div class="msg-hash-rows">
+                ${msg.tx_hash     ? `<div class="msg-hash-row"><span class="msg-hash-label">TX:</span><code>${esc(String(msg.tx_hash))}</code><button class="btn-copy" data-copy="${esc(String(msg.tx_hash))}" title="Copy">&#128203;</button></div>` : ''}
+                ${msg.merkle_root ? `<div class="msg-hash-row"><span class="msg-hash-label">Root:</span><code>${esc(String(msg.merkle_root))}</code><button class="btn-copy" data-copy="${esc(String(msg.merkle_root))}" title="Copy">&#128203;</button></div>` : ''}
+            </div>` : '';
+
     return `
         <div class="bubble-wrap ${isSent ? 'sent' : 'received'}${isRevoked ? ' revoked' : ''}">
             <div class="bubble-avatar">${avatarLabel}</div>
             <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
                 <div class="msg-body">${esc(String(content))}</div>
+                ${hashRows}
                 <div class="bubble-footer">
                     ${date ? `<span class="msg-date">${date}</span>` : '<span></span>'}
+                    ${anchorBadge}
                     <div class="msg-actions">${actions}</div>
                 </div>
             </div>
@@ -699,7 +734,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
 
                 const recipKeyBytes  = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
                 const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
-                const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+                const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
                     plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
                 );
 
@@ -711,6 +746,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                     ciphertext:   toHex(ciphertext),
                     nonce:        toHex(nonce),
                     ephemeral_pk: toHex(fwdEphPkBytes),
+                    timestamp,
                 });
 
                 sessionStorage.setItem(`sent_plain_${messageId}`, plaintext);
