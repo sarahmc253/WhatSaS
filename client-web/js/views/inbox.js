@@ -181,9 +181,6 @@ export async function renderInbox(container, navigate) {
             const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
             if (!senderKeyCache[msg.sender_username]) {
                 const tofu = tofuCheck(msg.sender_username, msg.sender_x25519_public_key);
-                if (tofu.changed) {
-                    console.warn(`[TOFU] Key change detected for ${msg.sender_username} — possible MITM`);
-                }
                 senderKeyCache[msg.sender_username] = await crypto.subtle.importKey(
                     'raw', senderPkBytes, { name: 'X25519' }, false, [],
                 );
@@ -193,14 +190,12 @@ export async function renderInbox(container, navigate) {
             const recipientId = msg.recipient_id ?? '';
             const timestamp   = msg.timestamp ?? 0;
 
-            console.log('decryptMessage AD:', { senderId, recipientId, msgId, timestamp });
             return await decryptMessage(
                 ciphertext, nonce, ephPubKey, ephPkBytes,
                 privKey, senderStaticPubKey,
                 senderId, recipientId, msgId, timestamp,
             );
-        } catch (err) {
-            console.error(err);
+        } catch {
             return '(encrypted)';
         }
     }
