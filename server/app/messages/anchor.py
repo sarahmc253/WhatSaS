@@ -47,26 +47,33 @@ def anchor_pending(user_id=None):
 
     Must be called within a Flask application context.
     """
+    logger.info('anchor_pending called (user_id=%s)', user_id)
+
     if not _lock.acquire(blocking=False):
-        logger.debug('anchor_pending already running, skipping')
+        logger.warning('anchor_pending already running, skipping')
         return
 
+    logger.info('anchor_pending acquired lock, connecting to DB')
     try:
         db = _connect()
+        logger.info('anchor_pending DB connection established')
         try:
             _run(db, user_id)
         finally:
             db.close()
+            logger.info('anchor_pending DB connection closed')
     except Exception:
-        logger.exception('anchor_pending failed')
+        logger.exception('anchor_pending failed with unhandled exception')
     finally:
         _lock.release()
+        logger.info('anchor_pending released lock')
 
 
 def _run(db, user_id):
     cursor = db.cursor(dictionary=True)
     try:
         if user_id:
+            logger.info('querying unanchored messages for user_id=%s', user_id)
             cursor.execute(
                 """
                 SELECT id, content_hash, recipient_id
@@ -79,6 +86,7 @@ def _run(db, user_id):
                 (user_id, user_id),
             )
         else:
+            logger.info('querying all unanchored messages (no user filter)')
             cursor.execute(
                 """
                 SELECT id, content_hash, recipient_id
@@ -92,30 +100,46 @@ def _run(db, user_id):
     finally:
         cursor.close()
 
+    logger.info('found %d unanchored message(s)', len(rows))
     if not rows:
+        logger.info('nothing to anchor, returning early')
         return
 
     groups = {}
     for row in rows:
         groups.setdefault(row['recipient_id'], []).append(row)
 
+    logger.info('grouped into %d recipient conversation(s)', len(groups))
+
     cfg = current_app.config
+    logger.info('connecting to Web3 RPC: %s', cfg.get('WEB3_RPC_URL', '<not set>'))
     w3 = Web3(Web3.HTTPProvider(cfg['WEB3_RPC_URL']))
+
+    if not w3.is_connected():
+        logger.error('Web3 is not connected to RPC %s — aborting anchor', cfg.get('WEB3_RPC_URL'))
+        return
+
+    logger.info('Web3 connected, contract address: %s', cfg.get('CONTRACT_ADDRESS'))
     contract = w3.eth.contract(
         address=Web3.to_checksum_address(cfg['CONTRACT_ADDRESS']),
         abi=_ABI,
     )
     account = w3.eth.account.from_key(cfg['WALLET_PRIVATE_KEY'])
     nonce = w3.eth.get_transaction_count(account.address)
+    logger.info('wallet address: %s, starting nonce: %d', account.address, nonce)
 
     for recipient_id, msgs in groups.items():
+        logger.info('anchoring %d message(s) for recipient %s', len(msgs), recipient_id)
         root = _merkle_root([m['content_hash'] for m in msgs])
+        logger.info('merkle root for recipient %s: %s', recipient_id, root)
+
         ids = [m['id'] for m in msgs]
         record_id = str(uuid.uuid4())
         placeholders = ','.join(['%s'] * len(ids))
 
         # Reserve rows before touching the chain so a concurrent scheduler run
         # won't pick up the same messages (blockchain_record_id will be non-NULL).
+        logger.info('reserving blockchain_record %s in DB for recipient %s', record_id, recipient_id)
         cursor = db.cursor()
         try:
             cursor.execute(
@@ -132,15 +156,18 @@ def _run(db, user_id):
             )
         except Exception:
             db.rollback()
-            logger.exception('DB reserve failed for recipient %s', recipient_id)
+            logger.exception('DB reserve failed for recipient %s — rolled back', recipient_id)
             continue
         finally:
             cursor.close()
+
+        logger.info('DB reservation committed, sending chain tx for recipient %s', recipient_id)
 
         # Send chain tx; roll back the reservation on failure so messages can be retried.
         try:
             root_bytes = bytes.fromhex(root.removeprefix('0x'))
             estimated_gas = contract.functions.storeData(root_bytes).estimate_gas({'from': account.address})
+            logger.info('estimated gas: %d', estimated_gas)
             tx = contract.functions.storeData(root_bytes).build_transaction({
                 'from': account.address,
                 'nonce': nonce,
@@ -151,9 +178,10 @@ def _run(db, user_id):
             raw_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             nonce += 1
             tx_hash_hex = '0x' + raw_hash.hex()
+            logger.info('tx sent for recipient %s: %s', recipient_id, tx_hash_hex)
         except Exception:
             db.rollback()
-            logger.exception('Chain tx failed for recipient %s, reservation rolled back', recipient_id)
+            logger.exception('chain tx failed for recipient %s — reservation rolled back', recipient_id)
             continue
 
         cursor = db.cursor()
@@ -163,6 +191,7 @@ def _run(db, user_id):
                 (tx_hash_hex, record_id),
             )
             db.commit()
+            logger.info('anchor complete for recipient %s, record %s', recipient_id, record_id)
         except Exception:
             db.rollback()
             logger.exception('DB commit failed for recipient %s', recipient_id)
@@ -175,8 +204,10 @@ def confirm_pending():
 
     Must be called within a Flask application context.
     """
+    logger.info('confirm_pending called')
+
     if not _confirm_lock.acquire(blocking=False):
-        logger.debug('confirm_pending already running, skipping')
+        logger.warning('confirm_pending already running, skipping')
         return
 
     try:
@@ -186,7 +217,7 @@ def confirm_pending():
         finally:
             db.close()
     except Exception:
-        logger.exception('confirm_pending failed')
+        logger.exception('confirm_pending failed with unhandled exception')
     finally:
         _confirm_lock.release()
 
@@ -201,6 +232,7 @@ def _confirm_run(db):
     finally:
         cursor.close()
 
+    logger.info('confirm_pending: %d unconfirmed record(s)', len(rows))
     if not rows:
         return
 
@@ -208,20 +240,22 @@ def _confirm_run(db):
     w3 = Web3(Web3.HTTPProvider(cfg['WEB3_RPC_URL']))
 
     for row in rows:
+        logger.info('checking receipt for tx %s', row['tx_hash'])
         try:
             receipt = w3.eth.get_transaction_receipt(row['tx_hash'])
         except Exception:
-            logger.exception('Receipt fetch failed for tx %s', row['tx_hash'])
+            logger.exception('receipt fetch failed for tx %s', row['tx_hash'])
             continue
 
         if receipt is None:
+            logger.info('tx %s not yet mined', row['tx_hash'])
             continue
 
         if receipt['status'] != 1:
             new_count = (row['revert_count'] or 0) + 1
             if new_count > 3:
                 logger.warning(
-                    'Tx %s reverted %d times (status=%s), releasing messages for re-anchor',
+                    'tx %s reverted %d times (status=%s), releasing messages for re-anchor',
                     row['tx_hash'], new_count, receipt['status'],
                 )
                 cursor = db.cursor()
@@ -237,12 +271,12 @@ def _confirm_run(db):
                     db.commit()
                 except Exception:
                     db.rollback()
-                    logger.exception('Failed to release reverted record %s', row['id'])
+                    logger.exception('failed to release reverted record %s', row['id'])
                 finally:
                     cursor.close()
             else:
                 logger.warning(
-                    'Tx %s reverted (status=%s), revert_count now %d, leaving messages claimed',
+                    'tx %s reverted (status=%s), revert_count now %d, leaving messages claimed',
                     row['tx_hash'], receipt['status'], new_count,
                 )
                 cursor = db.cursor()
@@ -254,7 +288,7 @@ def _confirm_run(db):
                     db.commit()
                 except Exception:
                     db.rollback()
-                    logger.exception('Failed to increment revert_count for record %s', row['id'])
+                    logger.exception('failed to increment revert_count for record %s', row['id'])
                 finally:
                     cursor.close()
             continue
@@ -264,7 +298,7 @@ def _confirm_run(db):
             block_number = receipt['blockNumber']
             block_timestamp = datetime.fromtimestamp(block['timestamp'], tz=timezone.utc)
         except Exception:
-            logger.exception('Block fetch failed for tx %s', row['tx_hash'])
+            logger.exception('block fetch failed for tx %s', row['tx_hash'])
             continue
 
         cursor = db.cursor()
@@ -278,7 +312,7 @@ def _confirm_run(db):
                 (block_number, block_timestamp, row['id']),
             )
             db.commit()
-            logger.info('Confirmed tx %s at block %s', row['tx_hash'], block_number)
+            logger.info('confirmed tx %s at block %s', row['tx_hash'], block_number)
         except Exception:
             db.rollback()
             logger.exception('DB update failed for blockchain_record %s', row['id'])
