@@ -45,7 +45,7 @@ def get_messages():
     try:
         cursor.execute(
             """
-            SELECT m.id, m.sender_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
                    ru.username AS recipient_username,
@@ -59,7 +59,7 @@ def get_messages():
 
             UNION ALL
 
-            SELECT m.id, m.sender_id, u.username AS sender_username,
+            SELECT m.id, m.sender_id, m.recipient_id, u.username AS sender_username,
                    u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
                    ru.username AS recipient_username,
