@@ -308,7 +308,7 @@ export async function renderInbox(container, navigate) {
             tmp.innerHTML = buildBubble(sentMsg, myUsername);
             const bubble = tmp.firstElementChild;
             bubble.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll));
+                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll, renderConvList));
             });
             bubble.querySelectorAll('[data-copy]').forEach(btn => {
                 btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -358,7 +358,7 @@ export async function renderInbox(container, navigate) {
         thread.scrollTop = thread.scrollHeight;
 
         body.querySelectorAll('[data-action]').forEach(btn => {
-            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll));
+            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll, renderConvList));
         });
         body.querySelectorAll('[data-copy]').forEach(btn => {
             btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -496,7 +496,7 @@ export async function renderInbox(container, navigate) {
                     tmp.innerHTML = buildBubble(msg, myUsername);
                     const bubble = tmp.firstElementChild;
                     bubble.querySelectorAll('[data-action]').forEach(btn => {
-                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll));
+                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll, renderConvList));
                     });
                     bubble.querySelectorAll('[data-copy]').forEach(btn => {
                         btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -757,7 +757,7 @@ function showKeyChangedDialog(partner) {
 }
 
 // ── Message action handler ────────────────────────────────────────────────
-async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll = () => {}) {
+async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll = () => {}, renderConvList = () => {}) {
     const { action, id } = btn.dataset;
     btn.disabled = true;
 
@@ -766,15 +766,20 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
             case 'delete': {
                 await api.deleteMessage(id);
                 (btn.closest('.bubble-wrap') ?? btn.closest('.message-card'))?.remove();
-                // remove from map so sidebar preview and thread reopens stay consistent
+                const activePartner = inboxBody.querySelector('.thread-partner')?.textContent?.trim() ?? '';
                 for (const [partner, msgs] of currentConvMap) {
                     const idx = msgs.findIndex(m => String(m.id ?? m.message_id ?? '') === id);
                     if (idx !== -1) {
                         msgs.splice(idx, 1);
                         if (msgs.length === 0) currentConvMap.delete(partner);
-                        renderConvList(currentConvMap, inboxBody.querySelector('.thread-partner')?.textContent?.trim() ?? '');
                         break;
                     }
+                }
+                renderConvList(currentConvMap, activePartner);
+                // If the deleted message was the last one in the active thread, show empty state
+                const thread = inboxBody.querySelector('#chat-thread');
+                if (thread && !thread.querySelector('.bubble-wrap')) {
+                    thread.innerHTML = '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>';
                 }
                 break;
             }
@@ -799,7 +804,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                     const tmp = document.createElement('div');
                     tmp.innerHTML = buildBubble(entry, myUsername);
                     const newBubble = tmp.firstElementChild;
-                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername, doPoll)));
+                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername, doPoll, renderConvList)));
                     wrap.replaceWith(newBubble);
                 } else {
                     wrap?.remove();
