@@ -12,6 +12,7 @@
 #endif
 #include "AuthCLI.hpp"
 #include "crypto_utils.hpp"
+#include <regex>
 #include "key_wrap.hpp"
 #include "ui.hpp"
 #include "../include/Auth.hpp"
@@ -115,64 +116,83 @@ int main(int argc, char* argv[]) {
     std::string username;
     std::vector<uint8_t> sessionSk;  // kept alongside client for password re-wrap
 
-    try {
-        if (choice == AuthChoice::Register) {
-            const auto creds = promptCredentials();
-            if (!hasAesNi()) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
+    static const std::regex usernameRe("^[A-Za-z0-9_]{3,32}$");
+    auto validUsername = [&](const std::string& u) -> bool {
+        if (std::regex_match(u, usernameRe)) return true;
+        std::cout << "\033[1;33m\n        ⚠  username must be 3–32 characters: letters, numbers, and underscores only\n\033[0m";
+        return false;
+    };
+    auto validPassword = [](const std::string& p) -> bool {
+        if (p.size() >= 8) return true;
+        std::cout << "\033[1;33m\n        ⚠  password must be at least 8 characters\n\033[0m";
+        return false;
+    };
 
-            // Two-layer key wrapping (KEK→DEK→SK) matching the web client and spec §3.6
-            const auto kp      = generateX25519Keypair();
-            const auto wrapped = wrapPrivateKey(kp, creds.password);
-
-            auth = Auth::registerUser(http, BASE_URL,
-                                      creds.username, creds.password,
-                                      wrapped.x25519PublicKeyB64,
-                                      wrapped.wrappedPrivateKeyB64,
-                                      wrapped.kekSaltB64);
-
-            auth = Auth::login(http, BASE_URL, creds.username, creds.password);
-            sessionSk = kp.privateKey;
-
-            std::vector<uint8_t> pk(kp.publicKey);
-            std::vector<uint8_t> sk(kp.privateKey);
-            client.emplace(BASE_URL, auth.getUserId(),
-                           std::move(sk), std::move(pk),
-                           "whatsas_pins.txt", auth.getToken());
-
-            username = creds.username;
-            std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
-
-        } else {
-            const auto creds = promptLogin();
-            auth = Auth::login(http, BASE_URL, creds.username, creds.password);
-
-            if (!hasAesNi()) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
-
-            // Two-layer unwrap (KEK→DEK→SK), handles both PKCS8 (web) and raw (old C++) inner formats
-            auto sk = unwrapPrivateKey(
-                auth.getWrappedPrivateKey(), auth.getKekSalt(), creds.password);
-
-            std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
-            if (crypto_scalarmult_base(pk.data(), sk.data()) != 0)
-                throw std::runtime_error("public key derivation failed — private key may be corrupted");
-
-            sessionSk = sk;
-            client.emplace(BASE_URL, auth.getUserId(),
-                           std::move(sk), std::move(pk),
-                           "whatsas_pins.txt", auth.getToken());
-
-            username = creds.username;
-            std::cout << "\033[1;35m\n        💖 logged in! welcome back, " << username << "~ 🎀\n";
-        }
-
-        std::cout << "        🔑 session token received ✅\n\033[0m\n";
-
-    } catch (const std::exception& e) {
-        std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m\n";
+    if (!hasAesNi()) {
+        std::cerr << "\033[1;31m\n        💔 AES-256-GCM requires hardware AES-NI — unavailable on this CPU\n\033[0m\n";
         return 1;
     }
 
-    if (!client.has_value()) return 0;
+    while (!client.has_value()) {
+        try {
+            if (choice == AuthChoice::Register) {
+                Credentials creds;
+                do { std::cout << "Username: "; std::getline(std::cin, creds.username); } while (!validUsername(creds.username));
+                do { creds.password = readPassword(); } while (!validPassword(creds.password));
+
+                // Two-layer key wrapping (KEK→DEK→SK) matching the web client and spec §3.6
+                const auto kp      = generateX25519Keypair();
+                const auto wrapped = wrapPrivateKey(kp, creds.password);
+
+                auth = Auth::registerUser(http, BASE_URL,
+                                          creds.username, creds.password,
+                                          wrapped.x25519PublicKeyB64,
+                                          wrapped.wrappedPrivateKeyB64,
+                                          wrapped.kekSaltB64);
+
+                auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+                sessionSk = kp.privateKey;
+
+                std::vector<uint8_t> pk(kp.publicKey);
+                std::vector<uint8_t> sk(kp.privateKey);
+                client.emplace(BASE_URL, auth.getUserId(),
+                               std::move(sk), std::move(pk),
+                               "whatsas_pins.txt", auth.getToken());
+
+                username = creds.username;
+                std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
+
+            } else {
+                LoginCredentials creds;
+                std::cout << "Username: "; std::getline(std::cin, creds.username);
+                creds.password = readPassword();
+
+                auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+
+                // Two-layer unwrap (KEK→DEK→SK), handles both PKCS8 (web) and raw (old C++) inner formats
+                auto sk = unwrapPrivateKey(
+                    auth.getWrappedPrivateKey(), auth.getKekSalt(), creds.password);
+
+                std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
+                if (crypto_scalarmult_base(pk.data(), sk.data()) != 0)
+                    throw std::runtime_error("public key derivation failed — private key may be corrupted");
+
+                sessionSk = sk;
+                client.emplace(BASE_URL, auth.getUserId(),
+                               std::move(sk), std::move(pk),
+                               "whatsas_pins.txt", auth.getToken());
+
+                username = creds.username;
+                std::cout << "\033[1;35m\n        💖 logged in! welcome back, " << username << "~ 🎀\n";
+            }
+
+            std::cout << "        🔑 session token received ✅\n\033[0m\n";
+
+        } catch (const std::exception& e) {
+            std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m";
+            std::cout << "\033[1;33m        ↩  try again\n\033[0m\n";
+        }
+    }
 
     // publish key on every login/register so the registry stays current
     {
@@ -272,14 +292,22 @@ int main(int argc, char* argv[]) {
 
         } else {
             // ── view conversation (with optional reply loop) ───────────────────
-            while (true) {
-                MessageStore store;
-                Conversation conv(peerId);
+            MessageStore store;
+            Conversation conv(peerId);
 
-                const int count = client->receiveMessages(store, conv, peerPk);
+            while (true) {
+                // Re-fetch from server each iteration to pick up new incoming messages.
+                // Sent messages are injected into conv at send time below, so they
+                // survive across iterations without needing to re-decrypt.
+                Conversation freshConv(peerId);
+                const int count = client->receiveMessages(store, freshConv, peerPk);
                 if (count < 0) {
                     std::cout << "\033[1;31m\n        💔 failed to fetch messages from server\033[0m\n";
                     break;
+                }
+                // Merge fresh received messages into conv (preserves locally-injected sent msgs).
+                for (const auto& dm : freshConv.getMessages()) {
+                    conv.addMessage(dm);
                 }
 
                 showConversation(conv, username, count);
@@ -292,9 +320,12 @@ int main(int argc, char* argv[]) {
                 if (text.empty()) continue;
 
                 const auto resp = client->sendMessage(peerId, peerPk, text);
+                const bool ok = resp.statusCode_ >= 200 && resp.statusCode_ <= 299;
                 const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_;
-                showSendResult(resp.statusCode_ >= 200 && resp.statusCode_ <= 299,
-                               resp.statusCode_, detail);
+                showSendResult(ok, resp.statusCode_, detail);
+
+                // Sent message will appear as "[message sent]" on next loop refresh
+                // via the server's direction:"sent" placeholder.
             }
         }
     }

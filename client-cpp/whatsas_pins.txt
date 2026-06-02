@@ -1,3 +1,5 @@
 # WhatSaS TOFU key pins — do not edit manually
-# Format: <username>  <base64(x25519_public_key)>  <server-uuid>
-# Pins are written automatically on first contact with each peer.
+sarah H6QQLyK7niKxYR3y/oU/WKkkfqWxCP7eRgZWEzI4gDg= 9ad2f6ff-6efc-48c7-a551-0f5a8c1c54c1
+sreejitac lr7DQLhLFaHBclitemAcRzzj/53T2hX+JfkV69feIgg= f41db8ad-231c-44b8-a43e-7a07da7a741e
+aoibheann BjxI0GqnsWXJu3GNG0lvuksMZ/IHHKRzT2lhAQC4XGU= 2663b5f3-fce1-4fc5-bf7c-69d3dd4f2644
+#HMAC c24c6e4c63f21bc9b03bbbe1ef14c55329230a96451d7fe48fba50137720f3bc

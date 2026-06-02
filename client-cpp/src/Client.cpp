@@ -318,15 +318,38 @@ int Client::receiveMessages(MessageStore& store,
         return -1;
     }
 
-    // 3. Iterate message objects — server returns: id, sender_id, ciphertext, nonce,
-    //    ephemeral_pk, created_at. We are always the recipient (server filters by JWT).
+    // 3. Iterate message objects. Server returns all messages (sent + received).
+    //    Only process messages that belong to this conversation (with conv.getPeerId()),
+    //    and skip sent messages since we can't decrypt our own ciphertext.
+    const std::string& peerId = conv.getPeerId();
     int successCount = 0;
     for (const auto& obj : parsed["messages"]) {
+        // Filter to this conversation only.
+        const std::string senderUsername    = obj.contains("sender_username")    && obj["sender_username"].is_string()    ? obj["sender_username"].get<std::string>()    : "";
+        const std::string recipientUsername = obj.contains("recipient_username") && obj["recipient_username"].is_string() ? obj["recipient_username"].get<std::string>() : "";
+        const bool fromPeer = (senderUsername == peerId);
+        const bool toPeer   = (recipientUsername == peerId);
+        if (!fromPeer && !toPeer) continue;  // belongs to a different conversation
+
+        if (obj.contains("direction") && obj["direction"].is_string() &&
+            obj["direction"].get<std::string>() == "sent") {
+            // Can't decrypt our own sent ciphertext, but show as placeholder for continuity.
+            if (obj.contains("id") && obj["id"].is_string() &&
+                obj.contains("timestamp") && obj["timestamp"].is_number_integer()) {
+                DecryptedMessage dm;
+                dm.messageId   = obj["id"].get<std::string>();
+                dm.senderId    = senderUsername;
+                dm.recipientId = recipientUsername;
+                dm.plaintext   = "[message sent]";
+                dm.timestamp   = static_cast<std::time_t>(obj["timestamp"].get<long long>());
+                conv.addMessage(std::move(dm));
+            }
+            continue;
+        }
         if (!obj.contains("id")          || !obj["id"].is_string()          ||
             !obj.contains("sender_id")   || !obj["sender_id"].is_string()   ||
             !obj.contains("nonce")       || !obj["nonce"].is_string()       ||
-            !obj.contains("ciphertext")  || !obj["ciphertext"].is_string()  ||
-            !obj.contains("created_at")  || !obj["created_at"].is_string()) {
+            !obj.contains("ciphertext")  || !obj["ciphertext"].is_string()) {
             std::cerr << "[receiveMessages] skipping: missing or wrong-type field\n";
             continue;
         }
@@ -336,43 +359,44 @@ int Client::receiveMessages(MessageStore& store,
         std::string nonceB64   = obj["nonce"];
         std::string ctB64      = obj["ciphertext"];
 
-        // Parse created_at → time_t.
-        // Server may return ISO-8601 ("2026-05-25 16:35:57") or RFC 2822 ("Sat, 30 May 2026 14:13:02 GMT").
-        static const char* RFC2822_MONTHS[] = {
-            "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
-        };
-        std::tm tm{};
-        std::string createdAt = obj["created_at"].get<std::string>();
+        // Prefer the application-level 'timestamp' (integer unix epoch baked into the AD
+        // at encrypt time). Fall back to parsing 'created_at' only when 'timestamp' is absent
+        // — the two differ and using created_at breaks AES-GCM AD verification.
         std::time_t ts = -1;
-
-        // Try ISO-8601 first: "YYYY-MM-DD HH:MM:SS" (T separator also accepted)
-        if (createdAt.size() > 10 && createdAt[10] == 'T') createdAt[10] = ' ';
-        {
-            int y, mo, d, h, mi, s;
-            if (std::sscanf(createdAt.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
-                tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo-1; tm.tm_mday = d;
-                tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
-                ts = portable_mkgmtime(&tm);
-            }
-        }
-        // Try RFC 2822: "Www, DD Mon YYYY HH:MM:SS GMT"
-        if (ts < 0) {
-            char monStr[4] = {};
-            int d, y, h, mi, s;
-            if (std::sscanf(createdAt.c_str(), "%*3s, %d %3s %d %d:%d:%d", &d, monStr, &y, &h, &mi, &s) == 6) {
-                int mo = -1;
-                for (int i = 0; i < 12; ++i)
-                    if (std::strcmp(monStr, RFC2822_MONTHS[i]) == 0) { mo = i; break; }
-                if (mo >= 0) {
-                    tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo; tm.tm_mday = d;
+        if (obj.contains("timestamp") && obj["timestamp"].is_number_integer()) {
+            ts = static_cast<std::time_t>(obj["timestamp"].get<long long>());
+        } else {
+            static const char* RFC2822_MONTHS[] = {
+                "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
+            };
+            std::tm tm{};
+            std::string createdAt = obj["created_at"].get<std::string>();
+            if (createdAt.size() > 10 && createdAt[10] == 'T') createdAt[10] = ' ';
+            {
+                int y, mo, d, h, mi, s;
+                if (std::sscanf(createdAt.c_str(), "%d-%d-%d %d:%d:%d", &y, &mo, &d, &h, &mi, &s) == 6) {
+                    tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo-1; tm.tm_mday = d;
                     tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
                     ts = portable_mkgmtime(&tm);
                 }
             }
+            if (ts < 0) {
+                char monStr[4] = {};
+                int d, y, h, mi, s;
+                if (std::sscanf(createdAt.c_str(), "%*3s, %d %3s %d %d:%d:%d", &d, monStr, &y, &h, &mi, &s) == 6) {
+                    int mo = -1;
+                    for (int i = 0; i < 12; ++i)
+                        if (std::strcmp(monStr, RFC2822_MONTHS[i]) == 0) { mo = i; break; }
+                    if (mo >= 0) {
+                        tm = {}; tm.tm_year = y-1900; tm.tm_mon = mo; tm.tm_mday = d;
+                        tm.tm_hour = h; tm.tm_min = mi; tm.tm_sec = s; tm.tm_isdst = -1;
+                        ts = portable_mkgmtime(&tm);
+                    }
+                }
+            }
         }
         if (ts < 0) {
-            std::cerr << "[receiveMessages] skipping: unparseable created_at '" << createdAt
-                      << "' for message " << messageId << "\n";
+            std::cerr << "[receiveMessages] skipping: no usable timestamp for " << messageId << "\n";
             continue;
         }
 
@@ -399,7 +423,15 @@ int Client::receiveMessages(MessageStore& store,
         }
 
         // 5. Re-derive the per-message AES key via DHKEM.
-        std::vector<uint8_t> aesKey = hpkeReceive(staticSk_, ephPk, senderPk);
+        // Prefer sender_x25519_public_key from the message (always base64) over the
+        // TOFU-pinned senderPk argument — it's already validated by the server and
+        // avoids failures when multiple senders are in the same inbox fetch.
+        std::vector<uint8_t> msgSenderPk = senderPk;
+        if (obj.contains("sender_x25519_public_key") && obj["sender_x25519_public_key"].is_string()) {
+            auto candidate = b64Decode(obj["sender_x25519_public_key"].get<std::string>());
+            if (candidate.size() == 32) msgSenderPk = std::move(candidate);
+        }
+        std::vector<uint8_t> aesKey = hpkeReceive(staticSk_, ephPk, msgSenderPk);
         if (aesKey.empty()) {
             std::cerr << "[receiveMessages] HPKE receive failed: " << messageId << "\n";
             continue;
@@ -432,8 +464,8 @@ int Client::receiveMessages(MessageStore& store,
 
             store.addMessage(msg, peerKey(senderUuid, senderId_));
 
-            // Override senderId in DecryptedMessage to the peer's username for display.
-            decrypted->senderId = conv.getPeerId();
+            // Use the actual sender username for display (already filtered to this conv).
+            decrypted->senderId = senderUsername.empty() ? conv.getPeerId() : senderUsername;
             conv.addMessage(std::move(*decrypted));
             ++successCount;
         } catch (const std::invalid_argument& e) {
