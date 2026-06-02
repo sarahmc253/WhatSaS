@@ -278,7 +278,7 @@ export async function renderInbox(container, navigate) {
         const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
         const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
 
-        const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+        const { ephPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
             content, recipientPublicKey, privKey, senderId, recipientUser.id,
         );
 
@@ -291,6 +291,7 @@ export async function renderInbox(container, navigate) {
             nonce:                    toHex(nonce),
             ephemeral_pk:             toHex(ephPkBytes),
             sender_x25519_public_key: api.getPublicKeyB64(),
+            timestamp,
         });
 
         sessionStorage.setItem(`sent_plain_${messageId}`, content);
