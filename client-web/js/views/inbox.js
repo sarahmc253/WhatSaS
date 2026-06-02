@@ -532,6 +532,7 @@ function buildBubble(msg, myUsername) {
     const actions = `
         ${!isRevoked ? `<button class="btn-icon" data-action="forward"  data-id="${sid}" title="Forward">↗️</button>` : ''}
         <button class="btn-icon" data-action="download" data-id="${sid}" title="Download">⬇️</button>
+        ${!isSent && !isRevoked && !msg.tx_hash ? `<button class="btn-icon" data-action="anchor" data-id="${sid}" title="Anchor to blockchain">⚓</button>` : ''}
         ${isSent ? `<button class="btn-icon" data-action="delete" data-id="${sid}" title="Delete">🗑️</button>` : ''}
         ${isSent && !isRevoked ? `<button class="btn-revoke" data-action="revoke" data-id="${sid}" title="Revoke access">🚫 Revoke</button>` : ''}
         ${isRevoked ? `<span class="revoked-badge">Revoked</span>` : ''}`;
@@ -696,6 +697,26 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                 URL.revokeObjectURL(url);
 
                 btn.disabled = false;
+                return;
+            }
+
+            case 'anchor': {
+                const origLabel = btn.textContent;
+                btn.textContent = '⏳';
+                try {
+                    await api.triggerAnchor();
+                } catch (err) {
+                    if (err.status === 503) {
+                        showInlineError(inboxBody, 'Anchoring is not enabled on this server.');
+                    } else {
+                        throw err;
+                    }
+                    btn.disabled = false;
+                    btn.textContent = origLabel;
+                    return;
+                }
+                btn.textContent = '✅';
+                setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 2000);
                 return;
             }
 

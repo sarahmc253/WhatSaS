@@ -49,10 +49,12 @@ def get_messages():
                    u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
                    ru.username AS recipient_username,
-                   'received' AS direction, 0 AS is_revoked
+                   'received' AS direction, 0 AS is_revoked,
+                   br.tx_hash, br.merkle_root
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
+            LEFT JOIN blockchain_records br ON br.id = m.blockchain_record_id
             WHERE m.recipient_id = %s AND m.is_revoked = 0
 
             UNION ALL
@@ -61,10 +63,12 @@ def get_messages():
                    u.x25519_public_key AS sender_x25519_public_key,
                    m.ciphertext, m.nonce, m.ephemeral_pk, m.created_at,
                    ru.username AS recipient_username,
-                   'sent' AS direction, m.is_revoked
+                   'sent' AS direction, m.is_revoked,
+                   br.tx_hash, br.merkle_root
             FROM messages m
             JOIN users u  ON u.id = m.sender_id
             JOIN users ru ON ru.id = m.recipient_id
+            LEFT JOIN blockchain_records br ON br.id = m.blockchain_record_id
             WHERE m.sender_id = %s
 
             ORDER BY created_at ASC

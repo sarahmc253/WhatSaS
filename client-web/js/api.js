@@ -204,3 +204,7 @@ export function revokeMessage(id) {
 export function flushMessages() {
     return request('POST', '/flush', { auth: true });
 }
+
+export function triggerAnchor() {
+    return request('POST', '/flush', { auth: true });
+}
