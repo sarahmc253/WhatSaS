@@ -301,28 +301,58 @@
 /* Forwarded tag */
 .bubble-forwarded {
     font-size: .68rem;
-    color: rgba(255,255,255,.7);
-    margin-bottom: .2rem;
     font-style: italic;
+    font-weight: 600;
+    color: rgba(255,255,255,.85);
+    border-left: 2px solid rgba(255,255,255,.5);
+    padding-left: .4rem;
+    margin-bottom: .35rem;
 }
-.bubble.received .bubble-forwarded { color: var(--muted); }
+.bubble.received .bubble-forwarded {
+    color: var(--muted);
+    border-left-color: var(--border);
+}
 
-/* Time + actions row: all on one baseline */
-.bubble-footer {
+/* ── WhatsApp-style date divider ─────────────────────────────────────────── */
+.date-divider {
     display: flex;
     align-items: center;
+    gap: .75rem;
+    margin: .75rem 0 .5rem;
+    color: rgba(255,255,255,.75);
+    font-size: .72rem;
+    font-weight: 600;
+}
+.date-divider::before,
+.date-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,.25);
+}
+.date-divider span {
+    background: rgba(0,0,0,.18);
+    padding: .15rem .65rem;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+/* ── Bubble footer — all items on same baseline ───────────────────────────── */
+.bubble-footer {
+    display: flex;
+    align-items: flex-end;
     justify-content: space-between;
     gap: .5rem;
     margin-top: .4rem;
-    min-height: 1.5rem;
 }
 
 .bubble-footer-left {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     gap: .35rem;
     flex-wrap: wrap;
     min-width: 0;
+    line-height: 1.5rem;
 }
 
 .bubble .msg-date {
@@ -332,6 +362,12 @@
     line-height: 1.5rem;
 }
 .bubble.received .msg-date { color: var(--muted); }
+
+/* keep badge on same line as buttons */
+.bubble-footer .badge {
+    line-height: 1.5rem;
+    vertical-align: middle;
+}
 
 /* ── Bubble action icons ─────────────────────────────────────────────────── */
 .bubble .msg-actions {

@@ -321,7 +321,27 @@ export async function renderInbox(container, navigate) {
 
     // ── Render thread ─────────────────────────────────────────────────────
     function renderThread(partner, msgs) {
-        const bubbles = msgs.map(msg => buildBubble(msg, myUsername)).join('');
+        let lastDateLabel = null;
+        const bubbles = msgs.map(msg => {
+            const ts = msg.created_at ?? msg.timestamp;
+            const d  = ts ? new Date(typeof ts === 'number' ? ts * 1000 : ts) : null;
+            let divider = '';
+            if (d && !isNaN(d)) {
+                const now   = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const yesterday = new Date(today - 86400000);
+                const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                let label;
+                if (msgDay.getTime() === today.getTime())          label = 'Today';
+                else if (msgDay.getTime() === yesterday.getTime()) label = 'Yesterday';
+                else label = d.toLocaleDateString('en-IE', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Europe/Dublin' });
+                if (label !== lastDateLabel) {
+                    lastDateLabel = label;
+                    divider = `<div class="date-divider"><span>${esc(label)}</span></div>`;
+                }
+            }
+            return divider + buildBubble(msg, myUsername);
+        }).join('');
         renderConvList(currentConvMap, partner);
 
         body.innerHTML = `
@@ -560,7 +580,7 @@ function buildBubble(msg, myUsername) {
             <div class="bubble-avatar">${avatarLabel}</div>
             <div class="bubble ${isSent ? 'sent' : 'received'} message-card" data-id="${esc(String(id))}" data-sender="${esc(sender)}">
                 ${!isSent ? `<div class="bubble-sender">${esc(sender)}</div>` : ''}
-                ${isForwarded ? `<div class="bubble-forwarded">↗ Forwarded</div>` : ''}
+                ${isForwarded ? `<div class="bubble-forwarded">↗️ Forwarded</div>` : ''}
                 <div class="msg-body">${esc(String(content))}</div>
                 ${hashRows}
                 <div class="bubble-footer">
