@@ -4,7 +4,12 @@
 #include <string>
 #include <vector>
 #include <optional>
-#include <cpuid.h>
+// CPUID: include the right header per compiler; fall back silently on unknown toolchains.
+#if defined(_MSC_VER)
+#  include <intrin.h>
+#elif defined(__GNUC__) || defined(__clang__)
+#  include <cpuid.h>
+#endif
 #include "AuthCLI.hpp"
 #include "crypto_utils.hpp"
 #include "key_wrap.hpp"
@@ -16,6 +21,23 @@
 #include "../include/MessageStore.hpp"
 
 static const std::string BASE_URL = "https://sas.theburkenator.com";
+
+// Returns true if the CPU advertises AES-NI support (CPUID leaf 1, ECX bit 25).
+// Falls back to true on toolchains that expose neither __get_cpuid nor __cpuid so
+// that unsupported builds fail at the libsodium call site rather than here.
+static bool hasAesNi() {
+#if defined(_MSC_VER)
+    int info[4] = {};
+    __cpuid(info, 1);
+    return (info[2] >> 25) & 1;
+#elif defined(__GNUC__) || defined(__clang__)
+    unsigned int a = 0, b = 0, c = 0, d = 0;
+    if (!__get_cpuid(1, &a, &b, &c, &d)) return false;
+    return (c >> 25) & 1;
+#else
+    return true;
+#endif
+}
 
 static void runMockFlow() {
     showBanner();
@@ -96,7 +118,7 @@ int main(int argc, char* argv[]) {
     try {
         if (choice == AuthChoice::Register) {
             const auto creds = promptCredentials();
-            { unsigned int a,b,c,d; __get_cpuid(1,&a,&b,&c,&d); if(!((c>>25)&1)) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU"); }
+            if (!hasAesNi()) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
 
             // Two-layer key wrapping (KEK→DEK→SK) matching the web client and spec §3.6
             const auto kp      = generateX25519Keypair();
@@ -124,7 +146,7 @@ int main(int argc, char* argv[]) {
             const auto creds = promptLogin();
             auth = Auth::login(http, BASE_URL, creds.username, creds.password);
 
-            { unsigned int a,b,c,d; __get_cpuid(1,&a,&b,&c,&d); if(!((c>>25)&1)) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU"); }
+            if (!hasAesNi()) throw std::runtime_error("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
 
             // Two-layer unwrap (KEK→DEK→SK), handles both PKCS8 (web) and raw (old C++) inner formats
             auto sk = unwrapPrivateKey(

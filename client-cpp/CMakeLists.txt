@@ -34,7 +34,12 @@ FetchContent_MakeAvailable(nlohmann_json)
 # libsodium does not ship a CMake config package; locate it via find_library/find_path
 find_library(SODIUM_LIB NAMES sodium libsodium REQUIRED)
 find_path(SODIUM_INCLUDE NAMES sodium.h
-  PATHS /usr/include /usr/local/include /opt/homebrew/include
+  PATHS
+    /usr/include
+    /usr/local/include
+    /opt/homebrew/include
+    C:/msys64/ucrt64/include
+    C:/msys64/mingw64/include
   REQUIRED
 )
 

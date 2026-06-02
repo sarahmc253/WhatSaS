@@ -19,7 +19,7 @@ pacman -S mingw-w64-ucrt-x86_64-cmake \
 ## Build
 
 ```powershell
-cmake -B build
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
