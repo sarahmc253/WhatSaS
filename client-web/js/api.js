@@ -3,7 +3,7 @@
  *
  * Token lifecycle:
  *   - Stored in sessionStorage so it clears when the tab is closed.
- *   - JWT expires in 15 min server-side; the server returns 401 when
+ *   - JWT expires in 1 hour server-side; the server returns 401 when
  *     it does, which this module surfaces as a thrown Error.
  *
  * Private key lifecycle:
@@ -15,7 +15,11 @@
 import { decryptPrivateKey, EncryptedPrivateKey } from '../crypto/keyStorage.js';
 
 const BASE_URL = window.location.origin;
-const TOKEN_KEY = 'whatsas_token';
+const TOKEN_KEY      = 'whatsas_token';
+const PUBLIC_KEY_KEY = 'whatsas_pubkey';
+const WRAPPED_KEY_KEY = 'whatsas_wrapped';
+const KEK_SALT_KEY   = 'whatsas_keksalt';
+const USERNAME_KEY   = 'whatsas_username';
 
 // ── Token helpers ─────────────────────────────────────────────────────────
 function getToken()   { return sessionStorage.getItem(TOKEN_KEY); }
@@ -25,23 +29,44 @@ function clearToken() { sessionStorage.removeItem(TOKEN_KEY); }
 export function isAuthenticated() { return !!getToken(); }
 
 // ── Private key store (in-memory only, never persisted) ──────────────────
+// All other key material is mirrored to sessionStorage so it survives a
+// page refresh within the same tab. The CryptoKey itself cannot be
+// serialised (extractable:false), so it is re-derived from the persisted
+// wrapped_private_key on the unlock screen after a reload.
 let _sessionPrivateKey   = null;
 let _sessionPublicKeyB64 = null;
-let _sessionWrappedKey   = null;  // raw parsed EncryptedPrivateKey — needed for re-wrap on pw change
-let _sessionKekSalt      = null;  // base64 kek_salt from login — needed for re-wrap
+let _sessionWrappedKey   = null;
+let _sessionKekSalt      = null;
 let _sessionUserId       = null;  // logged-in user's UUID — needed for AD in encryptMessage
 
-export function setPrivateKey(key)     { _sessionPrivateKey   = key; }
-export function getPrivateKey()        { return _sessionPrivateKey; }
-export function clearPrivateKey()      { _sessionPrivateKey   = null; }
-export function getPublicKeyB64()      { return _sessionPublicKeyB64; }
-export function clearPublicKey()       { _sessionPublicKeyB64 = null; }
-export function getWrappedKey()                   { return _sessionWrappedKey; }
-export function getKekSalt()                      { return _sessionKekSalt; }
-export function clearWrappedKey()                 { _sessionWrappedKey = null; _sessionKekSalt = null; }
-export function setWrappedKey(wrapped, kekSalt)   { _sessionWrappedKey = wrapped; _sessionKekSalt = kekSalt; }
-export function getUserId()            { return _sessionUserId; }
-export function clearUserId()          { _sessionUserId = null; }
+export function setPrivateKey(key)   { _sessionPrivateKey   = key; }
+export function getUserId()          { return _sessionUserId; }
+export function clearUserId()        { _sessionUserId = null; }
+export function getPrivateKey()      { return _sessionPrivateKey; }
+export function clearPrivateKey()    { _sessionPrivateKey   = null; }
+
+export function getPublicKeyB64()    { return _sessionPublicKeyB64 ?? sessionStorage.getItem(PUBLIC_KEY_KEY); }
+export function clearPublicKey()     { _sessionPublicKeyB64 = null; }
+
+export function getUsername()        { return sessionStorage.getItem(USERNAME_KEY); }
+
+export function getStoredWrappedKey() { return _sessionWrappedKey ?? sessionStorage.getItem(WRAPPED_KEY_KEY); }
+export function getStoredKekSalt()    { return _sessionKekSalt    ?? sessionStorage.getItem(KEK_SALT_KEY); }
+
+export function getWrappedKey()      { return getStoredWrappedKey(); }
+export function getKekSalt()         { return getStoredKekSalt(); }
+
+export function clearWrappedKey() {
+    _sessionWrappedKey = null; _sessionKekSalt = null;
+    sessionStorage.removeItem(WRAPPED_KEY_KEY);
+    sessionStorage.removeItem(KEK_SALT_KEY);
+}
+
+export function setWrappedKey(wrapped, kekSalt) {
+    _sessionWrappedKey = wrapped; _sessionKekSalt = kekSalt;
+    sessionStorage.setItem(WRAPPED_KEY_KEY, wrapped);
+    sessionStorage.setItem(KEK_SALT_KEY, kekSalt);
+}
 
 // ── Core fetch wrapper ────────────────────────────────────────────────────
 async function request(method, path, { body = null, auth = false } = {}) {
@@ -78,10 +103,20 @@ export async function login(username, password) {
     });
     if (!data.token) throw new Error('Login succeeded but no token was returned');
     setToken(data.token);
-    if (data.x25519_public_key)   _sessionPublicKeyB64 = data.x25519_public_key;
-    if (data.wrapped_private_key) _sessionWrappedKey   = data.wrapped_private_key;
-    if (data.kek_salt)            _sessionKekSalt      = data.kek_salt;
-    if (data.user_id)             _sessionUserId       = data.user_id;
+    if (data.x25519_public_key) {
+        _sessionPublicKeyB64 = data.x25519_public_key;
+        sessionStorage.setItem(PUBLIC_KEY_KEY, data.x25519_public_key);
+    }
+    if (data.wrapped_private_key) {
+        _sessionWrappedKey = data.wrapped_private_key;
+        sessionStorage.setItem(WRAPPED_KEY_KEY, data.wrapped_private_key);
+    }
+    if (data.kek_salt) {
+        _sessionKekSalt = data.kek_salt;
+        sessionStorage.setItem(KEK_SALT_KEY, data.kek_salt);
+    }
+    if (data.username) sessionStorage.setItem(USERNAME_KEY, data.username);
+    if (data.user_id)  _sessionUserId = data.user_id;
 
     if (data.wrapped_private_key) {
         try {
@@ -132,6 +167,8 @@ export function logout() {
     clearPublicKey();
     clearWrappedKey();
     clearUserId();
+    sessionStorage.removeItem(PUBLIC_KEY_KEY);
+    sessionStorage.removeItem(USERNAME_KEY);
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
