@@ -59,6 +59,9 @@ The client loads this cert at startup (`loadPinnedCert` in `tls_connect.cpp`) an
 
 ```powershell
 # Must be run from the client-cpp\ directory so certs/server.crt resolves correctly
+
+ $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+ 
 .\build\sas-client.exe
 ```
 
