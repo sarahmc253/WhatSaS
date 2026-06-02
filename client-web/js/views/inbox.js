@@ -627,6 +627,7 @@ function showForwardDialog() {
         input.value = '';
         fpEl.textContent = '';
         msgEl.className = msgEl.textContent = '';
+        form.querySelector('button[type="submit"]').disabled = false;
 
         const fwdAbort = new AbortController();
 
@@ -706,6 +707,7 @@ function showNewChatDialog() {
 
         input.value = '';
         msgEl.className = msgEl.textContent = '';
+        form.querySelector('button[type="submit"]').disabled = false;
 
         const abort = new AbortController();
 
