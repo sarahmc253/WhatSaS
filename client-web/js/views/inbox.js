@@ -195,7 +195,8 @@ export async function renderInbox(container, navigate) {
                 privKey, senderStaticPubKey,
                 senderId, recipientId, msgId, timestamp,
             );
-        } catch {
+        } catch (err) {
+            console.error(`[decrypt] failed for msg ${msgId} from ${msg.sender_username}:`, err);
             return '(encrypted)';
         }
     }
@@ -352,7 +353,7 @@ export async function renderInbox(container, navigate) {
                 fpEl.textContent = `🔑 ${fp}`;
                 fpEl.style.color = '';
             }
-        }).catch(() => {});
+        }).catch(err => console.error(`[fingerprint] failed for ${partner}:`, err));
 
         const thread = document.getElementById('chat-thread');
         thread.scrollTop = thread.scrollHeight;
@@ -382,6 +383,7 @@ export async function renderInbox(container, navigate) {
                 await sendFromThread(partner, content, cachedRecipient);
                 input.value = '';
             } catch (err) {
+                console.error('[send] failed:', err);
                 showInlineError(body, `Send failed: ${err.message}`);
             } finally {
                 sendBtn.disabled = false;
@@ -505,7 +507,9 @@ export async function renderInbox(container, navigate) {
                 }
                 if (relevant.length > 0) thread.scrollTop = thread.scrollHeight;
             }
-        } catch { /* non-fatal */ }
+        } catch (err) {
+            console.error('[poll] message fetch failed:', err);
+        }
     }, 10_000);
 }
 
@@ -600,7 +604,7 @@ function showForwardDialog() {
                 const pkBytes = Uint8Array.from(atob(user.x25519_public_key), c => c.charCodeAt(0));
                 const fp = await keyFingerprint(pkBytes);
                 fpEl.textContent = `🔑 ${fp}`;
-            } catch { fpEl.textContent = ''; }
+            } catch (err) { console.error(`[forward-fingerprint] failed for ${username}:`, err); fpEl.textContent = ''; }
         }, { signal: fwdAbort.signal });
 
         cancelBtn.onclick = () => { fwdAbort.abort(); dlg.close(); resolve(null); };
@@ -878,7 +882,8 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
             inboxBody.innerHTML = `<div class="empty-state">Your inbox is empty.</div>`;
         }
     } catch (err) {
-        showInlineError(inboxBody, `Action failed: ${err.message}`);
+        console.error(`[action:${action}] failed for message ${id}:`, err);
+        showInlineError(inboxBody, `${action.charAt(0).toUpperCase() + action.slice(1)} failed: ${err.message}`);
         btn.disabled = false;
     }
 }
