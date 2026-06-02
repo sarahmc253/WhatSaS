@@ -314,7 +314,7 @@ export async function renderInbox(container, navigate) {
             tmp.innerHTML = buildBubble(sentMsg, myUsername);
             const bubble = tmp.firstElementChild;
             bubble.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => handleAction(btn, body));
+                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
             });
             thread.appendChild(bubble);
             thread.scrollTop = thread.scrollHeight;
@@ -361,7 +361,7 @@ export async function renderInbox(container, navigate) {
         thread.scrollTop = thread.scrollHeight;
 
         body.querySelectorAll('[data-action]').forEach(btn => {
-            btn.addEventListener('click', () => handleAction(btn, body));
+            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
         });
 
         let cachedRecipient = null;
@@ -416,12 +416,44 @@ export async function renderInbox(container, navigate) {
         try {
             const data    = await api.getMessages();
             const fresh   = data.messages ?? [];
-            const newMsgs = fresh.filter(m => !knownIds.has(String(m.id ?? m.message_id ?? '')));
-            if (newMsgs.length === 0) return;
+            const newMsgs     = fresh.filter(m => !knownIds.has(String(m.id ?? m.message_id ?? '')));
+            const changedMsgs = fresh.filter(m => {
+                const id  = String(m.id ?? m.message_id ?? '');
+                if (!knownIds.has(id)) return false;
+                // detect server-side state changes (revoke, edit)
+                for (const msgs of currentConvMap.values()) {
+                    const existing = msgs.find(e => String(e.id ?? e.message_id ?? '') === id);
+                    if (existing && (existing.is_revoked !== m.is_revoked || existing.content_hash !== m.content_hash)) return true;
+                }
+                return false;
+            });
+
+            if (newMsgs.length === 0 && changedMsgs.length === 0) return;
 
             const newDecrypted = await Promise.all(
                 newMsgs.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
             );
+
+            // update changed entries in-place so sidebar previews stay fresh
+            for (const msg of changedMsgs) {
+                const id = String(msg.id ?? msg.message_id ?? '');
+                for (const msgs of currentConvMap.values()) {
+                    const idx = msgs.findIndex(e => String(e.id ?? e.message_id ?? '') === id);
+                    if (idx !== -1) {
+                        msgs[idx] = { ...msgs[idx], ...msg, content: msg.is_revoked ? msgs[idx].content : await tryDecrypt(msg) };
+                        // patch live DOM bubble if visible
+                        const liveBubble = document.querySelector(`.message-card[data-id="${CSS.escape(id)}"]`);
+                        if (liveBubble) {
+                            const wrap = liveBubble.closest('.bubble-wrap');
+                            const tmp  = document.createElement('div');
+                            tmp.innerHTML = buildBubble(msgs[idx], myUsername);
+                            const newBubble = tmp.firstElementChild;
+                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername)));
+                            (wrap ?? liveBubble).replaceWith(newBubble);
+                        }
+                    }
+                }
+            }
 
             for (const msg of newDecrypted) {
                 knownIds.add(String(msg.id ?? msg.message_id ?? ''));
@@ -449,7 +481,7 @@ export async function renderInbox(container, navigate) {
                     tmp.innerHTML = buildBubble(msg, myUsername);
                     const bubble = tmp.firstElementChild;
                     bubble.querySelectorAll('[data-action]').forEach(btn => {
-                        btn.addEventListener('click', () => handleAction(btn, body));
+                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
                     });
                     thread.appendChild(bubble);
                 }
@@ -562,21 +594,56 @@ function showForwardDialog() {
 }
 
 // ── Message action handler ────────────────────────────────────────────────
-async function handleAction(btn, inboxBody) {
+async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
     const { action, id } = btn.dataset;
     btn.disabled = true;
 
     try {
         switch (action) {
-            case 'delete':
+            case 'delete': {
                 await api.deleteMessage(id);
                 (btn.closest('.bubble-wrap') ?? btn.closest('.message-card'))?.remove();
+                // remove from map so sidebar preview and thread reopens stay consistent
+                for (const [partner, msgs] of currentConvMap) {
+                    const idx = msgs.findIndex(m => String(m.id ?? m.message_id ?? '') === id);
+                    if (idx !== -1) {
+                        msgs.splice(idx, 1);
+                        if (msgs.length === 0) currentConvMap.delete(partner);
+                        renderConvList(currentConvMap, inboxBody.querySelector('.thread-partner')?.textContent?.trim() ?? '');
+                        break;
+                    }
+                }
                 break;
+            }
 
-            case 'revoke':
+            case 'revoke': {
                 await api.revokeMessage(id);
-                (btn.closest('.bubble-wrap') ?? btn.closest('.message-card'))?.remove();
+                // mark revoked in map so sidebar and thread reopens show "Revoked" state
+                for (const msgs of currentConvMap.values()) {
+                    const entry = msgs.find(m => String(m.id ?? m.message_id ?? '') === id);
+                    if (entry) { entry.is_revoked = true; break; }
+                }
+                // replace bubble in-place with revoked rendering
+                const card = btn.closest('.message-card');
+                const wrap = btn.closest('.bubble-wrap') ?? card;
+                const entry = (() => {
+                    for (const msgs of currentConvMap.values()) {
+                        const e = msgs.find(m => String(m.id ?? m.message_id ?? '') === id);
+                        if (e) return e;
+                    }
+                })();
+                if (entry && wrap) {
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = buildBubble(entry, myUsername);
+                    const newBubble = tmp.firstElementChild;
+                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername)));
+                    wrap.replaceWith(newBubble);
+                } else {
+                    wrap?.remove();
+                }
+                renderConvList(currentConvMap, inboxBody.querySelector('.thread-partner')?.textContent?.trim() ?? '');
                 break;
+            }
 
             case 'download': {
                 const card    = btn.closest('.message-card');
