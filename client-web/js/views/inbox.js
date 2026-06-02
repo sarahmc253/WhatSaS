@@ -175,7 +175,7 @@ export async function renderInbox(container, navigate) {
             const nonce      = decodeField(msg.nonce);
             const ephPkBytes = decodeField(msg.ephemeral_pk);
             const ephPubKey  = await crypto.subtle.importKey(
-                'raw', ephPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                'raw', ephPkBytes, { name: 'X25519' }, false, [],
             );
 
             const senderPkBytes = Uint8Array.from(atob(msg.sender_x25519_public_key), c => c.charCodeAt(0));
@@ -185,7 +185,7 @@ export async function renderInbox(container, navigate) {
                     console.warn(`[TOFU] Key change detected for ${msg.sender_username} — possible MITM`);
                 }
                 senderKeyCache[msg.sender_username] = await crypto.subtle.importKey(
-                    'raw', senderPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                    'raw', senderPkBytes, { name: 'X25519' }, false, [],
                 );
             }
             const senderStaticPubKey = senderKeyCache[msg.sender_username];
@@ -270,55 +270,28 @@ export async function renderInbox(container, navigate) {
 
         const tofu = tofuCheck(partner, recipientUser.x25519_public_key);
         if (tofu.changed) {
-            console.log('showing key changed dialog');
-            let proceed;
-            try {
-                proceed = await showKeyChangedDialog(partner);
-            } catch (err) {
-                console.error('showing key changed dialog', err);
-                throw err;
-            }
+            const proceed = await showKeyChangedDialog(partner);
             if (!proceed) throw new Error('Send cancelled — please verify the recipient\'s key fingerprint.');
             localStorage.setItem(TOFU_PREFIX + partner, recipientUser.x25519_public_key);
         }
 
         const keyBytes = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-        console.log('importing recipient key');
-        let recipientPublicKey;
-        try {
-            recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, ['deriveBits']);
-        } catch (err) {
-            console.error('importing recipient key failed:', err);
-            throw err;
-        }
+        const recipientPublicKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'X25519' }, false, []);
 
-        console.log('calling encryptMessage');
-        let ephPkBytes, nonce, ciphertext, messageId;
-        try {
-            ({ ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
-                content, recipientPublicKey, privKey, senderId, recipientUser.id,
-            ));
-        } catch (err) {
-            console.error('calling encryptMessage failed:', err);
-            throw err;
-        }
+        const { ephPkBytes, nonce, ciphertext, messageId } = await encryptMessage(
+            content, recipientPublicKey, privKey, senderId, recipientUser.id,
+        );
 
         const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 
-        console.log('calling sendMessage');
-        try {
-            await sendMessage({
-                recipient_id:             recipientUser.id,
-                message_id:               messageId,
-                ciphertext:               toHex(ciphertext),
-                nonce:                    toHex(nonce),
-                ephemeral_pk:             toHex(ephPkBytes),
-                sender_x25519_public_key: api.getPublicKeyB64(),
-            });
-        } catch (err) {
-            console.error('calling sendMessage failed:', err);
-            throw err;
-        }
+        await sendMessage({
+            recipient_id:             recipientUser.id,
+            message_id:               messageId,
+            ciphertext:               toHex(ciphertext),
+            nonce:                    toHex(nonce),
+            ephemeral_pk:             toHex(ephPkBytes),
+            sender_x25519_public_key: api.getPublicKeyB64(),
+        });
 
         sessionStorage.setItem(`sent_plain_${messageId}`, content);
 
@@ -396,33 +369,26 @@ export async function renderInbox(container, navigate) {
         let cachedRecipient = null;
 
         document.getElementById('send-bar').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input   = document.getElementById('send-input');
+            const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
+            const content = input.value.trim();
+            if (!content) return;
+
+            sendBtn.disabled = true;
+            input.disabled   = true;
+
             try {
-                e.preventDefault();
-                const input   = document.getElementById('send-input');
-                const sendBtn = document.getElementById('send-bar').querySelector('button[type="submit"]');
-                const content = input.value.trim();
-                if (!content) return;
-
-                sendBtn.disabled = true;
-                input.disabled   = true;
-
-                try {
-                    console.log('getting cached recipient');
-                    if (!cachedRecipient) cachedRecipient = await getUser(partner);
-                    if (!cachedRecipient?.x25519_public_key) throw new Error('Cannot find recipient key.');
-                    console.log('calling sendFromThread');
-                    await sendFromThread(partner, content, cachedRecipient);
-                    input.value = '';
-                } catch (err) {
-                    showInlineError(body, `Send failed: ${err.message}`);
-                } finally {
-                    sendBtn.disabled = false;
-                    input.disabled   = false;
-                    input.focus();
-                }
+                if (!cachedRecipient) cachedRecipient = await getUser(partner);
+                if (!cachedRecipient?.x25519_public_key) throw new Error('Cannot find recipient key.');
+                await sendFromThread(partner, content, cachedRecipient);
+                input.value = '';
             } catch (err) {
-                console.error('send handler error:', err);
-                throw err;
+                showInlineError(body, `Send failed: ${err.message}`);
+            } finally {
+                sendBtn.disabled = false;
+                input.disabled   = false;
+                input.focus();
             }
         });
     }
@@ -870,10 +836,10 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
 
                 const origEphPkBytes = decodeField(orig.ephemeral_pk);
                 const origEphPubKey  = await crypto.subtle.importKey(
-                    'raw', origEphPkBytes, { name: 'X25519' }, false, ['deriveBits'],
+                    'raw', origEphPkBytes, { name: 'X25519' }, false, [],
                 );
                 const origSenderKeyBytes = Uint8Array.from(atob(orig.sender_x25519_public_key), c => c.charCodeAt(0));
-                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const origSenderPubKey   = await crypto.subtle.importKey('raw', origSenderKeyBytes, { name: 'X25519' }, false, []);
 
                 const origCt    = decodeField(orig.ciphertext);
                 const origNonce = decodeField(orig.nonce);
@@ -885,7 +851,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                 );
 
                 const recipKeyBytes  = Uint8Array.from(atob(recipientUser.x25519_public_key), c => c.charCodeAt(0));
-                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, ['deriveBits']);
+                const recipPublicKey = await crypto.subtle.importKey('raw', recipKeyBytes, { name: 'X25519' }, false, []);
                 const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
                     plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
                 );
