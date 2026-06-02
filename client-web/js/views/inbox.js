@@ -198,7 +198,8 @@ export async function renderInbox(container, navigate) {
                 privKey, senderStaticPubKey,
                 senderId, recipientId, msgId, timestamp,
             );
-        } catch {
+        } catch (err) {
+            console.error(err);
             return '(encrypted)';
         }
     }
