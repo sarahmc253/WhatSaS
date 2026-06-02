@@ -359,8 +359,115 @@
 .btn-revoke:hover:not(:disabled) { background: rgba(255,255,255,.3); }
 .btn-revoke:disabled { opacity: .35; cursor: not-allowed; }
 
+/* ── Anchor details disclosure ───────────────────────────────────────────── */
+.msg-anchor-details {
+    margin: .375rem 0 .25rem;
+    font-size: .78rem;
+}
+
+.msg-anchor-details summary {
+    cursor: pointer;
+    color: var(--muted);
+    user-select: none;
+    padding: .15rem 0;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+}
+
+.msg-anchor-details summary::-webkit-details-marker { display: none; }
+.msg-anchor-details summary::before { content: '▶'; font-size: .6rem; transition: transform .15s; }
+.msg-anchor-details[open] summary::before { transform: rotate(90deg); }
+
+.msg-hash-rows {
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+    margin-top: .4rem;
+}
+
+.msg-hash-row {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    min-width: 0;
+}
+
+.msg-hash-label {
+    font-size: .7rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    flex-shrink: 0;
+    width: 2.5rem;
+}
+
+.msg-hash-val {
+    font-size: .68rem;
+    font-family: monospace;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 26ch;
+    flex: 1;
+    min-width: 0;
+}
+
+.btn-copy {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: .75rem;
+    padding: 0 .15rem;
+    flex-shrink: 0;
+    line-height: 1;
+    opacity: .6;
+    transition: opacity .12s;
+}
+.btn-copy:hover { opacity: 1; }
+
 /* ── Revoked bubble ──────────────────────────────────────────────────────── */
 .bubble-wrap.revoked .bubble { opacity: .6; }
+
+/* ── Anchor / unanchored badge ───────────────────────────────────────────── */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .2rem;
+    font-size: .68rem;
+    padding: .1rem .45rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.badge-anchored {
+    background: rgba(21,128,61,.12);
+    color: #166534;
+    border: 1px solid rgba(21,128,61,.25);
+}
+
+.bubble.sent .badge-anchored {
+    background: rgba(255,255,255,.2);
+    color: rgba(255,255,255,.9);
+    border-color: rgba(255,255,255,.3);
+}
+
+.badge-unanchored {
+    background: rgba(107,114,128,.1);
+    color: var(--muted);
+    border: 1px solid rgba(107,114,128,.2);
+}
+
+.bubble.sent .badge-unanchored {
+    background: rgba(255,255,255,.12);
+    color: rgba(255,255,255,.6);
+    border-color: rgba(255,255,255,.2);
+}
 
 .revoked-badge {
     font-size: .68rem;

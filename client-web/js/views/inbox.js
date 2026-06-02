@@ -308,7 +308,7 @@ export async function renderInbox(container, navigate) {
             tmp.innerHTML = buildBubble(sentMsg, myUsername);
             const bubble = tmp.firstElementChild;
             bubble.querySelectorAll('[data-action]').forEach(btn => {
-                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
+                btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll));
             });
             bubble.querySelectorAll('[data-copy]').forEach(btn => {
                 btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -358,7 +358,7 @@ export async function renderInbox(container, navigate) {
         thread.scrollTop = thread.scrollHeight;
 
         body.querySelectorAll('[data-action]').forEach(btn => {
-            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
+            btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll));
         });
         body.querySelectorAll('[data-copy]').forEach(btn => {
             btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -425,7 +425,7 @@ export async function renderInbox(container, navigate) {
     // ── Poll for new messages ─────────────────────────────────────────────
     const knownIds = new Set(decrypted.map(m => String(m.id ?? m.message_id ?? '')));
 
-    const pollInterval = setInterval(async () => {
+    async function doPoll() {
         if (!body.isConnected) { clearInterval(pollInterval); inboxAbort.abort(); return; }
         try {
             const data    = await api.getMessages();
@@ -437,7 +437,7 @@ export async function renderInbox(container, navigate) {
                 // detect server-side state changes (revoke, edit)
                 for (const msgs of currentConvMap.values()) {
                     const existing = msgs.find(e => String(e.id ?? e.message_id ?? '') === id);
-                    if (existing && (existing.is_revoked !== m.is_revoked || existing.content_hash !== m.content_hash)) return true;
+                    if (existing && (existing.is_revoked !== m.is_revoked || existing.content_hash !== m.content_hash || existing.tx_hash !== m.tx_hash || existing.merkle_root !== m.merkle_root)) return true;
                 }
                 return false;
             });
@@ -462,7 +462,7 @@ export async function renderInbox(container, navigate) {
                             const tmp  = document.createElement('div');
                             tmp.innerHTML = buildBubble(msgs[idx], myUsername);
                             const newBubble = tmp.firstElementChild;
-                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername)));
+                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername, doPoll)));
                             newBubble.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard.writeText(b.dataset.copy)));
                             (wrap ?? liveBubble).replaceWith(newBubble);
                         }
@@ -496,7 +496,7 @@ export async function renderInbox(container, navigate) {
                     tmp.innerHTML = buildBubble(msg, myUsername);
                     const bubble = tmp.firstElementChild;
                     bubble.querySelectorAll('[data-action]').forEach(btn => {
-                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername));
+                        btn.addEventListener('click', () => handleAction(btn, body, currentConvMap, myUsername, doPoll));
                     });
                     bubble.querySelectorAll('[data-copy]').forEach(btn => {
                         btn.addEventListener('click', () => navigator.clipboard.writeText(btn.dataset.copy));
@@ -506,7 +506,9 @@ export async function renderInbox(container, navigate) {
                 if (relevant.length > 0) thread.scrollTop = thread.scrollHeight;
             }
         } catch { /* non-fatal */ }
-    }, 10_000);
+    }
+
+    const pollInterval = setInterval(doPoll, 10_000);
 }
 
 // ── Bubble renderer ───────────────────────────────────────────────────────
@@ -532,13 +534,18 @@ function buildBubble(msg, myUsername) {
         ${isRevoked ? `<span class="revoked-badge">Revoked</span>` : ''}`;
 
     const anchorBadge = msg.tx_hash
-        ? `<span class="badge badge-anchored">&#9875; ${esc(String(msg.tx_hash).slice(0, 10))}</span>`
+        ? `<span class="badge badge-anchored">&#9875; Anchored</span>`
         : `<span class="badge badge-unanchored">Not anchored</span>`;
-    const hashRows = (msg.tx_hash || msg.merkle_root) ? `
-            <div class="msg-hash-rows">
-                ${msg.tx_hash     ? `<div class="msg-hash-row"><span class="msg-hash-label">TX:</span><code>${esc(String(msg.tx_hash))}</code><button class="btn-copy" data-copy="${esc(String(msg.tx_hash))}" title="Copy">&#128203;</button></div>` : ''}
-                ${msg.merkle_root ? `<div class="msg-hash-row"><span class="msg-hash-label">Root:</span><code>${esc(String(msg.merkle_root))}</code><button class="btn-copy" data-copy="${esc(String(msg.merkle_root))}" title="Copy">&#128203;</button></div>` : ''}
-            </div>` : '';
+
+    // Hash details only shown on received messages that are anchored — never on sent bubbles
+    const hashRows = (!isSent && (msg.tx_hash || msg.merkle_root)) ? `
+            <details class="msg-anchor-details">
+                <summary>&#9875; Anchor details</summary>
+                <div class="msg-hash-rows">
+                    ${msg.tx_hash     ? `<div class="msg-hash-row"><span class="msg-hash-label">TX</span><code class="msg-hash-val">${esc(String(msg.tx_hash))}</code><button class="btn-copy" data-copy="${esc(String(msg.tx_hash))}" title="Copy">&#128203;</button></div>` : ''}
+                    ${msg.merkle_root ? `<div class="msg-hash-row"><span class="msg-hash-label">Root</span><code class="msg-hash-val">${esc(String(msg.merkle_root))}</code><button class="btn-copy" data-copy="${esc(String(msg.merkle_root))}" title="Copy">&#128203;</button></div>` : ''}
+                </div>
+            </details>` : '';
 
     return `
         <div class="bubble-wrap ${isSent ? 'sent' : 'received'}${isRevoked ? ' revoked' : ''}">
@@ -725,7 +732,7 @@ function showKeyChangedDialog(partner) {
 }
 
 // ── Message action handler ────────────────────────────────────────────────
-async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
+async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll = () => {}) {
     const { action, id } = btn.dataset;
     btn.disabled = true;
 
@@ -767,7 +774,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                     const tmp = document.createElement('div');
                     tmp.innerHTML = buildBubble(entry, myUsername);
                     const newBubble = tmp.firstElementChild;
-                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername)));
+                    newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, inboxBody, currentConvMap, myUsername, doPoll)));
                     wrap.replaceWith(newBubble);
                 } else {
                     wrap?.remove();
@@ -811,6 +818,8 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername) {
                     return;
                 }
                 btn.textContent = '✅';
+                // Poll immediately so the tx_hash appears on the bubble without waiting 10s
+                setTimeout(() => doPoll(), 3000);
                 setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 2000);
                 return;
             }
