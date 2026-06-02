@@ -25,6 +25,14 @@ std::string  buildPostRequest(const ParsedUrl& u,
                               const std::string& contentType,
                               const std::string& authToken = "");
 
+// Build a minimal HTTP/1.1 POST request with no body (e.g. /revoke).
+std::string  buildNoBodyPostRequest(const ParsedUrl& u,
+                                    const std::string& authToken = "");
+
+// Build a minimal HTTP/1.1 DELETE request.
+std::string  buildDeleteRequest(const ParsedUrl& u,
+                                const std::string& authToken = "");
+
 // Parse a raw HTTP/1.1 response (headers + body) into HttpResponse.
 HttpResponse parseResponse(const std::string& raw);
 

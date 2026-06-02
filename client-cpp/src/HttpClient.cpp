@@ -158,3 +158,23 @@ HttpResponse HttpClient::post(const std::string& url,
     return doRequest(parsed.host, parsed.port,
                      buildPostRequest(parsed, body, contentType, authToken), verifyCert);
 }
+
+HttpResponse HttpClient::postNoBody(const std::string& url,
+                                    const std::string& authToken,
+                                    bool verifyCert) const {
+    if (!wsaInitialized_ || !ctx_) return {0, "", "HttpClient not initialized", false};
+    ERR_clear_error();
+    ParsedUrl parsed = parseUrl(url);
+    if (!parsed.error.empty()) return {0, "", parsed.error, false};
+    return doRequest(parsed.host, parsed.port, buildNoBodyPostRequest(parsed, authToken), verifyCert);
+}
+
+HttpResponse HttpClient::del(const std::string& url,
+                             const std::string& authToken,
+                             bool verifyCert) const {
+    if (!wsaInitialized_ || !ctx_) return {0, "", "HttpClient not initialized", false};
+    ERR_clear_error();
+    ParsedUrl parsed = parseUrl(url);
+    if (!parsed.error.empty()) return {0, "", parsed.error, false};
+    return doRequest(parsed.host, parsed.port, buildDeleteRequest(parsed, authToken), verifyCert);
+}

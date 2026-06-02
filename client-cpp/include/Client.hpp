@@ -72,6 +72,22 @@ public:
     // Returns this client's X25519 public key (32 bytes).
     const std::vector<uint8_t>& getPublicKey() const;
 
+    // DELETE /messages/{id}
+    HttpResponse deleteMessage(const std::string& messageId) const;
+
+    // POST /messages/{id}/revoke
+    HttpResponse revokeMessage(const std::string& messageId) const;
+
+    // GET /messages/{id}  — returns raw JSON body for download/save
+    HttpResponse getMessage(const std::string& messageId) const;
+
+    // Forward a received message to a new recipient.
+    // plaintext must be the already-decrypted content (only possible for received msgs).
+    HttpResponse forwardMessage(const std::string& originalMessageId,
+                                const std::string& recipientUsername,
+                                const std::vector<uint8_t>& recipientPk,
+                                const std::string& plaintext) const;
+
 private:
     std::string          baseUrl_;
     std::string          senderId_;

@@ -138,28 +138,18 @@ void Client::loadPins() {
                          "ignoring all pins\n";
             return;
         }
-    } else {
-        std::cerr << "[loadPins] no HMAC trailer found — treating as legacy file\n";
     }
 
     for (const auto& [rawLine, _] : rawLines) {
         std::istringstream ss(rawLine);
         std::string userId, pkB64, uuid;
-        if (!(ss >> userId >> pkB64)) {
-            std::cerr << "[loadPins] skipping malformed line in " << pinsPath_ << "\n";
-            continue;
-        }
-        ss >> uuid;  // optional — old pin files lack this column
+        if (!(ss >> userId >> pkB64)) continue;
+        ss >> uuid;
         std::vector<uint8_t> pk = b64Decode(pkB64);
-        if (pk.size() != 32) {
-            std::cerr << "[loadPins] skipping bad key for " << userId << "\n";
-            continue;
-        }
+        if (pk.size() != 32) continue;
         pinnedKeys_[userId] = std::move(pk);
         if (!uuid.empty()) pinnedIds_[userId] = uuid;
     }
-    std::cerr << "[loadPins] loaded " << pinnedKeys_.size()
-              << " pin(s) from " << pinsPath_ << "\n";
 }
 
 // Rewrites the entire file atomically: write to <path>.tmp, then rename over <path>.
@@ -282,10 +272,6 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     }
 
     auto resp = http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
-    if (resp.ok_) {
-        std::cerr << "[AUDIT] send_message id=" << enc->messageId
-                  << " recipient=" << recipientUsername << "\n";
-    }
     return resp;
 }
 
@@ -340,7 +326,8 @@ int Client::receiveMessages(MessageStore& store,
                 dm.messageId   = obj["id"].get<std::string>();
                 dm.senderId    = senderUsername;
                 dm.recipientId = recipientUsername;
-                dm.plaintext   = "[message sent]";
+                const bool revoked = obj.contains("is_revoked") && obj["is_revoked"].is_number_integer() && obj["is_revoked"].get<int>() != 0;
+                dm.plaintext   = revoked ? "[revoked]" : "[message sent]";
                 dm.timestamp   = static_cast<std::time_t>(obj["timestamp"].get<long long>());
                 conv.addMessage(std::move(dm));
             }
@@ -465,7 +452,11 @@ int Client::receiveMessages(MessageStore& store,
             store.addMessage(msg, peerKey(senderUuid, senderId_));
 
             // Use the actual sender username for display (already filtered to this conv).
-            decrypted->senderId = senderUsername.empty() ? conv.getPeerId() : senderUsername;
+            decrypted->senderId    = senderUsername.empty() ? conv.getPeerId() : senderUsername;
+            decrypted->recipientId = recipientUsername;
+            // Overwrite plaintext if the message was revoked server-side.
+            if (obj.contains("is_revoked") && obj["is_revoked"].is_number_integer() && obj["is_revoked"].get<int>() != 0)
+                decrypted->plaintext = "[revoked]";
             conv.addMessage(std::move(*decrypted));
             ++successCount;
         } catch (const std::invalid_argument& e) {
@@ -554,6 +545,64 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
 }
 
 const std::vector<uint8_t>& Client::getPublicKey() const { return staticPk_; }
+
+HttpResponse Client::deleteMessage(const std::string& messageId) const {
+    return http_.del(baseUrl_ + "/messages/" + messageId, authToken_, verifyCert_);
+}
+
+HttpResponse Client::revokeMessage(const std::string& messageId) const {
+    return http_.postNoBody(baseUrl_ + "/messages/" + messageId + "/revoke", authToken_, verifyCert_);
+}
+
+HttpResponse Client::getMessage(const std::string& messageId) const {
+    return http_.get(baseUrl_ + "/messages/" + messageId, authToken_, verifyCert_);
+}
+
+HttpResponse Client::forwardMessage(const std::string& originalMessageId,
+                                    const std::string& recipientUsername,
+                                    const std::vector<uint8_t>& recipientPk,
+                                    const std::string& plaintext) const {
+    // Resolve username → UUID.
+    auto idIt = pinnedIds_.find(recipientUsername);
+    if (idIt == pinnedIds_.end())
+        return {0, "", "recipient UUID unknown — call fetchPeerPublicKey first", false};
+    const std::string& recipientUuid = idIt->second;
+
+    // Re-encrypt the plaintext for the new recipient.
+    auto hpkeResult = hpkeSend(staticSk_, recipientPk);
+    if (!hpkeResult)
+        return {0, "", "HPKE key derivation failed", false};
+
+    auto enc = encryptMessage(hpkeResult->aesKey, senderId_, recipientUuid, plaintext);
+    sodium_memzero(hpkeResult->aesKey.data(), hpkeResult->aesKey.size());
+    if (!enc)
+        return {0, "", "AES-256-GCM encryption failed", false};
+
+    auto ctBytes    = b64Decode(enc->ctB64);
+    auto nonceBytes = b64Decode(enc->nonceB64);
+
+    std::string ctHex(ctBytes.size() * 2 + 1, '\0');
+    sodium_bin2hex(ctHex.data(), ctHex.size(), ctBytes.data(), ctBytes.size());
+    ctHex.resize(ctBytes.size() * 2);
+
+    char nonceHex[25];
+    sodium_bin2hex(nonceHex, sizeof(nonceHex), nonceBytes.data(), nonceBytes.size());
+
+    char ephHex[65];
+    sodium_bin2hex(ephHex, sizeof(ephHex), hpkeResult->ephPk.data(), hpkeResult->ephPk.size());
+
+    nlohmann::json body;
+    body["recipientUsername"]        = recipientUsername;
+    body["message_id"]               = enc->messageId;
+    body["ciphertext"]               = ctHex;
+    body["nonce"]                    = std::string(nonceHex);
+    body["ephemeral_pk"]             = std::string(ephHex);
+    body["timestamp"]                = static_cast<int64_t>(enc->timestamp);
+    body["sender_x25519_public_key"] = b64Encode(staticPk_.data(), staticPk_.size());
+
+    return http_.post(baseUrl_ + "/messages/" + originalMessageId + "/forward",
+                      body.dump(), "application/json", authToken_, verifyCert_);
+}
 
 HttpResponse Client::publishPublicKey(const std::string& userId,
                                       const std::vector<uint8_t>& publicKey) const {

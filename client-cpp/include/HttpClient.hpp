@@ -41,6 +41,16 @@ public:
                       const std::string& authToken = "",
                       bool verifyCert = true) const;
 
+    // Perform HTTP POST with no body (e.g. /revoke, /flush)
+    HttpResponse postNoBody(const std::string& url,
+                            const std::string& authToken = "",
+                            bool verifyCert = true) const;
+
+    // Perform HTTP DELETE request
+    HttpResponse del(const std::string& url,
+                     const std::string& authToken = "",
+                     bool verifyCert = true) const;
+
 private:
     // Custom deleter for SSL_CTX (defined in .cpp file)
     struct SslCtxDeleter {

@@ -41,7 +41,6 @@ static bool hasAesNi() {
 }
 
 static void runMockFlow() {
-    showBanner();
     const std::string username = "testuser";
     std::cout << "\033[1;35m\n        💖 mock mode — skipping auth, welcome " << username << "~ 🎀\n\033[0m\n";
 
@@ -69,7 +68,7 @@ static void runMockFlow() {
                 conv.addMessage({"id2", username, peerId,   "doing great, you?",     now - 60});
                 conv.addMessage({"id3", peerId,   username, "same! 🎀",              now - 30});
 
-                showConversation(conv, username, 3);
+                showConversation(conv, username, 3, "mock-fingerprint", "mock-fingerprint");
 
                 const ConvChoice convAction = showConversationMenu();
                 if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
@@ -97,18 +96,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    showBanner();
-
     // ── auth ──────────────────────────────────────────────────────────────────
     const AuthChoice choice = showAuthMenu();
     if (choice == AuthChoice::Eof) return 1;
-
-    std::cout << "\033[1;35m\n";
-    if (choice == AuthChoice::Register) {
-        std::cout << "        🌸 let's get you registered!\n\n\033[0m";
-    } else {
-        std::cout << "        💖 welcome back!\n\n\033[0m";
-    }
 
     HttpClient http;
     Auth auth;
@@ -160,7 +150,7 @@ int main(int argc, char* argv[]) {
                                "whatsas_pins.txt", auth.getToken());
 
                 username = creds.username;
-                std::cout << "\033[1;35m\n        🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
+                std::cout << "\033[1;35m\n                🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
 
             } else {
                 LoginCredentials creds;
@@ -183,10 +173,10 @@ int main(int argc, char* argv[]) {
                                "whatsas_pins.txt", auth.getToken());
 
                 username = creds.username;
-                std::cout << "\033[1;35m\n        💖 logged in! welcome back, " << username << "~ 🎀\n";
+                std::cout << "\033[1;35m\n                💖 logged in! welcome back, " << username << "~ 🎀\n";
             }
 
-            std::cout << "        🔑 session token received ✅\n\033[0m\n";
+            std::cout << "\033[0m\n";
 
         } catch (const std::exception& e) {
             std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m";
@@ -194,18 +184,9 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // publish key on every login/register so the registry stays current
-    {
-        const auto pubResp = client->publishPublicKey(auth.getUserId(), client->getPublicKey());
-        if (pubResp.statusCode_ < 200 || pubResp.statusCode_ > 299) {
-            std::cerr << "\033[1;33m\n        ⚠  key publish failed (HTTP "
-                      << pubResp.statusCode_ << ") — peers may not be able to find you\n\033[0m\n";
-        }
-    }
-
-    std::cout << "\033[1;35m        🔑 your key fingerprint: "
+    std::cout << "\033[1;35m            🔑 your key fingerprint: "
               << keyFingerprint(client->getPublicKey())
-              << "\n        share this with contacts to verify your identity out-of-band\n\033[0m\n";
+              << "\n            share this with contacts to verify your identity out-of-band\n\033[0m\n";
 
     // ── main loop ─────────────────────────────────────────────────────────────
     while (true) {
@@ -215,6 +196,66 @@ int main(int argc, char* argv[]) {
             std::cout << "\033[1;35m\n        🚪 logged out — see you soon, " << username << "~ 💖\n\033[0m\n";
             showGoodbye();
             return 0;
+        }
+
+        if (action == MainChoice::SwitchUser) {
+            auth.logout(http, BASE_URL);
+            std::cout << "\033[1;35m\n        🔄 switching user — bye " << username << "~ 💖\n\033[0m\n";
+
+            client.reset();
+            username.clear();
+            sessionSk.clear();
+
+            const AuthChoice switchChoice = showAuthMenu();
+            if (switchChoice == AuthChoice::Eof) { showGoodbye(); return 0; }
+
+            while (!client.has_value()) {
+                try {
+                    if (switchChoice == AuthChoice::Register) {
+                        Credentials creds;
+                        do { std::cout << "Username: "; std::getline(std::cin, creds.username); } while (!validUsername(creds.username));
+                        do { creds.password = readPassword(); } while (!validPassword(creds.password));
+                        const auto kp      = generateX25519Keypair();
+                        const auto wrapped = wrapPrivateKey(kp, creds.password);
+                        auth = Auth::registerUser(http, BASE_URL,
+                                                  creds.username, creds.password,
+                                                  wrapped.x25519PublicKeyB64,
+                                                  wrapped.wrappedPrivateKeyB64,
+                                                  wrapped.kekSaltB64);
+                        auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+                        sessionSk = kp.privateKey;
+                        std::vector<uint8_t> pk(kp.publicKey);
+                        std::vector<uint8_t> sk(kp.privateKey);
+                        client.emplace(BASE_URL, auth.getUserId(), std::move(sk), std::move(pk),
+                                       "whatsas_pins.txt", auth.getToken());
+                        username = creds.username;
+                        std::cout << "\033[1;35m\n                🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
+                    } else {
+                        LoginCredentials creds;
+                        std::cout << "Username: "; std::getline(std::cin, creds.username);
+                        creds.password = readPassword();
+                        auth = Auth::login(http, BASE_URL, creds.username, creds.password);
+                        auto sk = unwrapPrivateKey(auth.getWrappedPrivateKey(), auth.getKekSalt(), creds.password);
+                        std::vector<uint8_t> pk(crypto_box_PUBLICKEYBYTES);
+                        if (crypto_scalarmult_base(pk.data(), sk.data()) != 0)
+                            throw std::runtime_error("public key derivation failed — private key may be corrupted");
+                        sessionSk = sk;
+                        client.emplace(BASE_URL, auth.getUserId(), std::move(sk), std::move(pk),
+                                       "whatsas_pins.txt", auth.getToken());
+                        username = creds.username;
+                        std::cout << "\033[1;35m\n                💖 logged in! welcome back, " << username << "~ 🎀\n";
+                    }
+                    std::cout << "\033[0m\n";
+                } catch (const std::exception& e) {
+                    std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m";
+                    std::cout << "\033[1;33m        ↩  try again\n\033[0m\n";
+                }
+            }
+
+            std::cout << "\033[1;35m            🔑 your key fingerprint: "
+                      << keyFingerprint(client->getPublicKey())
+                      << "\n            share this with contacts to verify your identity out-of-band\n\033[0m\n";
+            continue;
         }
 
         if (action == MainChoice::ChangePassword) {
@@ -276,9 +317,6 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        std::cout << "\033[1;35m        🔑 " << peerId << "'s key fingerprint: "
-                  << keyFingerprint(peerPk)
-                  << "\n        verify this matches what " << peerId << " sees for themselves\n\033[0m\n";
 
         if (action == MainChoice::Send) {
             // ── send ──────────────────────────────────────────────────────────
@@ -296,9 +334,7 @@ int main(int argc, char* argv[]) {
             Conversation conv(peerId);
 
             while (true) {
-                // Re-fetch from server each iteration to pick up new incoming messages.
-                // Sent messages are injected into conv at send time below, so they
-                // survive across iterations without needing to re-decrypt.
+                clearScreen();
                 Conversation freshConv(peerId);
                 const int count = client->receiveMessages(store, freshConv, peerPk);
                 if (count < 0) {
@@ -310,10 +346,18 @@ int main(int argc, char* argv[]) {
                     conv.addMessage(dm);
                 }
 
-                showConversation(conv, username, count);
+                showConversation(conv, username, count,
+                                keyFingerprint(client->getPublicKey()),
+                                keyFingerprint(peerPk));
 
                 const ConvChoice convAction = showConversationMenu();
                 if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
+                if (convAction == ConvChoice::Refresh) continue;
+                if (convAction == ConvChoice::MessageAction) {
+                    std::cout << C_MUTED "                🗂  message actions coming soon~ 💌\n" C_RESET;
+                    pauseForUser();
+                    continue;
+                }
 
                 // reply
                 const std::string text = promptMessage(peerId);

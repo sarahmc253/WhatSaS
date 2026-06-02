@@ -19,11 +19,7 @@ bool Auth::isLoggedIn() const {
 
 void Auth::logout(HttpClient& client, const std::string& baseUrl) {
     const auto resp = client.post(baseUrl + "/auth/logout", "", "application/json", token_);
-    if (resp.statusCode_ >= 200 && resp.statusCode_ <= 299) {
-        std::cerr << "[AUDIT] logout user=" << userId_ << "\n";
-    } else {
-        std::cerr << "[AUDIT] logout request failed (HTTP " << resp.statusCode_ << ") — not logged\n";
-    }
+    (void)resp;
 }
 
 void Auth::changePassword(HttpClient& client,
@@ -88,7 +84,6 @@ Auth Auth::login(HttpClient& client,
 
     if (resp.statusCode_ < 200 || resp.statusCode_ > 299) {
         const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_;
-        std::cerr << "[AUDIT] failed_auth username=" << username << "\n";
         throw std::runtime_error("Login failed (HTTP " +
                                  std::to_string(resp.statusCode_) + "): " +
                                  detail);
@@ -119,6 +114,5 @@ Auth Auth::login(HttpClient& client,
     }
     auth.wrappedPrivateKey_ = parsed["wrapped_private_key"].get<std::string>();
     auth.kekSalt_           = parsed["kek_salt"].get<std::string>();
-    std::cerr << "[AUDIT] login user=" << auth.userId_ << "\n";
     return auth;
 }
