@@ -467,7 +467,7 @@ export async function renderInbox(container, navigate) {
                             const tmp  = document.createElement('div');
                             tmp.innerHTML = buildBubble(msgs[idx], myUsername);
                             const newBubble = tmp.firstElementChild;
-                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername, doPoll)));
+                            newBubble.querySelectorAll('[data-action]').forEach(b => b.addEventListener('click', () => handleAction(b, body, currentConvMap, myUsername, doPoll, renderConvList)));
                             newBubble.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => navigator.clipboard.writeText(b.dataset.copy)));
                             (wrap ?? liveBubble).replaceWith(newBubble);
                         }
@@ -616,6 +616,7 @@ function showForwardDialog() {
         }, { signal: fwdAbort.signal });
 
         cancelBtn.onclick = () => { fwdAbort.abort(); dlg.close(); resolve(null); };
+        dlg.oncancel     = () => { fwdAbort.abort(); resolve(null); };
 
         form.onsubmit = async (e) => {
             e.preventDefault();

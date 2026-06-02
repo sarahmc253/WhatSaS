@@ -22,6 +22,7 @@ def publish_key():
     return jsonify({'status': 'ok'}), 200
 
 SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp']
+MAX_CIPHERTEXT_BYTES = 4000
 
 def _invalid_fields(data, fields):
     return [
@@ -99,7 +100,8 @@ def send_message():
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
 
-    if len(data.get('ciphertext', '')) > 4000:
+    ct = data.get('ciphertext', '')
+    if not isinstance(ct, str) or len(ct) > MAX_CIPHERTEXT_BYTES:
         return jsonify({'error': 'Message too long — maximum 2,000 characters.'}), 400
 
     # Accept a client-generated message_id (hex string, 32 chars) for AD reconstruction.
@@ -244,6 +246,10 @@ def forward_message(message_id):
     invalid = _invalid_fields(data, ['recipientUsername', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp'])
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    fwd_ct = data.get('ciphertext', '')
+    if not isinstance(fwd_ct, str) or len(fwd_ct) > MAX_CIPHERTEXT_BYTES:
+        return jsonify({'error': 'Message too long — maximum 2,000 characters.'}), 400
 
     if not isinstance(data['timestamp'], int):
         return jsonify({'error': 'timestamp must be a Unix integer'}), 400

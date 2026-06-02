@@ -28,6 +28,7 @@ REQUIRED_FIELDS = [
     'username', 'password',
     'x25519_public_key', 'wrapped_private_key', 'kek_salt',
 ]
+USERNAME_RE = re.compile(r'^[A-Za-z0-9_]{3,32}$')
 
 def _invalid_fields(data, fields):
     """Return fields that are missing, not a string, or blank after stripping."""
@@ -46,6 +47,9 @@ def register():
     invalid = _invalid_fields(data, REQUIRED_FIELDS)
     if invalid:
         return jsonify({'error': f"Missing or invalid fields: {', '.join(invalid)}"}), 400
+
+    if not USERNAME_RE.match(data['username']):
+        return jsonify({'error': 'Username must be 3–32 characters: letters, numbers, and underscores only.'}), 400
 
     pw = data['password']
     pw_errors = []
