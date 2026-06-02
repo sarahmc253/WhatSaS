@@ -135,7 +135,7 @@ int main(int argc, char* argv[]) {
 
             std::vector<uint8_t> pk(kp.publicKey);
             std::vector<uint8_t> sk(kp.privateKey);
-            client.emplace(BASE_URL, creds.username,
+            client.emplace(BASE_URL, auth.getUserId(),
                            std::move(sk), std::move(pk),
                            "whatsas_pins.txt", auth.getToken());
 
@@ -157,7 +157,7 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("public key derivation failed — private key may be corrupted");
 
             sessionSk = sk;
-            client.emplace(BASE_URL, creds.username,
+            client.emplace(BASE_URL, auth.getUserId(),
                            std::move(sk), std::move(pk),
                            "whatsas_pins.txt", auth.getToken());
 

@@ -14,6 +14,13 @@ from .anchor import anchor_pending
 messages_bp = Blueprint('messages', __name__)
 logger = logging.getLogger(__name__)
 
+
+@messages_bp.route('/keys', methods=['POST'])
+@jwt_required()
+def publish_key():
+    # C++ client posts here after login — key is already stored at registration, so no-op.
+    return jsonify({'status': 'ok'}), 200
+
 SEND_FIELDS = ['recipient_id', 'ciphertext', 'nonce', 'ephemeral_pk', 'timestamp']
 
 def _invalid_fields(data, fields):

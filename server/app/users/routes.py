@@ -1,9 +1,10 @@
-from flask import Blueprint, jsonify
-from flask_jwt_extended import jwt_required
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from .. import get_db
 
 users_bp = Blueprint('users', __name__)
+
 
 
 @users_bp.route('/<username>', methods=['GET'])
