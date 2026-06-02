@@ -358,16 +358,11 @@ def revoke_message(message_id):
     if message['sender_id'] != current_user_id:
         return jsonify({'error': 'Forbidden'}), 403
 
-    now = datetime.now(timezone.utc)
     cursor = db.cursor()
     try:
         cursor.execute(
             "UPDATE messages SET is_revoked = 1 WHERE id = %s",
             (message_id,),
-        )
-        cursor.execute(
-            "UPDATE message_access SET revoked_at = %s WHERE message_id = %s",
-            (now, message_id),
         )
         db.commit()
     except Exception:
