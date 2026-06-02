@@ -134,17 +134,11 @@ function renderRegister(container, navigate) {
     container.innerHTML = teddyShell(`
         <h1>Create account</h1>
         <form id="reg-form" novalidate>
-            <div class="reg-row">
-                <div class="form-group">
-                    <label for="r-username">Username</label>
-                    <input type="text" id="r-username" autocomplete="username" required
-                           pattern="[A-Za-z0-9_]{3,32}" placeholder="your_username">
-                    <div class="pw-rules"><span id="username-rule">✗ 3–32 chars, a-z/0-9/_</span></div>
-                </div>
-                <div class="form-group">
-                    <label for="r-email">Email</label>
-                    <input type="email" id="r-email" autocomplete="email" required placeholder="bear@woods.com">
-                </div>
+            <div class="form-group">
+                <label for="r-username">Username</label>
+                <input type="text" id="r-username" autocomplete="username" required
+                       pattern="[A-Za-z0-9_]{3,32}" placeholder="your_username">
+                <div class="pw-rules"><span id="username-rule">✗ 3–32 chars, a-z/0-9/_</span></div>
             </div>
             <div class="form-group">
                 <label for="r-password">Password</label>
@@ -222,7 +216,6 @@ function renderRegister(container, navigate) {
 
         try {
             const username = unInput.value.trim();
-            const email    = document.getElementById('r-email').value.trim();
             const password = pwInput.value;
             const confirm  = document.getElementById('r-confirm').value;
 
@@ -252,7 +245,7 @@ function renderRegister(container, navigate) {
             const pubKeyBytes = await getPublicKeyBytes(publicKey);
             const encryptedPrivateKey = await encryptPrivateKey(await getPrivateKeyBytes(privateKey), password);
             const toB64 = bytes => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''));
-            await api.register(username, email, password, {
+            await api.register(username, password, {
                 x25519_public_key:   toB64(pubKeyBytes),
                 wrapped_private_key: btoa(JSON.stringify(encryptedPrivateKey.toJSON())),
                 kek_salt:            toB64(encryptedPrivateKey.salt),

@@ -25,7 +25,7 @@ _DUMMY_HASH = ph.hash("dummy")
 auth_bp = Blueprint('auth', __name__)
 
 REQUIRED_FIELDS = [
-    'username', 'email', 'password',
+    'username', 'password',
     'x25519_public_key', 'wrapped_private_key', 'kek_salt',
 ]
 
@@ -75,13 +75,13 @@ def register():
         cursor.execute(
             """
             INSERT INTO users
-                (id, username, email, password_hash, password_salt,
+                (id, username, password_hash, password_salt,
                  x25519_public_key, wrapped_private_key, kek_salt,
                  tofu_key_pinned_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                user_id, data['username'], data['email'],
+                user_id, data['username'],
                 password_hash, password_salt,
                 data['x25519_public_key'], data['wrapped_private_key'],
                 data['kek_salt'], now,
@@ -91,7 +91,7 @@ def register():
     except mysql.connector.IntegrityError as e:
         db.rollback()
         if e.errno == 1062:
-            return jsonify({'error': 'Username or email already exists'}), 409
+            return jsonify({'error': 'Username already exists'}), 409
         raise
     except Exception:
         db.rollback()

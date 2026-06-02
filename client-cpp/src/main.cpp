@@ -125,7 +125,7 @@ int main(int argc, char* argv[]) {
             const auto wrapped = wrapPrivateKey(kp, creds.password);
 
             auth = Auth::registerUser(http, BASE_URL,
-                                      creds.username, creds.password, creds.email,
+                                      creds.username, creds.password,
                                       wrapped.x25519PublicKeyB64,
                                       wrapped.wrappedPrivateKeyB64,
                                       wrapped.kekSaltB64);

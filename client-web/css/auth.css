@@ -98,12 +98,6 @@
 
 .auth-card .form-group { margin-bottom: .85rem; }
 
-/* two-column row for username + email on register */
-.reg-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 .85rem;
-}
 
 /* ── Password rules ───────────────────────────────────────────────────────── */
 .pw-rules {

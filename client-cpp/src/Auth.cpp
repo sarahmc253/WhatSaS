@@ -48,14 +48,12 @@ Auth Auth::registerUser(HttpClient& client,
                         const std::string& baseUrl,
                         const std::string& username,
                         const std::string& password,
-                        const std::string& email,
                         const std::string& x25519PublicKey,
                         const std::string& wrappedPrivateKey,
                         const std::string& kekSalt) {
     nlohmann::json body;
     body["username"]            = username;
     body["password"]            = password;
-    body["email"]               = email;
     body["x25519_public_key"]   = x25519PublicKey;
     body["wrapped_private_key"] = wrappedPrivateKey;
     body["kek_salt"]            = kekSalt;
