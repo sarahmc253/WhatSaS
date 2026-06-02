@@ -3,7 +3,7 @@ import logging
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import mysql.connector
 from flask import Blueprint, current_app, request, jsonify
@@ -21,6 +21,20 @@ def _invalid_fields(data, fields):
         f for f in fields
         if data.get(f) is None or (isinstance(data.get(f), str) and not data[f].strip())
     ]
+
+_MAX_FUTURE = timedelta(minutes=5)
+_MAX_PAST   = timedelta(days=365)
+
+def _validate_timestamp(ts):
+    if ts < 0:
+        return 'timestamp must not be negative'
+    now = datetime.now(timezone.utc)
+    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    if dt > now + _MAX_FUTURE:
+        return 'timestamp is more than 5 minutes in the future'
+    if dt < now - _MAX_PAST:
+        return 'timestamp is more than 1 year in the past'
+    return None
 
 @messages_bp.route('/messages', methods=['GET'])
 @jwt_required()
@@ -83,6 +97,9 @@ def send_message():
         message_id = str(uuid.uuid4()).replace('-', '')
     if not isinstance(data['timestamp'], int):
         return jsonify({'error': 'timestamp must be a Unix integer'}), 400
+    ts_error = _validate_timestamp(data['timestamp'])
+    if ts_error:
+        return jsonify({'error': ts_error}), 400
     created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
 
     sender_id = get_jwt_identity()
@@ -215,6 +232,9 @@ def forward_message(message_id):
 
     if not isinstance(data['timestamp'], int):
         return jsonify({'error': 'timestamp must be a Unix integer'}), 400
+    ts_error = _validate_timestamp(data['timestamp'])
+    if ts_error:
+        return jsonify({'error': ts_error}), 400
     created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
 
     current_user_id = get_jwt_identity()

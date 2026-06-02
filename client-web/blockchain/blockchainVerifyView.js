@@ -161,10 +161,15 @@ function handleComputeLocal() {
     }
 
     // Mirror anchor.py ORDER BY created_at so the Merkle tree is identical.
+    // Null/invalid createdAt sorts before valid timestamps; two null/invalid values
+    // compare as equal (return 0) to satisfy the comparator contract and keep order stable.
     entries.sort((a, b) => {
-        if (a.createdAt == null) return -1;
-        if (b.createdAt == null) return 1;
-        return new Date(a.createdAt) - new Date(b.createdAt);
+        const ta = a.createdAt == null ? NaN : new Date(a.createdAt).getTime();
+        const tb = b.createdAt == null ? NaN : new Date(b.createdAt).getTime();
+        if (isNaN(ta) && isNaN(tb)) return 0;
+        if (isNaN(ta)) return -1;
+        if (isNaN(tb)) return 1;
+        return ta - tb;
     });
 
     try {
@@ -194,6 +199,7 @@ async function handleFetch() {
     verifyResult.className = '';
     verifyResult.innerHTML = '';
     document.getElementById('v-content').value = '';
+    document.getElementById('compute-status').textContent = '';
 
     if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
         setStatus(statusEl, 'error', 'Enter a valid 66-character hex transaction hash (starting with 0x).');
@@ -339,6 +345,7 @@ function handleReset() {
     verifyResult.className = '';
     verifyResult.innerHTML = '';
 
+    document.getElementById('compute-status').textContent = '';
     document.getElementById('step-verify').hidden = true;
     window._verifyState = null;
 }
