@@ -71,8 +71,8 @@ export async function renderInbox(container, navigate) {
     }
 
     // ── New Chat button ───────────────────────────────────────────────────
-    document.getElementById('btn-compose').addEventListener('click', () => {
-        const partner = window.prompt('Start a chat with (enter username):')?.trim();
+    document.getElementById('btn-compose').addEventListener('click', async () => {
+        const partner = await showNewChatDialog();
         if (!partner) return;
         renderThread(partner, currentConvMap.get(partner) ?? []);
     });
@@ -270,11 +270,7 @@ export async function renderInbox(container, navigate) {
 
         const tofu = tofuCheck(partner, recipientUser.x25519_public_key);
         if (tofu.changed) {
-            const proceed = window.confirm(
-                `⚠️ Warning: ${partner}'s encryption key has changed since your last conversation.\n\n` +
-                `This could indicate a key rotation or a man-in-the-middle attack.\n\n` +
-                `Verify their fingerprint out-of-band before continuing.\n\nSend anyway?`
-            );
+            const proceed = await showKeyChangedDialog(partner);
             if (!proceed) throw new Error('Send cancelled — please verify the recipient\'s key fingerprint.');
             localStorage.setItem(TOFU_PREFIX + partner, recipientUser.x25519_public_key);
         }
@@ -626,6 +622,107 @@ function showForwardDialog() {
 
         dlg.showModal();
         input.focus();
+    });
+}
+
+// ── New Chat dialog ───────────────────────────────────────────────────────
+function showNewChatDialog() {
+    return new Promise(resolve => {
+        let dlg = document.getElementById('new-chat-dialog');
+        if (!dlg) {
+            dlg = document.createElement('dialog');
+            dlg.id = 'new-chat-dialog';
+            dlg.innerHTML = `
+                <form id="new-chat-form" method="dialog" novalidate>
+                    <h3 style="margin-bottom:1.25rem">New chat</h3>
+                    <div class="form-group">
+                        <label for="nc-username">Username</label>
+                        <input type="text" id="nc-username" autocomplete="off" placeholder="Enter username" required>
+                    </div>
+                    <div style="display:flex;gap:.75rem;margin-top:1rem">
+                        <button type="submit" class="btn btn-primary">Start chat</button>
+                        <button type="button" class="btn btn-secondary" id="nc-cancel">Cancel</button>
+                    </div>
+                    <div id="nc-msg" role="alert" style="margin-top:.5rem"></div>
+                </form>`;
+            document.body.appendChild(dlg);
+        }
+
+        const form      = dlg.querySelector('#new-chat-form');
+        const input     = dlg.querySelector('#nc-username');
+        const msgEl     = dlg.querySelector('#nc-msg');
+        const cancelBtn = dlg.querySelector('#nc-cancel');
+
+        input.value = '';
+        msgEl.className = msgEl.textContent = '';
+
+        const abort = new AbortController();
+
+        form.addEventListener('submit', e => {
+            e.preventDefault();
+            const val = input.value.trim();
+            if (!val) {
+                msgEl.className = 'error-msg';
+                msgEl.textContent = 'Please enter a username.';
+                return;
+            }
+            abort.abort();
+            dlg.close();
+            resolve(val);
+        }, { signal: abort.signal });
+
+        cancelBtn.addEventListener('click', () => {
+            abort.abort();
+            dlg.close();
+            resolve(null);
+        }, { signal: abort.signal });
+
+        dlg.addEventListener('cancel', () => { abort.abort(); resolve(null); }, { signal: abort.signal });
+
+        dlg.showModal();
+        input.focus();
+    });
+}
+
+// ── Key-changed warning dialog ────────────────────────────────────────────
+function showKeyChangedDialog(partner) {
+    return new Promise(resolve => {
+        let dlg = document.getElementById('key-changed-dialog');
+        if (!dlg) {
+            dlg = document.createElement('dialog');
+            dlg.id = 'key-changed-dialog';
+            dlg.innerHTML = `
+                <div style="max-width:26rem">
+                    <h3 style="margin-bottom:.75rem">⚠️ Encryption key changed</h3>
+                    <p id="kc-body" style="margin-bottom:1rem;font-size:.9rem;line-height:1.5"></p>
+                    <div class="warning-msg" style="margin-bottom:1rem;font-size:.85rem">
+                        This could indicate a key rotation or a man-in-the-middle attack.
+                        Verify their fingerprint out-of-band before continuing.
+                    </div>
+                    <div style="display:flex;gap:.75rem">
+                        <button class="btn btn-primary" id="kc-proceed">Send anyway</button>
+                        <button class="btn btn-secondary" id="kc-cancel">Cancel</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(dlg);
+        }
+
+        dlg.querySelector('#kc-body').textContent =
+            `${partner}'s encryption key has changed since your last conversation.`;
+
+        const abort = new AbortController();
+
+        dlg.querySelector('#kc-proceed').addEventListener('click', () => {
+            abort.abort(); dlg.close(); resolve(true);
+        }, { signal: abort.signal });
+
+        dlg.querySelector('#kc-cancel').addEventListener('click', () => {
+            abort.abort(); dlg.close(); resolve(false);
+        }, { signal: abort.signal });
+
+        dlg.addEventListener('cancel', () => { abort.abort(); resolve(false); }, { signal: abort.signal });
+
+        dlg.showModal();
     });
 }
 
