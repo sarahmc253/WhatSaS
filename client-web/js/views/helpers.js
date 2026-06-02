@@ -14,7 +14,7 @@ export function esc(str) {
 export function formatDate(ts) {
     if (!ts) return '';
     const d = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-    return isNaN(d) ? '' : d.toLocaleString('en-IE', { timeZone: 'Europe/Dublin' });
+    return isNaN(d) ? '' : d.toLocaleString();
 }
 
 // ── Byte helpers ──────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ export function parseTimestamp(str) {
     if (!str) return 0;
     // Normalise: replace space separator with T, then ensure Z suffix if no tz info present.
     let s = str.replace(' ', 'T');
-    if (!s.endsWith('Z') && !s.includes('+') && !/[0-9]-[0-9]{2}:[0-9]{2}$/.test(s)) s += 'Z';
+    if (!s.endsWith('Z') && !/[+-][0-9]{2}:[0-9]{2}$/.test(s)) s += 'Z';
     const d = new Date(s);
     return isNaN(d) ? 0 : Math.floor(d.getTime() / 1000);
 }
