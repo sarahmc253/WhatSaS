@@ -73,7 +73,7 @@ SSL_KEY=/home/student/server.key
 # Optional — enables blockchain anchoring; server starts without these but
 # messages will not be anchored and the /flush endpoint will return 503
 WEB3_RPC_URL=https://sepolia.infura.io/v3/<your-key>
-CONTRACT_ADDRESS=0x<deployed-contract-address>
+CONTRACT_ADDRESS=0x1F26Bfe3086E03F5c968fCB070C1e4D6cAbaB38B
 WALLET_PRIVATE_KEY=<hex-private-key-no-0x-prefix>
 ```
 
@@ -181,7 +181,60 @@ The `DataStore` contract stores message hashes on-chain and emits a `DataStored`
 - **Network:** Ethereum Sepolia testnet
 - **Source:** `contracts/DataStore.sol`
 - **ABI:** `contracts/abi.json`
-- **Deployed address:** set via `CONTRACT_ADDRESS` in `.env`
+- **Deployed address:** `0x1F26Bfe3086E03F5c968fCB070C1e4D6cAbaB38B`
+
+### ABI
+
+```json
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true,  "internalType": "uint256", "name": "recordId",  "type": "uint256" },
+      { "indexed": true,  "internalType": "bytes32", "name": "dataHash",  "type": "bytes32" },
+      { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+      { "indexed": true,  "internalType": "address", "name": "recorder",  "type": "address" }
+    ],
+    "name": "DataStored",
+    "type": "event"
+  },
+  {
+    "inputs": [{ "internalType": "bytes32", "name": "dataHash", "type": "bytes32" }],
+    "name": "storeData",
+    "outputs": [{ "internalType": "uint256", "name": "recordId", "type": "uint256" }],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "recordId", "type": "uint256" }],
+    "name": "getRecord",
+    "outputs": [
+      { "internalType": "bytes32", "name": "hash",      "type": "bytes32" },
+      { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+      { "internalType": "address", "name": "recorder",  "type": "address" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "recordCount",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "recordId", "type": "uint256" },
+      { "internalType": "bytes32", "name": "dataHash", "type": "bytes32" }
+    ],
+    "name": "verifyData",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
+```
 
 | Function | Description |
 |---|---|
