@@ -42,7 +42,7 @@ function esc(str) {
 
 function formatDate(unixSeconds) {
     const d = new Date(Number(unixSeconds) * 1000);
-    return isNaN(d.getTime()) ? 'Unknown date' : d.toLocaleString();
+    return isNaN(d.getTime()) ? 'Unknown date' : d.toLocaleString('en-IE', { timeZone: 'Europe/Dublin' });
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
