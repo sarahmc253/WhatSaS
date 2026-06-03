@@ -1,4 +1,12 @@
 /* ── Verify view (blockchain) ─────────────────────────────────────────────── */
+
+/* Give the card a definite width so it doesn't collapse to max-content as a
+   flex child of #app.auth-mode. 640px leaves room for the 66-char tx hash. */
+#app.auth-mode .card {
+    width: 100%;
+    max-width: 640px;
+}
+
 #v-txhash { box-sizing: border-box; }
 
 .verify-header               { margin-bottom: 1.5rem; }
