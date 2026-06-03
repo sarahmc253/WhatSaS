@@ -101,6 +101,15 @@ No build step needed. The Flask server serves the static files — once the serv
 <meta name="sepolia-rpc-url" content="https://sepolia.infura.io/v3/<your-key>">
 ```
 
+To run the verify page locally without the Flask backend:
+
+```bash
+cd client-web
+python3 -m http.server 8080
+```
+
+Then open `http://localhost:8080/verify.html` in your browser.
+
 **Troubleshooting**
 
 | Problem | Fix |
