@@ -1,0 +1,5 @@
+# WhatSaS TOFU key pins — do not edit manually
+# Format: <username>  <base64(x25519_public_key)>  <server-uuid>
+# Pins are written automatically on first contact with each peer.
+# Copy this file to whatsas_pins.txt — it is gitignored and will be
+# populated at runtime.

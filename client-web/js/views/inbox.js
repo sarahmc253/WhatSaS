@@ -188,7 +188,7 @@ export async function renderInbox(container, navigate) {
             const senderStaticPubKey = senderKeyCache[msg.sender_username];
             const senderId    = msg.sender_id ?? '';
             const recipientId = msg.recipient_id ?? '';
-            const timestamp   = Math.floor(new Date(msg.created_at).getTime() / 1000);
+            const timestamp   = msg.timestamp ?? Math.floor(new Date(msg.created_at).getTime() / 1000);
 
             const ad = new TextEncoder().encode(
                 JSON.stringify(

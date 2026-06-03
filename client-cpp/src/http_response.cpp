@@ -87,6 +87,12 @@ std::string buildPostRequest(const ParsedUrl& u,
 }
 
 std::string buildNoBodyPostRequest(const ParsedUrl& u, const std::string& authToken) {
+    auto hasCrlf = [](const std::string& s) {
+        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
+    };
+    if (hasCrlf(u.path))    throw std::invalid_argument("buildNoBodyPostRequest: CRLF in path");
+    if (hasCrlf(authToken)) throw std::invalid_argument("buildNoBodyPostRequest: CRLF in Authorization token");
+
     std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
     std::string req = "POST " + u.path + " HTTP/1.1\r\n"
                       "Host: " + hostHeader + "\r\n"
@@ -98,6 +104,12 @@ std::string buildNoBodyPostRequest(const ParsedUrl& u, const std::string& authTo
 }
 
 std::string buildDeleteRequest(const ParsedUrl& u, const std::string& authToken) {
+    auto hasCrlf = [](const std::string& s) {
+        return s.find('\r') != std::string::npos || s.find('\n') != std::string::npos;
+    };
+    if (hasCrlf(u.path))    throw std::invalid_argument("buildDeleteRequest: CRLF in path");
+    if (hasCrlf(authToken)) throw std::invalid_argument("buildDeleteRequest: CRLF in Authorization token");
+
     std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
     std::string req = "DELETE " + u.path + " HTTP/1.1\r\n"
                       "Host: " + hostHeader + "\r\n"

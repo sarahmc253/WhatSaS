@@ -134,7 +134,10 @@ void Client::loadPins() {
         auto mac = computeHmac(body, staticSk_);
         std::string expected = toHex(mac.data(), mac.size());
         if (storedHmac != expected) {
-            return;
+            throw std::runtime_error(
+                "TOFU pins file '" + pinsPath_ + "' failed HMAC verification — "
+                "the file may have been tampered with. "
+                "Delete it to start fresh or restore it from a trusted backup.");
         }
     }
 
@@ -345,7 +348,7 @@ int Client::receiveMessages(MessageStore& store,
         if (obj.contains("timestamp") && obj["timestamp"].is_number_integer() &&
             obj["timestamp"].get<long long>() > 0) {
             ts = static_cast<std::time_t>(obj["timestamp"].get<long long>());
-        } else {
+        } else if (obj.contains("created_at") && obj["created_at"].is_string()) {
             static const char* RFC2822_MONTHS[] = {
                 "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"
             };
