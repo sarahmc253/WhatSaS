@@ -12,6 +12,12 @@
     max-width: 640px;
 }
 
+/* #app has overflow:hidden to lock the chat layout — override for auth/verify
+   pages so the result box and long error text are never clipped. */
+#app.auth-mode {
+    overflow-y: auto;
+}
+
 #v-txhash { box-sizing: border-box; }
 
 .verify-header               { margin-bottom: 1.5rem; }
