@@ -1,3 +1,5 @@
+#app { height: auto; overflow: visible; }
+
 /* ── Verify view (blockchain) ─────────────────────────────────────────────── */
 
 /* Give the card a definite width so it doesn't collapse to max-content as a
