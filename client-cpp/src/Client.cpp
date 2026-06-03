@@ -1,4 +1,4 @@
-#define NOMINMAX
+﻿#define NOMINMAX
 
 #include "../include/Client.hpp"
 #include "hpke_utils.hpp"
@@ -66,7 +66,7 @@ Client::Client(const std::string& baseUrl,
                 "staticSk and staticPk are not a matched X25519 keypair");
         }
     }
-    // libsodium's AES-NI detection is broken in MSYS2/MinGW builds — use cpuid directly
+    // libsodium's AES-NI detection is broken in MSYS2/MinGW builds â€" use cpuid directly
     {
         bool aesni = false;
 #if defined(_MSC_VER)
@@ -106,14 +106,14 @@ computeHmac(const std::string& body, const std::vector<uint8_t>& key) {
     return mac;
 }
 
-// File format: one line per pin — "<username> <base64(pk)> <uuid>\n"
+// File format: one line per pin â€" "<username> <base64(pk)> <uuid>\n"
 // Lines starting with '#HMAC ' carry the HMAC-SHA256 trailer; other '#' lines are ignored.
 // Malformed lines are skipped with a warning.
 // The uuid column was added later; lines with only two tokens are loaded without UUID
 // (remap check will only activate once the UUID is seen from the server again).
 void Client::loadPins() {
     std::ifstream f(pinsPath_);
-    if (!f.is_open()) return;  // file doesn't exist yet — that's fine on first run
+    if (!f.is_open()) return;  // file doesn't exist yet â€" that's fine on first run
 
     std::string storedHmac;
     std::string body;       // accumulates all non-HMAC lines for verification
@@ -134,8 +134,6 @@ void Client::loadPins() {
         auto mac = computeHmac(body, staticSk_);
         std::string expected = toHex(mac.data(), mac.size());
         if (storedHmac != expected) {
-            std::cerr << "[loadPins] HMAC mismatch — pins file may have been tampered with; "
-                         "ignoring all pins\n";
             return;
         }
     }
@@ -161,12 +159,11 @@ bool Client::savePins() const {
     {
         std::ofstream f(tmp);
         if (!f.is_open()) {
-            std::cerr << "[savePins] cannot write to " << tmp << "\n";
             return false;
         }
         // Build body first so we can HMAC it before writing.
         std::string body;
-        body += "# WhatSaS TOFU key pins — do not edit manually\n";
+        body += "# WhatSaS TOFU key pins - do not edit manually\n";
         for (const auto& [userId, pk] : pinnedKeys_) {
             body += userId + " " + b64Encode(pk.data(), pk.size());
             auto idIt = pinnedIds_.find(userId);
@@ -178,7 +175,6 @@ bool Client::savePins() const {
         // flush + close before rename so all bytes are on disk
         f.flush();
         if (!f.good()) {
-            std::cerr << "[savePins] write error for " << tmp << "\n";
             std::remove(tmp.c_str());
             return false;
         }
@@ -195,13 +191,11 @@ bool Client::savePins() const {
     const std::wstring wdest = toWide(pinsPath_);
     const std::wstring wtmp  = toWide(tmp);
     if (!MoveFileExW(wtmp.c_str(), wdest.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-        std::cerr << "[savePins] MoveFileExW failed (" << GetLastError() << ")\n";
         DeleteFileW(wtmp.c_str());
         return false;
     }
 #else
     if (std::rename(tmp.c_str(), pinsPath_.c_str()) != 0) {
-        std::cerr << "[savePins] rename failed\n";
         std::remove(tmp.c_str());
         return false;
     }
@@ -211,11 +205,13 @@ bool Client::savePins() const {
 
 HttpResponse Client::sendMessage(const std::string& recipientUsername,
                                  const std::vector<uint8_t>& recipientPk,
-                                 const std::string& plaintext) const {
-    // Resolve username → UUID (must have been fetched via fetchPeerPublicKey first).
+                                 const std::string& plaintext,
+                                 std::string& sentMessageId) const {
+    sentMessageId.clear();
+    // Resolve username â†' UUID (must have been fetched via fetchPeerPublicKey first).
     auto idIt = pinnedIds_.find(recipientUsername);
     if (idIt == pinnedIds_.end()) {
-        return {0, "", "recipient UUID unknown — call fetchPeerPublicKey first", false};
+        return {0, "", "recipient UUID unknown - call fetchPeerPublicKey first", false};
     }
     const std::string& recipientUuid = idIt->second;
 
@@ -260,18 +256,13 @@ HttpResponse Client::sendMessage(const std::string& recipientUsername,
     body["ephemeral_pk"] = std::string(ephHex);
     body["timestamp"]    = sendTs;
 
-    std::cerr << "[sendMessage] recipient_id : " << recipientUuid          << "\n"
-              << "[sendMessage] ciphertext  : " << ctHex                   << "\n"
-              << "[sendMessage] nonce       : " << std::string(nonceHex)   << "\n"
-              << "[sendMessage] ephemeral_pk: " << std::string(ephHex)     << "\n"
-              << "[sendMessage] timestamp   : " << sendTs                  << "\n";
-
     if (recipientUuid.empty() || ctHex.empty() ||
         std::string(nonceHex).empty() || std::string(ephHex).empty()) {
         return {0, "", "sendMessage: one or more required fields are empty", false};
     }
 
     auto resp = http_.post(baseUrl_ + "/messages", body.dump(), "application/json", authToken_, verifyCert_);
+    if (resp.ok_) sentMessageId = enc->messageId;
     return resp;
 }
 
@@ -281,12 +272,11 @@ HttpResponse Client::getMessages() const {
 
 int Client::receiveMessages(MessageStore& store,
                             Conversation& conv,
-                            const std::vector<uint8_t>& senderPk) const {
+                            const std::vector<uint8_t>& senderPk,
+                            const std::unordered_map<std::string, std::string>& sentCache) const {
     // 1. HTTP fetch
     HttpResponse resp = getMessages();
     if (!resp.ok_ || resp.statusCode_ != 200 || resp.body_.empty()) {
-        std::cerr << "[receiveMessages] HTTP error " << resp.statusCode_
-                  << ": " << resp.error_ << "\n";
         return -1;
     }
 
@@ -295,12 +285,10 @@ int Client::receiveMessages(MessageStore& store,
     try {
         parsed = nlohmann::json::parse(resp.body_);
     } catch (const nlohmann::json::parse_error&) {
-        std::cerr << "[receiveMessages] JSON parse error\n";
         return -1;
     }
 
     if (!parsed.contains("messages") || !parsed["messages"].is_array()) {
-        std::cerr << "[receiveMessages] missing or invalid 'messages' array\n";
         return -1;
     }
 
@@ -327,7 +315,12 @@ int Client::receiveMessages(MessageStore& store,
                 dm.senderId    = senderUsername;
                 dm.recipientId = recipientUsername;
                 const bool revoked = obj.contains("is_revoked") && obj["is_revoked"].is_number_integer() && obj["is_revoked"].get<int>() != 0;
-                dm.plaintext   = revoked ? "[revoked]" : "[message sent]";
+                if (revoked) {
+                    dm.plaintext = "[revoked]";
+                } else {
+                    auto it = sentCache.find(dm.messageId);
+                    dm.plaintext = (it != sentCache.end()) ? it->second : "[message sent]";
+                }
                 dm.timestamp   = static_cast<std::time_t>(obj["timestamp"].get<long long>());
                 conv.addMessage(std::move(dm));
             }
@@ -337,7 +330,6 @@ int Client::receiveMessages(MessageStore& store,
             !obj.contains("sender_id")   || !obj["sender_id"].is_string()   ||
             !obj.contains("nonce")       || !obj["nonce"].is_string()       ||
             !obj.contains("ciphertext")  || !obj["ciphertext"].is_string()) {
-            std::cerr << "[receiveMessages] skipping: missing or wrong-type field\n";
             continue;
         }
 
@@ -348,7 +340,7 @@ int Client::receiveMessages(MessageStore& store,
 
         // Prefer the application-level 'timestamp' (integer unix epoch baked into the AD
         // at encrypt time). Fall back to parsing 'created_at' only when 'timestamp' is absent
-        // — the two differ and using created_at breaks AES-GCM AD verification.
+        // â€" the two differ and using created_at breaks AES-GCM AD verification.
         std::time_t ts = -1;
         if (obj.contains("timestamp") && obj["timestamp"].is_number_integer()) {
             ts = static_cast<std::time_t>(obj["timestamp"].get<long long>());
@@ -383,16 +375,14 @@ int Client::receiveMessages(MessageStore& store,
             }
         }
         if (ts < 0) {
-            std::cerr << "[receiveMessages] skipping: no usable timestamp for " << messageId << "\n";
             continue;
         }
 
         // 4. Validate ephemeral_pk field.
         if (!obj.contains("ephemeral_pk") || !obj["ephemeral_pk"].is_string()) {
-            std::cerr << "[receiveMessages] skipping: missing ephemeral_pk: " << messageId << "\n";
             continue;
         }
-        // ephemeral_pk is hex (web client) or base64 (old C++ client) — try hex first
+        // ephemeral_pk is hex (web client) or base64 (old C++ client) â€" try hex first
         std::string ephPkStr = obj["ephemeral_pk"].get<std::string>();
         std::vector<uint8_t> ephPk;
         if (ephPkStr.size() == 64) {
@@ -405,13 +395,12 @@ int Client::receiveMessages(MessageStore& store,
             ephPk = b64Decode(ephPkStr);
         }
         if (ephPk.size() != 32) {
-            std::cerr << "[receiveMessages] skipping: ephemeral_pk must be 32 bytes: " << messageId << "\n";
             continue;
         }
 
         // 5. Re-derive the per-message AES key via DHKEM.
         // Prefer sender_x25519_public_key from the message (always base64) over the
-        // TOFU-pinned senderPk argument — it's already validated by the server and
+        // TOFU-pinned senderPk argument â€" it's already validated by the server and
         // avoids failures when multiple senders are in the same inbox fetch.
         std::vector<uint8_t> msgSenderPk = senderPk;
         if (obj.contains("sender_x25519_public_key") && obj["sender_x25519_public_key"].is_string()) {
@@ -420,7 +409,6 @@ int Client::receiveMessages(MessageStore& store,
         }
         std::vector<uint8_t> aesKey = hpkeReceive(staticSk_, ephPk, msgSenderPk);
         if (aesKey.empty()) {
-            std::cerr << "[receiveMessages] HPKE receive failed: " << messageId << "\n";
             continue;
         }
 
@@ -438,14 +426,13 @@ int Client::receiveMessages(MessageStore& store,
         std::vector<uint8_t> ct    = hexDecode(ctB64);
 
         try {
-            // Use senderUuid as senderId in the Message — conv filters by peerId (username),
+            // Use senderUuid as senderId in the Message â€" conv filters by peerId (username),
             // so we surface the decrypted plaintext with the peer's username from conv.getPeerId().
             Message msg(messageId, senderUuid, senderId_, ct, nonce, ts);
 
             auto decrypted = decryptMessage(aesKey, msg);
             sodium_memzero(aesKey.data(), aesKey.size());
             if (!decrypted) {
-                std::cerr << "[receiveMessages] decryption failed: " << messageId << "\n";
                 continue;
             }
 
@@ -461,7 +448,6 @@ int Client::receiveMessages(MessageStore& store,
             ++successCount;
         } catch (const std::invalid_argument& e) {
             sodium_memzero(aesKey.data(), aesKey.size());
-            std::cerr << "[receiveMessages] invalid message fields: " << e.what() << "\n";
         }
     }
     return successCount;
@@ -469,21 +455,15 @@ int Client::receiveMessages(MessageStore& store,
 
 std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const {
     if (userId.empty()) {
-        std::cerr << "[fetchPeerPublicKey] userId must not be empty\n";
         return {};
     }
     for (unsigned char c : userId) {
-        if (!std::isalnum(c) && c != '_' && c != '-' && c != '.') {
-            std::cerr << "[fetchPeerPublicKey] userId '" << userId
-                      << "' contains invalid character — only alphanumeric, '_', '-', '.' allowed\n";
+        if (!std::isalnum(c) && c != '_' && c != '-' && c != '.') {  // NOLINT
             return {};
         }
     }
-    // Server route: GET /users/{username}  → {id, username, x25519_public_key}
     HttpResponse resp = http_.get(baseUrl_ + "/users/" + userId, authToken_, verifyCert_);
     if (!resp.ok_ || resp.statusCode_ != 200 || resp.body_.empty()) {
-        std::cerr << "[fetchPeerPublicKey] HTTP error for " << userId
-                  << ": " << resp.error_ << "\n";
         return {};
     }
 
@@ -491,23 +471,18 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
     try {
         parsed = nlohmann::json::parse(resp.body_);
     } catch (const nlohmann::json::parse_error&) {
-        std::cerr << "[fetchPeerPublicKey] JSON parse error\n";
         return {};
     }
 
     if (!parsed.contains("x25519_public_key") || !parsed["x25519_public_key"].is_string()) {
-        std::cerr << "[fetchPeerPublicKey] missing x25519_public_key field\n";
         return {};
     }
     if (!parsed.contains("id") || !parsed["id"].is_string()) {
-        std::cerr << "[fetchPeerPublicKey] missing id field\n";
         return {};
     }
 
     std::vector<uint8_t> pk = b64Decode(parsed["x25519_public_key"].get<std::string>());
     if (pk.size() != 32) {
-        std::cerr << "[fetchPeerPublicKey] x25519_public_key must be 32 bytes, got "
-                  << pk.size() << "\n";
         return {};
     }
 
@@ -521,21 +496,13 @@ std::vector<uint8_t> Client::fetchPeerPublicKey(const std::string& userId) const
         if (!savePins()) {
             pinnedKeys_.erase(userId);
             pinnedIds_.erase(userId);
-            std::cerr << "[fetchPeerPublicKey] pin not accepted: failed to persist for " << userId << "\n";
             return {};
         }
-        std::cerr << "[fetchPeerPublicKey] TOFU: pinned and persisted public key for " << userId << "\n";
     } else if (it->second != pk) {
-        std::cerr << "[fetchPeerPublicKey] WARNING: public key for " << userId
-                  << " differs from pinned key — possible key substitution attack. Rejecting.\n";
         return {};
     } else {
-        // Key matches pin. Verify the UUID hasn't changed — a remap could redirect messages.
         auto idIt = pinnedIds_.find(userId);
         if (idIt != pinnedIds_.end() && idIt->second != peerUuid) {
-            std::cerr << "[fetchPeerPublicKey] WARNING: UUID for " << userId
-                      << " changed from " << idIt->second << " to " << peerUuid
-                      << " — possible account takeover. Rejecting.\n";
             return {};
         }
         pinnedIds_[userId] = peerUuid;
@@ -562,10 +529,10 @@ HttpResponse Client::forwardMessage(const std::string& originalMessageId,
                                     const std::string& recipientUsername,
                                     const std::vector<uint8_t>& recipientPk,
                                     const std::string& plaintext) const {
-    // Resolve username → UUID.
+    // Resolve username â†' UUID.
     auto idIt = pinnedIds_.find(recipientUsername);
     if (idIt == pinnedIds_.end())
-        return {0, "", "recipient UUID unknown — call fetchPeerPublicKey first", false};
+        return {0, "", "recipient UUID unknown - call fetchPeerPublicKey first", false};
     const std::string& recipientUuid = idIt->second;
 
     // Re-encrypt the plaintext for the new recipient.

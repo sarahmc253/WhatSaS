@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <functional>
 
 // High-level messaging client with DHKEM(X25519) key establishment.
 //
@@ -41,9 +42,11 @@ public:
     // Derive a per-message AES key via DHKEM, encrypt with AES-256-GCM,
     // and POST to baseUrl/messages. recipientPk must be the peer's registered
     // X25519 public key (32 bytes); obtain via fetchPeerPublicKey first.
+    // sentMessageId is set to the generated message ID on success, empty on failure.
     HttpResponse sendMessage(const std::string& recipientId,
                              const std::vector<uint8_t>& recipientPk,
-                             const std::string& plaintext) const;
+                             const std::string& plaintext,
+                             std::string& sentMessageId) const;
 
     // GET baseUrl/messages
     HttpResponse getMessages() const;
@@ -53,9 +56,12 @@ public:
     // decrypt, and store in store and conv.
     // senderPk — the peer's registered X25519 public key (TOFU-pinned).
     // Returns count of successfully decrypted messages, or -1 on HTTP/parse failure.
+    // sentCache maps messageId → plaintext for messages sent this session.
+    // Passed in from main so sent messages show real text instead of "[message sent]".
     int receiveMessages(MessageStore& store,
                         Conversation& conv,
-                        const std::vector<uint8_t>& senderPk) const;
+                        const std::vector<uint8_t>& senderPk,
+                        const std::unordered_map<std::string, std::string>& sentCache = {}) const;
 
     // GET baseUrl/users/{userId}/key → base64-decode → 32-byte vector.
     // TOFU pinning: first fetch pins the key; later fetches that differ return empty

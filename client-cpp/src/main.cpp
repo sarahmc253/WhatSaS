@@ -185,6 +185,9 @@ int main(int argc, char* argv[]) {
 
     showFingerprint("your fingerprint", keyFingerprint(client->getPublicKey()));
 
+    // Session cache: messageId → plaintext for messages sent this session.
+    std::unordered_map<std::string, std::string> sentCache;
+
     // ── main loop ─────────────────────────────────────────────────────────────
     while (true) {
         const MainChoice action = showMainMenu(username);
@@ -318,10 +321,12 @@ int main(int argc, char* argv[]) {
             const std::string text = promptMessage(peerId);
             if (text.empty()) continue;
 
-            const auto resp = client->sendMessage(peerId, peerPk, text);
+            std::string sentId;
+            const auto resp = client->sendMessage(peerId, peerPk, text, sentId);
+            const bool sendOk = resp.statusCode_ >= 200 && resp.statusCode_ <= 299;
             const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_;
-            showSendResult(resp.statusCode_ >= 200 && resp.statusCode_ <= 299,
-                           resp.statusCode_, detail);
+            showSendResult(sendOk, resp.statusCode_, detail);
+            if (sendOk && !sentId.empty()) sentCache[sentId] = text;
 
         } else {
             // ── view conversation (with optional reply loop) ───────────────────
@@ -333,7 +338,7 @@ int main(int argc, char* argv[]) {
                 // Rebuild conv fresh each time so deleted/revoked messages disappear.
                 store = MessageStore{};
                 conv  = Conversation{peerId};
-                const int count = client->receiveMessages(store, conv, peerPk);
+                const int count = client->receiveMessages(store, conv, peerPk, sentCache);
                 if (count < 0) {
                     std::cout << C_DANGER "\n  💔 failed to fetch messages from server\n" C_RESET;
                     break;
@@ -447,13 +452,12 @@ int main(int argc, char* argv[]) {
                 const std::string text = promptMessage(peerId);
                 if (text.empty()) continue;
 
-                const auto resp = client->sendMessage(peerId, peerPk, text);
+                std::string sentId;
+                const auto resp = client->sendMessage(peerId, peerPk, text, sentId);
                 const bool ok = resp.statusCode_ >= 200 && resp.statusCode_ <= 299;
                 const std::string detail = !resp.error_.empty() ? resp.error_ : resp.body_;
                 showSendResult(ok, resp.statusCode_, detail);
-
-                // Sent message will appear as "[message sent]" on next loop refresh
-                // via the server's direction:"sent" placeholder.
+                if (ok && !sentId.empty()) sentCache[sentId] = text;
             }
         }
     }
