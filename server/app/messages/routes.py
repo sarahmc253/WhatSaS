@@ -263,6 +263,14 @@ def forward_message(message_id):
         return jsonify({'error': ts_error}), 400
     created_at = datetime.fromtimestamp(data['timestamp'], tz=timezone.utc)
 
+    # Accept client-generated message_id (32-char hex) so the recipient can reconstruct
+    # the same AD that was used during encryption. Fall back to server-generated UUID.
+    client_msg_id = data.get('message_id', '')
+    if isinstance(client_msg_id, str) and re.fullmatch(r'[0-9a-f]{32}', client_msg_id):
+        fwd_msg_id = client_msg_id
+    else:
+        fwd_msg_id = str(uuid.uuid4()).replace('-', '')
+
     current_user_id = get_jwt_identity()
     db = get_db()
 
@@ -296,20 +304,18 @@ def forward_message(message_id):
     if message['is_revoked'] and recipient['id'] == message['recipient_id']:
         return jsonify({'error': 'Cannot forward a revoked message back to the original recipient'}), 403
 
-    new_id = str(uuid.uuid4()).replace('-', '')
-    now = datetime.now(timezone.utc)
     content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
     cursor = db.cursor()
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, original_message_id, content_hash)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, timestamp, original_message_id, content_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, message_id, content_hash,
+                fwd_msg_id, current_user_id, recipient['id'],
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, data['timestamp'], message_id, content_hash,
             ),
         )
         db.commit()
@@ -324,9 +330,9 @@ def forward_message(message_id):
     finally:
         cursor.close()
 
-    log_audit('send_message', user_id=current_user_id, message_id=new_id,
+    log_audit('send_message', user_id=current_user_id, message_id=fwd_msg_id,
               metadata={'forwarded_from': message_id})
-    return jsonify({'id': new_id}), 201
+    return jsonify({'id': fwd_msg_id}), 201
 
 @messages_bp.route('/blockchain-record', methods=['GET'])
 @jwt_required()
