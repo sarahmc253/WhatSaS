@@ -4,7 +4,7 @@ Secure end-to-end encrypted messaging application built for CS4455 Cybersecurity
 
 Messages are encrypted client-side using AES-256-GCM with X25519 key exchange — the server never sees plaintext. Message digests are periodically anchored to the Ethereum Sepolia testnet for tamper-evident integrity verification.
 
-**Team:** Sarah McDonagh (24403067), Sreejita Saha, Aoibheann Mangan  
+**Team:** Sarah McDonagh (24403067), Sreejita Saha(24412465), Aoibheann Mangan(24421928)  
 **GitHub:** https://github.com/sarahmc253/WhatSaS
 
 ---
