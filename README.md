@@ -16,155 +16,186 @@ WhatSaS/
 └── docs/            # Design documents and reports
 ```
 
-## Setup & Installation
+## Dependencies at a Glance
 
-### Python dependencies
+| Dependency | Version | Component | Purpose |
+|---|---|---|---|
+| **Python** | 3.10 + | Server, crypto-library | Runtime for the Flask API and crypto utilities |
+| **MySQL** | 8.0 + | Server | Stores users, messages, audit log, and blockchain records |
+| `flask` | ≥ 3.1.3 | Server | HTTP API framework |
+| `flask-jwt-extended` | ≥ 4.7.4 | Server | JWT authentication middleware |
+| `mysql-connector-python` | ≥ 9.7.0 | Server | MySQL database driver |
+| `python-dotenv` | ≥ 1.2.2 | Server | Loads `.env` environment variables at startup |
+| `gunicorn` | ≥ 26.0.0 | Server | WSGI server for production deployments |
+| `apscheduler` | ≥ 3.11.0 | Server | Schedules periodic blockchain anchoring (every 5 min) |
+| `web3` | ≥ 7.16.0 | Server | Ethereum / Sepolia interaction for message anchoring |
+| `cryptography` | ≥ 44.0.0 | crypto-library | X25519 key generation; PyCA-audited standard library |
+| `argon2-cffi` | ≥ 25.1.0 | crypto-library | Argon2id password hashing and KEK derivation |
+| `requests` | ≥ 2.32.0 | crypto-library | HTTP client used by the key publisher |
+| `pytest` | any | Server, crypto-library | Test runner |
+| **Node.js** | 18 + | Web client | Required to run `npm install` |
+| `argon2-browser` | ≥ 1.18.0 | Web client | Argon2id in the browser for private key wrapping |
+| **Browser** | Chrome 120 + / Firefox 121 + / Edge 120 + | Web client | Web Crypto API support (X25519, AES-GCM, HKDF) |
+| **CMake** | ≥ 3.16 | C++ client | Build system |
+| **C++17 compiler** | GCC 11 + / Clang 14 + / MSVC 2019 + | C++ client | Compiles the C++ client |
+| **OpenSSL** | 1.1.1 + | C++ client | TLS for HTTPS; AES-256-GCM encryption |
+| **libsodium** | 1.0.18 + | C++ client | X25519 key exchange, HKDF-SHA-256, Argon2id |
+| `nlohmann/json` | 3.11.3 | C++ client | JSON parsing (fetched automatically by CMake) |
+
+---
+
+## Running the Services
+
+### Server
+
+Create a `.env` file at the repo root (gitignored):
+
+```dotenv
+# Required — server will not start without these
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=whatsas
+DB_PASSWORD=<your-db-password>
+DB_NAME=whatsas
+JWT_SECRET_KEY=<long-random-secret>
+
+# TLS — paths to the certificate and private key
+SSL_CERT=/home/student/server.crt
+SSL_KEY=/home/student/server.key
+
+# Optional — enables blockchain anchoring; server starts without these but
+# messages will not be anchored and the /flush endpoint will return 503
+WEB3_RPC_URL=https://sepolia.infura.io/v3/<your-key>
+CONTRACT_ADDRESS=0x<deployed-contract-address>
+WALLET_PRIVATE_KEY=<hex-private-key-no-0x-prefix>
+```
+
+Install dependencies and start:
 
 ```bash
 pip install -r requirements.txt
+cd server && python run.py
 ```
 
-Covers the server and the `crypto-library` package. Key cryptographic dependencies:
+For production, run under Gunicorn behind an nginx TLS proxy:
 
-- **`cryptography`** — PyCA's cryptography library; provides X25519 key exchange and HPKE primitives. Actively maintained, audited, and the de-facto standard for Python cryptography.
-- **`argon2-cffi`** — Python bindings for the reference Argon2 implementation. Argon2id is the OWASP-recommended password hashing and key-derivation algorithm; this binding uses the same audited C library as the reference spec.
+```bash
+gunicorn -w 4 -b 127.0.0.1:5000 "app:create_app()"
+```
+
+Live deployment: **https://sas.theburkenator.com**
+
+---
+
+### Web client
+
+```bash
+cd client-web && npm install
+```
+
+No build step needed. The Flask server serves the static files — once the server is running, visit **https://sas.theburkenator.com** (or `https://localhost:5000` for local development).
+
+**Blockchain verification page** — accessible without logging in at `https://sas.theburkenator.com/#verify`. Requires this meta tag in `index.html` for Sepolia access:
+
+```html
+<meta name="sepolia-rpc-url" content="https://sepolia.infura.io/v3/<your-key>">
+```
+
+**Troubleshooting**
+
+| Problem | Fix |
+|---|---|
+| Blank screen on load | Open DevTools (`F12`) and check for JS errors; confirm the server is running |
+| Messages show as `(encrypted)` | Check `sender_x25519_public_key` is present in the `/messages` response |
+| `argon2-browser` not found | Run `npm install` inside `client-web/` |
+| CORS errors on verify page | Ensure the Sepolia RPC URL in `index.html` is CORS-enabled for browser requests |
+
+---
 
 ### C++ client
 
-**Ubuntu**
+`nlohmann/json` is fetched automatically by CMake via `FetchContent` — no manual install needed.
 
+**Ubuntu / Debian**
 ```bash
-sudo apt install cmake ninja-build g++ libssl-dev libsodium-dev libsqlite3-dev
+sudo apt install cmake ninja-build g++ libssl-dev libsodium-dev
 ```
 
 **macOS**
-
 ```bash
-brew install cmake ninja openssl libsodium sqlite3
+brew install cmake ninja openssl libsodium
 ```
 
-**Build** (run from the repo root)
+**Windows (MSYS2 UCRT64 shell)**
+```bash
+pacman -S mingw-w64-ucrt-x86_64-cmake \
+          mingw-w64-ucrt-x86_64-ninja \
+          mingw-w64-ucrt-x86_64-gcc \
+          mingw-w64-ucrt-x86_64-openssl \
+          mingw-w64-ucrt-x86_64-libsodium
+```
+
+**Build**
+
+Run from the `client-cpp/` directory:
 
 ```bash
-cmake -B client-cpp/build client-cpp \
-  -DSODIUM_INCLUDE=$(brew --prefix libsodium)/include   # macOS only; omit on Ubuntu
-cmake --build client-cpp/build
+cd client-cpp
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+```
+
+**Server certificate**
+
+The server uses a self-signed TLS certificate. Place it at `client-cpp/certs/server.crt` before running (`certs/` is gitignored). Obtain it from a team member or copy it directly from the VM:
+
+```bash
+scp -P 2200 student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
 ```
 
 **Run**
 
-```bash
-./client-cpp/build/sas-client
-```
-
-For Windows (MSYS2/UCRT64) and full test instructions see [`client-cpp/README.md`](client-cpp/README.md).
-
-### CLI walkthrough
-
-On first run the client shows a register / login menu.
-
-**Registration**
-1. Prompts for username and password.
-2. Generates an X25519 keypair via `crypto_box_keypair`.
-3. Derives a 32-byte Key Encryption Key (KEK) from the password using Argon2id (`crypto_pwhash`, INTERACTIVE ops/mem limits, fresh 16-byte random salt).
-4. Wraps the private key with AES-256-GCM (`crypto_aead_aes256gcm_encrypt`, random 12-byte nonce); the envelope stored on the server is `nonce || ciphertext || tag` — the server never sees the plaintext private key.
-5. Registers with the server, sending `x25519_public_key`, `wrapped_private_key`, and `kek_salt` (all base64-encoded).
-6. Automatically flows into the messaging session without requiring the user to log in again.
-
-**Login**
-1. Prompts for username and password.
-2. Fetches `wrapped_private_key` and `kek_salt` from the server's login response.
-3. Re-derives the KEK using the same Argon2id parameters and the stored salt.
-4. Decrypts the wrapped private key with AES-256-GCM to recover the X25519 private key; the tag authenticates the password.
-5. Re-derives the public key via `crypto_scalarmult_base` and constructs a `Client` ready to send and receive.
-
-**Messaging session**
-
-```text
-[1] Send message
-[2] View messages
-[3] Quit
-```
-
-- **Send** — prompts for a recipient username and message text. The client fetches the recipient's public key (TOFU-pinned on first contact), derives a per-message AES-256-GCM key via DHKEM(X25519, HKDF-SHA256), encrypts the plaintext, and POSTs the ciphertext and ephemeral public key to the server.
-- **View** — GETs all messages from the server, re-derives the AES key from each message's ephemeral public key (`kem_output`), decrypts, and prints the conversation chronologically.
-
-### Tests
+Must be run from the `client-cpp/` directory so `certs/server.crt` resolves correctly:
 
 ```bash
-# All offline tests
-ctest --test-dir client-cpp/build
+# Linux / macOS
+./build/sas-client
 
-# Individual targets
-./client-cpp/build/test_e2e          # full register → login → send → receive chain (no network)
-./client-cpp/build/test_hpke         # DHKEM(X25519) + HKDF-SHA256 key derivation
-./client-cpp/build/test_tamper       # AES-256-GCM tamper detection
-./client-cpp/build/test_client       # Client crypto unit tests
-./client-cpp/build/test_conversation # Conversation deduplication and ordering
-./client-cpp/build/test_tcp          # raw TCP socket (offline)
-./client-cpp/build/test_http         # HTTPS GET (requires --network flag)
+# Windows (set UTF-8 output first)
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+.\build\sas-client.exe
 ```
 
-### Memory Ownership
+**Tests**
 
-No raw owning pointers (`new`/`delete`) appear in the codebase. Every resource is either owned by a smart pointer or stored by value.
+```bash
+ctest --test-dir build                  # all offline tests
+ctest --test-dir build -L network       # include network tests (requires internet)
+```
 
-**`HttpClient::ctx_` — `std::unique_ptr<SSL_CTX, SslCtxDeleter>`**
-`SSL_CTX` is an opaque OpenSSL type that must be released with `SSL_CTX_free`. A `unique_ptr` with a custom deleter expresses single ownership and guarantees the context is freed when `HttpClient` is destroyed, even if the constructor throws. The deleter is defined in the `.cpp` file so the OpenSSL headers never leak into translation units that include `HttpClient.hpp` — only a forward declaration of `ssl_ctx_st` is needed in the header.
+Individual targets: `test_e2e`, `test_hpke`, `test_tamper`, `test_client`, `test_conversation`, `test_tcp`, `test_http`.
 
-**`UniqueSSL` — `std::unique_ptr<SSL, SslDeleter>`**
-A local alias inside `HttpClient.cpp`. Each `get()`/`post()` call wraps the per-request `SSL*` in a `UniqueSSL` so the handle is freed on every exit path — normal return, early error, or exception — without explicit cleanup code at each branch.
+---
 
-**`RaiiSocket` — value-based RAII, no heap allocation**
-`SOCKET` (a Win32 integer handle) does not need to live on the heap, so `unique_ptr<SOCKET>` would allocate unnecessarily. Instead, `RaiiSocket` holds the handle as a plain member, calls `closesocket` in its destructor, and deletes copy/move to prevent accidental double-close. The struct lives on the stack for exactly the lifetime of the request.
+### Smart contract
 
-**Domain objects — value semantics throughout**
-`User`, `Message`, `MessageStore`, and `Conversation` own their data via `std::vector` and `std::string` members. No smart pointers are needed because ownership is never shared or transferred — each object is the sole owner of its contents. `Message` is fully immutable after construction; `MessageStore` and `Conversation` grow their collections in place.
+The `DataStore` contract stores SHA-256 message hashes on-chain and emits a `DataStored` event for each anchored batch.
 
-**No `shared_ptr`**
-There is no shared ownership in the design. Every object has exactly one owner at any point, so `shared_ptr` reference counting would add overhead without benefit.
+- **Network:** Ethereum Sepolia testnet
+- **Source:** [`contracts/DataStore.sol`](contracts/DataStore.sol)
+- **ABI:** [`contracts/abi.json`](contracts/abi.json)
+- **Deployed address:** set via `CONTRACT_ADDRESS` in `.env` (see server setup above)
 
-### STL Containers and Algorithms
+**Contract interface**
 
-#### Containers
+| Function | Description |
+|---|---|
+| `storeData(bytes32 dataHash)` | Stores a hash on-chain; returns the record ID |
+| `getRecord(uint256 recordId)` | Returns `(hash, timestamp, recorder)` for a given record |
+| `verifyData(uint256 recordId, bytes32 dataHash)` | Returns `true` if the stored hash matches |
+| `recordCount()` | Total number of records stored |
 
-| Container | Used in | Why |
-|-----------|---------|-----|
-| `std::vector<uint8_t>` | `User`, `Message`, `Conversation`, `Client`, `MessageStore` | Contiguous byte storage for keys, ciphertext, and nonces; required by libsodium APIs that take raw `unsigned char*` pointers. |
-| `std::vector<Message>` | `MessageStore` | Insertion-order primary store; index-stable and cache-friendly for iteration over all messages. |
-| `std::vector<DecryptedMessage>` | `Conversation` | Maintains arrival order; sorted on read rather than on insert so duplicate-check cost stays O(1) via `seenIds_`. |
-| `std::string` | All classes | Owning, heap-managed character storage for IDs, URLs, plaintexts, and HTTP data; interoperates directly with nlohmann/json and OpenSSL string APIs. |
-| `std::unordered_map<string, vector<Message>>` | `MessageStore::byPeer_` | O(1) average lookup of messages by peer key; peer-keyed access is the hot path when a conversation is opened. |
-| `std::unordered_map<string, vector<uint8_t>>` | `Client::pinnedKeys_` | O(1) average lookup for TOFU-pinned public keys; checked on every incoming message so average-case speed matters. |
-| `std::unordered_set<std::string>` | `Conversation::seenIds_` | O(1) average duplicate check on every `addMessage` call; `std::set` would give O(log n) for the same lookup. |
-| `std::map<string, size_t>` | `MessageStore::getSenderFrequencies` | Return type only; alphabetically sorted output is useful for display, and this path is not performance-critical. |
-| `std::optional<Message>` | `MessageStore::findMessage` | Expresses "found or not found" without a sentinel value or heap allocation; cleaner than returning a raw pointer or throwing. |
-
-#### Algorithms
-
-| Algorithm | Used in | Why |
-|-----------|---------|-----|
-| `std::sort` | `Conversation::getMessages`, `MessageStore::getSortedMessages` | Sorts a copy by timestamp ascending; messages are stored in arrival order and sorted only on read so inserts stay O(1). |
-| `std::find_if` | `MessageStore::findMessage`, `MessageStore::hasMessage` | Linear scan with a predicate; no secondary index exists for arbitrary message ID lookup so a scan is the correct tool. |
-| `std::any_of` | `MessageStore::hasMessage` | Short-circuits on the first match; avoids scanning the rest of the vector once an ID is found, and returns bool without constructing an `optional`. |
-| `std::count_if` | `Conversation::messageCount` | Counts matching messages without a mutable counter variable; intent is expressed directly in the predicate. |
-| `std::copy_if` + `std::back_inserter` | `Conversation::getMessagesFromSender` | Filters into a new vector without a manual loop; `back_inserter` removes the need to pre-size the output. |
-| `std::transform` | `http_response.cpp::toLower` | Lowercases HTTP header names in place for case-insensitive comparison per RFC 7230; single-pass over the string. |
-| `std::move` | `Client` constructor, `Conversation::addMessage`, `HttpClient` move operators | Transfers ownership of key byte vectors and message objects without copying; critical for 32-byte key vectors passed into `Client` at construction. |
-
-### Classes
-
-**`Auth`** — handles registration and login HTTP calls and holds the session token returned by the server. After a successful `login()` call it also exposes `getWrappedPrivateKey()` and `getKekSalt()` so `main.cpp` can re-derive the KEK and unwrap the private key without a second network round-trip.
-
-**`User`** — represents a participant in the system. Holds a user ID, display name, and a Curve25519 (X25519) public key. The local user also stores a private key; remote peers only ever have the public key populated. Keys may be set after construction to support deferred key-registry lookups.
-
-**`Message`** — an immutable snapshot of a single encrypted message in transit or in storage. Holds the AES-256-GCM ciphertext (with 16-byte auth tag), a 12-byte nonce, sender and recipient IDs, a unique message ID, and a Unix timestamp. All fields are set at construction and never mutated.
-
-**`MessageStore`** — in-memory store for received `Message` objects. Maintains a flat insertion-order vector for global access and an unordered map keyed by a canonical peer key (`min(senderId, recipientId)|max(...)`) so both directions of a conversation land in the same bucket. Supports ID-based existence checks, per-peer retrieval, timestamp-sorted views, and sender frequency counts.
-
-**`Conversation`** — organises already-decrypted messages for a single peer. Receives `DecryptedMessage` structs (plaintext, sender, timestamp, message ID) from `Client`, deduplicates by message ID using an unordered set, and returns messages sorted by timestamp. Also caches the peer's X25519 public key after the first TOFU fetch so `Client` does not need to re-fetch it per message.
-
-**`Client`** — the top-level messaging layer. Owns the local user's long-term X25519 keypair, drives HPKE-style key establishment (ephemeral + static DH → HKDF-SHA256 → AES-256-GCM key), and handles TOFU key pinning for peer public keys. Exposes `sendMessage`, `receiveMessages`, `fetchPeerPublicKey`, and `publishPublicKey`, each of which calls through to `HttpClient` for network I/O.
+---
 
 ## Key Dates
 
