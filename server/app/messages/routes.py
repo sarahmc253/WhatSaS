@@ -304,12 +304,12 @@ def forward_message(message_id):
     try:
         cursor.execute(
             """
-            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, original_message_id, content_hash)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO messages (id, sender_id, recipient_id, ciphertext, nonce, ephemeral_pk, created_at, timestamp, original_message_id, content_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 new_id, current_user_id, recipient['id'],
-                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, message_id, content_hash,
+                data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, data['timestamp'], message_id, content_hash,
             ),
         )
         db.commit()
