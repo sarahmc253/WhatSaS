@@ -1,126 +1,30 @@
-# WhatSaS
+# WhatSaS C++ Client
 
-Secure end-to-end encrypted messaging application built for CS4455 Cybersecurity Epic 2026, Group sas.
+Secure messaging client in C++17. Uses raw BSD sockets (Winsock2) + OpenSSL for HTTPS, and libsodium for E2EE encryption (AES-256-GCM).
 
-Messages are encrypted client-side using AES-256-GCM with X25519 key exchange — the server never sees plaintext. Message digests are periodically anchored to the Ethereum Sepolia testnet for tamper-evident integrity verification.
-
-**Team:** Sarah McDonagh (24403067), Sreejita Saha, Aoibheann Mangan  
-**GitHub:** https://github.com/sarahmc253/WhatSaS
+> **Platform: Windows only.**
+> The networking layer uses Winsock2 (`winsock2.h`), the Windows CA store (`wincrypt.h`, `CertOpenSystemStoreA`), and Windows socket types (`SOCKET`, `INVALID_SOCKET`, `WSAGetLastError`). It will not compile on Linux or macOS without a porting effort.
 
 ---
 
-## Project Structure
+## Prerequisites
 
-```
-WhatSaS/
-├── client-cpp/      # C++ client
-├── client-web/      # Web client (HTML/JS)
-├── server/          # Python backend
-├── contracts/       # Solidity smart contract
-├── verification/    # Blockchain verification page
-└── docs/            # Design documents and reports
+You need **MSYS2** with the UCRT64 toolchain. Check if you already have it:
+
+```powershell
+where.exe cmake   # should show C:\msys64\ucrt64\bin\cmake.exe
+where.exe ninja   # should show C:\msys64\ucrt64\bin\ninja.exe
 ```
 
----
+If either is missing, install MSYS2 from https://www.msys2.org, open the **UCRT64** shell (not MinGW64, not MSYS), and run:
 
-## Dependencies
-
-| Dependency | Version | Component | Purpose |
-|---|---|---|---|
-| Python | 3.10+ | Server, crypto-library | Runtime for the Flask API and crypto utilities |
-| MySQL | 8.0+ | Server | Stores users, messages, audit log, and blockchain records |
-| flask | ≥ 3.1.3 | Server | HTTP API framework |
-| flask-jwt-extended | ≥ 4.7.4 | Server | JWT authentication middleware |
-| mysql-connector-python | ≥ 9.7.0 | Server | MySQL database driver |
-| python-dotenv | ≥ 1.2.2 | Server | Loads .env environment variables at startup |
-| gunicorn | ≥ 26.0.0 | Server | WSGI server for production deployments |
-| apscheduler | ≥ 3.11.0 | Server | Schedules periodic blockchain anchoring (every 5 min) |
-| web3 | ≥ 7.16.0 | Server | Ethereum / Sepolia interaction for message anchoring |
-| cryptography | ≥ 44.0.0 | crypto-library | X25519 key generation; PyCA-audited standard library |
-| argon2-cffi | ≥ 25.1.0 | crypto-library | Argon2id password hashing and KEK derivation |
-| requests | ≥ 2.32.0 | crypto-library | HTTP client used by the key publisher |
-| pytest | any | Server, crypto-library | Test runner |
-| Node.js | 18+ | Web client | Required to run npm install |
-| argon2-browser | ≥ 1.18.0 | Web client | Argon2id in the browser for private key wrapping |
-| Browser | Chrome 120+ / Firefox 121+ / Edge 120+ | Web client | Web Crypto API support (X25519, AES-GCM, HKDF) |
-| CMake | ≥ 3.16 | C++ client | Build system |
-| C++17 compiler | GCC 11+ via MSYS2 UCRT64 (Windows only) | C++ client | Compiles the C++ client |
-| OpenSSL | 1.1.1+ | C++ client | TLS for HTTPS; AES-256-GCM encryption |
-| libsodium | 1.0.18+ | C++ client | X25519 key exchange, HKDF-SHA-256, Argon2id |
-| nlohmann/json | 3.11.3 | C++ client | JSON parsing (fetched automatically by CMake) |
-
----
-
-## Running the Services
-
-### Server
-
-Create a `.env` file at the repo root:
-
-```
-# Required — server will not start without these
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=whatsas
-DB_PASSWORD=<your-db-password>
-DB_NAME=whatsas
-JWT_SECRET_KEY=<long-random-secret>
-
-# TLS — paths to the certificate and private key
-SSL_CERT=/home/student/server.crt
-SSL_KEY=/home/student/server.key
-
-# Optional — enables blockchain anchoring; server starts without these but
-# messages will not be anchored and the /flush endpoint will return 503
-WEB3_RPC_URL=https://sepolia.infura.io/v3/<your-key>
-CONTRACT_ADDRESS=0x<deployed-contract-address>
-WALLET_PRIVATE_KEY=<hex-private-key-no-0x-prefix>
-```
-
-Install dependencies and start:
-
-```bash
-pip install -r requirements.txt
-cd server && python run.py
-```
-
-For production, run under Gunicorn behind an nginx TLS proxy:
-
-```bash
-gunicorn -w 4 -b 127.0.0.1:5000 "app:create_app()"
-```
-
-Live deployment: https://sas.theburkenator.com
-
----
-
-### Web Client
-
-```bash
-cd client-web && npm install
-```
-
-No build step needed. The Flask server serves the static files — once the server is running, visit https://sas.theburkenator.com (or https://localhost:5000 for local development).
-
-The blockchain verification page is accessible without logging in at https://sas.theburkenator.com/#verify.
-
----
-
-### C++ Client
-
-> **Platform: Windows only.** The networking layer uses Winsock2 and the Windows CA store. It will not compile on Linux or macOS without a porting effort.
-
-**Prerequisites — MSYS2 UCRT64**
-
-Install MSYS2 from https://www.msys2.org, open the **UCRT64** shell (not MinGW64, not MSYS), and run:
-
-```bash
+```sh
 pacman -Syu
 ```
 
-Then close and reopen the UCRT64 shell and install dependencies:
+Then close and reopen the UCRT64 shell and install the dependencies:
 
-```bash
+```sh
 pacman -S mingw-w64-ucrt-x86_64-cmake \
           mingw-w64-ucrt-x86_64-ninja \
           mingw-w64-ucrt-x86_64-gcc \
@@ -129,74 +33,159 @@ pacman -S mingw-w64-ucrt-x86_64-cmake \
           mingw-w64-ucrt-x86_64-nlohmann-json
 ```
 
+If you already have MSYS2, you can just run the `pacman -S` line — it will skip anything already installed.
+
 Build commands can be run from **PowerShell** or the **UCRT64 shell** — both work as long as MSYS2 is installed.
 
-**Server certificate**
+---
 
-The server uses a self-signed TLS certificate. Place it at `client-cpp/certs/server.crt` before running (`certs/` is gitignored). Copy it from the VM:
+## Server certificate
 
-```bash
+The server uses a self-signed TLS certificate.
+
+> `certs/` is gitignored — do not commit the cert file.
+
+### SSH access to the VM
+
+```sh
+# Run this from local machine in any terminal with scp
 scp -P 2200 student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
 ```
 
-**Build** — run from the `client-cpp/` directory in PowerShell:
+---
+
+## Build
+
+Run from the `client-cpp/` directory in PowerShell:
 
 ```powershell
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-**Run** — must be run from the `client-cpp/` directory:
+A successful build produces `build/sas-client.exe`.
+
+---
+
+## Run
+
+Must be run from the `client-cpp/` directory so `certs/server.crt` resolves correctly.
+
+Open PowerShell, navigate to `client-cpp/`, then:
 
 ```powershell
 $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 .\build\sas-client.exe
 ```
 
-The UTF-8 line is required for emoji and Unicode to display correctly.
+The UTF-8 line is required for emoji and Unicode to display correctly in the terminal.
 
-**Tests**
+---
+
+## Tests
+
+Run from `client-cpp/` in PowerShell. Offline tests only by default:
 
 ```powershell
-ctest --test-dir build                  # all offline tests
-ctest --test-dir build -L network       # include network tests (requires internet)
+ctest --test-dir build
 ```
 
+Individual binaries (all offline unless noted):
+
 | Binary | What it tests |
-|---|---|
-| `test_e2e` | Full register → login → send → receive chain |
-| `test_hpke` | DHKEM(X25519) + HKDF-SHA256 key derivation |
-| `test_tamper` | AES-256-GCM tamper detection |
-| `test_client` | Client crypto unit tests |
-| `test_conversation` | Conversation deduplication and ordering |
-| `test_tcp` | Raw TCP socket tests |
-| `test_http` | HTTPS/TLS tests *(internet required)* |
+|--------|---------------|
+| `.\build\test_e2e.exe` | Full register → login → send → receive chain |
+| `.\build\test_hpke.exe` | DHKEM(X25519) + HKDF-SHA256 key derivation |
+| `.\build\test_tamper.exe` | AES-256-GCM tamper detection |
+| `.\build\test_client.exe` | Client crypto unit tests |
+| `.\build\test_conversation.exe` | Conversation deduplication and ordering |
+| `.\build\test_tcp.exe` | Raw TCP socket tests |
+| `.\build\test_http.exe --network` | HTTPS/TLS tests *(internet required)* |
+
+To include network tests via CTest: `ctest --test-dir build -L network`
 
 ---
 
-## Smart Contract
+## Project structure
 
-The `DataStore` contract stores message hashes on-chain and emits a `DataStored` event for each anchored batch.
+```text
+client-cpp/
+  include/              public headers
+    Auth.hpp            auth state (token, userId, wrapped key)
+    Client.hpp          high-level E2EE send/receive + TOFU key pinning
+    Conversation.hpp    decrypted message store for one peer
+    DecryptedMessage.hpp plain struct: messageId, senderId, recipientId, plaintext, timestamp
+    HttpClient.hpp      HTTPS GET / POST / DELETE (raw sockets + OpenSSL)
+    Message.hpp         immutable encrypted message value type
+    MessageStore.hpp    insertion-ordered store + unordered_map index by peer key
+    User.hpp            user identity + X25519 public key
 
-- **Network:** Ethereum Sepolia testnet
-- **Source:** `contracts/DataStore.sol`
-- **ABI:** `contracts/abi.json`
-- **Deployed address:** set via `CONTRACT_ADDRESS` in `.env`
+  src/                  implementation + internal headers
+    main.cpp            entry point and main UI loop
+    Auth.cpp            login, register, logout, change-password
+    Client.cpp          sendMessage(), receiveMessages(), fetchPeerPublicKey()
+    HttpClient.cpp      doRequest() pipeline: TCP → TLS → write → read → parse
+    tcp_connect.hpp     raw Winsock2 TCP connect with 5 s timeout
+    tls_connect.hpp/.cpp  TLS handshake, cert pinning, hostname verification
+    http_response.hpp/.cpp  URL parser, request builders, response parser
+    hpke_utils.hpp      DHKEM(X25519): hpkeSend() / hpkeReceive()
+    message_crypto.hpp  encryptMessage() / decryptMessage() (AES-256-GCM)
+    crypto_utils.hpp    b64Encode/Decode, generateMsgId, buildAd, HKDF, keyFingerprint
+    key_wrap.hpp        wrapPrivateKey() / unwrapPrivateKey() (Argon2id KEK → AES-GCM)
+    AuthCLI.hpp         CLI prompts for auth flows
+    ui.hpp              banner, menus, conversation display
 
-| Function | Description |
-|---|---|
-| `storeData(bytes32 dataHash)` | Stores a hash on-chain; returns the record ID |
-| `getRecord(uint256 recordId)` | Returns (hash, timestamp, recorder) for a given record |
-| `verifyData(uint256 recordId, bytes32 dataHash)` | Returns true if the stored hash matches |
-| `recordCount()` | Total number of records stored |
+  tests/                offline unit + integration tests
+    test_e2e.cpp        full crypto chain (no network)
+    test_hpke.cpp       DHKEM key derivation
+    test_tamper.cpp     AES-GCM tamper detection
+    test_client.cpp     crypto unit tests
+    test_conversation.cpp  deduplication and ordering
+    test_tcp.cpp        TCP socket tests
+    test_http.cpp       HTTPS tests (--network flag required)
+```
 
 ---
 
-## Troubleshooting
+## Cryptography
 
-| Problem | Fix |
-|---|---|
-| Blank screen on load | Open DevTools (F12) and check for JS errors; confirm the server is running |
-| Messages show as (encrypted) | Check `sender_x25519_public_key` is present in the `/messages` response |
-| argon2-browser not found | Run `npm install` inside `client-web/` |
-| CORS errors on verify page | Ensure the Sepolia RPC URL is CORS-enabled for browser requests |
+| Primitive | Algorithm | Library |
+|-----------|-----------|---------|
+| Symmetric encryption | AES-256-GCM (AEAD) | libsodium `crypto_aead_aes256gcm_*` |
+| Nonce generation | Fresh CSPRNG per message (96-bit) | libsodium `randombytes_buf` |
+| Associated data | Canonical JSON, bound into AEAD tag | nlohmann `ordered_json` (guaranteed key insertion order) |
+| Message ID | 16 CSPRNG bytes → 32 hex chars | libsodium `randombytes_buf` + `sodium_bin2hex` |
+| Base64 encoding | RFC 4648 standard | libsodium `sodium_bin2base64` |
+| Key exchange | DHKEM(X25519) — ephemeral + static DH, authenticated sender | libsodium `crypto_scalarmult_*` |
+| Key derivation | HKDF-Extract(salt=eph_pk, IKM=DH1\|\|DH2) → PRK; HKDF-Expand(PRK, info) → 32-byte AES key | libsodium `crypto_auth_hmacsha256_*` (manual RFC 5869) |
+| Password hashing / KEK derivation | Argon2id, INTERACTIVE ops/mem, 16-byte random salt | libsodium `crypto_pwhash_*` |
+| Private key wrapping | AES-256-GCM over X25519 sk; envelope = nonce \|\| ct \|\| tag | libsodium `crypto_aead_aes256gcm_*` |
+| Transport | HTTPS/TLS 1.2+ | Raw OpenSSL (libssl + libcrypto) |
+| Cert validation | Pinned self-signed cert (only the pinned cert is trusted; Windows CA store is bypassed) | OpenSSL `SSL_CTX_load_verify_locations` + `SSL_set1_host` |
+
+**Notes:**
+- AES-256-GCM requires hardware AES-NI (Intel/AMD); `Client` constructor throws `std::runtime_error` if unavailable
+- Nonce scheme: fresh 96-bit nonce drawn from `randombytes_buf` on every `encryptAes256Gcm` call — no counter, no state carried between messages
+- Associated data (sender_id, recipient_id, message_id, timestamp) is bound into the AEAD tag but not encrypted — any tampering causes decryption to fail
+- HPKE-style key establishment: each message derives a fresh AES key via `DH1 = X25519(eph_sk, recipient_pk)` and `DH2 = X25519(sender_sk, recipient_pk)`; IKM = `DH1 || DH2`; salt = `eph_pk`; HKDF-Extract → PRK; HKDF-Expand(PRK, info) → 32-byte AES key; `eph_pk` travels in the `ephemeral_pk` wire field (hex-encoded)
+- Private keys are stored server-side wrapped under a password-derived KEK (Argon2id → AES-256-GCM); the server never holds a plaintext private key
+- TLS uses cert pinning: `certs/server.crt` is loaded as the sole trust anchor via `SSL_CTX_load_verify_locations`; the Windows system CA store is intentionally bypassed so only the pinned cert is trusted
+- Hostname verification enforced via `SSL_set1_host` — connections rejected on CN/SAN mismatch
+- Plain HTTP rejected — this client is HTTPS only
+
+---
+
+## Manual TLS verification
+
+Cross-check the client's cert validation against the reference tool:
+
+```sh
+# Valid cert — expect: Verify return code: 0 (ok)
+openssl s_client -connect sas.theburkenator.com:443 -verify 5
+
+# Expired cert — expect: Verify return code: 10 (certificate has expired)
+openssl s_client -connect expired.badssl.com:443 -verify 5
+
+# Hostname mismatch — expect: Verify return code: 62 (hostname mismatch)
+openssl s_client -connect wrong.host.badssl.com:443 -verify_hostname wrong.host.badssl.com
+```
