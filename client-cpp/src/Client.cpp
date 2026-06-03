@@ -308,8 +308,7 @@ int Client::receiveMessages(MessageStore& store,
         if (obj.contains("direction") && obj["direction"].is_string() &&
             obj["direction"].get<std::string>() == "sent") {
             // Can't decrypt our own sent ciphertext, but show as placeholder for continuity.
-            if (obj.contains("id") && obj["id"].is_string() &&
-                obj.contains("timestamp") && obj["timestamp"].is_number_integer()) {
+            if (obj.contains("id") && obj["id"].is_string()) {
                 DecryptedMessage dm;
                 dm.messageId   = obj["id"].get<std::string>();
                 dm.senderId    = senderUsername;
@@ -321,7 +320,8 @@ int Client::receiveMessages(MessageStore& store,
                     auto it = sentCache.find(dm.messageId);
                     dm.plaintext = (it != sentCache.end()) ? it->second : "[message sent]";
                 }
-                dm.timestamp   = static_cast<std::time_t>(obj["timestamp"].get<long long>());
+                dm.timestamp   = (obj.contains("timestamp") && obj["timestamp"].is_number_integer() && obj["timestamp"].get<long long>() > 0)
+                               ? static_cast<std::time_t>(obj["timestamp"].get<long long>()) : std::time(nullptr);
                 conv.addMessage(std::move(dm));
             }
             continue;
@@ -342,7 +342,8 @@ int Client::receiveMessages(MessageStore& store,
         // at encrypt time). Fall back to parsing 'created_at' only when 'timestamp' is absent
         // â€" the two differ and using created_at breaks AES-GCM AD verification.
         std::time_t ts = -1;
-        if (obj.contains("timestamp") && obj["timestamp"].is_number_integer()) {
+        if (obj.contains("timestamp") && obj["timestamp"].is_number_integer() &&
+            obj["timestamp"].get<long long>() > 0) {
             ts = static_cast<std::time_t>(obj["timestamp"].get<long long>());
         } else {
             static const char* RFC2822_MONTHS[] = {

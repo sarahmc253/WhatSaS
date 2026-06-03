@@ -371,29 +371,40 @@ int main(int argc, char* argv[]) {
                         continue;
                     }
                     const auto& sel = msgs[msgIdx];
-                    const bool isMine    = (sel.senderId == username);
-                    const bool hasPlain  = (sel.plaintext != "[message sent]" && sel.plaintext != "[revoked]");
+                    const bool isMine = (sel.senderId == username);
+                    const bool hasPlain = (sel.plaintext != "[message sent]" && sel.plaintext != "[revoked]");
 
-                    showMessageActionMenu(msgIdx + 1, sel.plaintext, isMine, hasPlain);
+                    showMessageActionMenu(msgIdx + 1, sel.plaintext, isMine);
 
                     std::string act;
                     if (!std::getline(std::cin, act)) continue;
 
-                    if (act == "1") {
+                    // Mine:     1=delete  2=revoke  3=forward  4=cancel
+                    // Received: 1=forward 2=download 3=cancel
+                    const std::string actDelete  = isMine ? "1" : "";
+                    const std::string actRevoke  = isMine ? "2" : "";
+                    const std::string actForward = isMine ? "3" : "1";
+                    const std::string actDownload= isMine ? ""  : "2";
+                    const std::string actCancel  = isMine ? "4" : "3";
+
+                    if (act == actCancel || act.empty()) {
+                        continue;
+
+                    } else if (!actDelete.empty() && act == actDelete) {
                         const auto r = client->deleteMessage(sel.messageId);
                         std::cout << (r.statusCode_ >= 200 && r.statusCode_ <= 299
                             ? C_SUCCESS "\n  ✓  deleted\n" C_RESET
                             : C_DANGER  "\n  ✗  delete failed\n" C_RESET);
                         pauseForUser();
 
-                    } else if (act == "2" && isMine) {
+                    } else if (!actRevoke.empty() && act == actRevoke) {
                         const auto r = client->revokeMessage(sel.messageId);
                         std::cout << (r.statusCode_ >= 200 && r.statusCode_ <= 299
                             ? C_SUCCESS "\n  ✓  revoked\n" C_RESET
                             : C_DANGER  "\n  ✗  revoke failed\n" C_RESET);
                         pauseForUser();
 
-                    } else if (act == "3") {
+                    } else if (act == actForward && hasPlain) {
                         std::cout << C_MUTED "\n  forward to: " C_RESET;
                         std::string fwdPeer;
                         if (!std::getline(std::cin, fwdPeer) || fwdPeer.empty()) continue;
@@ -402,13 +413,23 @@ int main(int argc, char* argv[]) {
                             std::cout << C_DANGER "  ✗  user not found\n" C_RESET;
                         } else {
                             const auto r = client->forwardMessage(sel.messageId, fwdPeer, fwdPk, sel.plaintext);
-                            std::cout << (r.statusCode_ >= 200 && r.statusCode_ <= 299
+                            const bool fwdOk = r.statusCode_ >= 200 && r.statusCode_ <= 299;
+                            std::cout << (fwdOk
                                 ? C_SUCCESS "\n  ✓  forwarded\n" C_RESET
                                 : C_DANGER  "\n  ✗  forward failed: " + r.body_ + "\n" C_RESET);
+                            if (fwdOk) {
+                                try {
+                                    auto j = nlohmann::json::parse(r.body_);
+                                    std::string fwdId;
+                                    if (j.contains("id") && j["id"].is_string()) fwdId = j["id"];
+                                    else if (j.contains("message_id") && j["message_id"].is_string()) fwdId = j["message_id"];
+                                    if (!fwdId.empty()) sentCache[fwdId] = sel.plaintext;
+                                } catch (...) {}
+                            }
                         }
                         pauseForUser();
 
-                    } else if (act == "4" && hasPlain) {
+                    } else if (!actDownload.empty() && act == actDownload && hasPlain) {
                         const auto r = client->getMessage(sel.messageId);
                         if (r.statusCode_ >= 200 && r.statusCode_ <= 299) {
                             const std::string fname = "msg_" + sel.messageId.substr(0, 8) + ".txt";

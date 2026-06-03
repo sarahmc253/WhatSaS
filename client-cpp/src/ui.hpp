@@ -195,16 +195,23 @@ inline void showUserNotFound(const std::string& peerId) {
 }
 
 // ── Message action menu ───────────────────────────────────────────────────────
-inline void showMessageActionMenu(int idx, const std::string& plaintext,
-                                  bool isMine, bool hasPlain)
+// Returns the action map: action letter → number shown to user.
+// isMine=true:    1 delete  2 revoke  3 forward  4 cancel
+// isMine=false:   1 forward  2 download  3 cancel
+inline void showMessageActionMenu(int idx, const std::string& plaintext, bool isMine)
 {
-    printTitle("message #" + std::to_string(idx) + " selected");
-    std::cout << C_MUTED "  " << plaintext << "\n" C_RESET "\n";
-    printRow("1  🗑   delete");
-    if (isMine)   printRow("2  🔕  revoke");
-    printRow("3  ↗   forward");
-    if (hasPlain) printRow("4  💾  download");
-    printRow("5  ✕   cancel");
+    printTitle("message #" + std::to_string(idx));
+    std::cout << C_DIM "  " << plaintext << "\n\n" C_RESET;
+    if (isMine) {
+        printRow("1  🗑️   delete");
+        printRow("2  🔇  revoke");
+        printRow("3  ↗️   forward");
+        printRow("4  ✖️   cancel");
+    } else {
+        printRow("1  ↗️   forward");
+        printRow("2  💾  download");
+        printRow("3  ✖️   cancel");
+    }
     std::cout << C_MUTED "\n  action: " C_RESET;
 }
 
@@ -247,23 +254,24 @@ inline void showConversation(const Conversation& conv, const std::string& myId,
     } else {
         int idx = 1;
         for (const auto& dm : msgs) {
-            char timebuf[18] = "??:??";
+            char timebuf[16] = "??:??";
             std::tm* tm_info = std::localtime(&dm.timestamp);
             if (tm_info) std::strftime(timebuf, sizeof(timebuf), "%d %b %H:%M", tm_info);
 
             const bool mine = (dm.senderId == myId);
-
             const bool isPlaceholder = (dm.plaintext == "[message sent]" || dm.plaintext == "[revoked]");
 
             if (mine) {
-                std::cout << C_MUTED "  #" << idx++ << "  " << timebuf << "  → you\n" C_RESET;
-                if (isPlaceholder)
-                    std::cout << C_DIM "  " << dm.plaintext << "\n\n" C_RESET;
-                else
-                    std::cout << C_SENT "  " << dm.plaintext << "\n\n" C_RESET;
+                // Sent: number + time on left, "you" label flush right
+                std::cout << C_MUTED "  #" << idx++ << C_DIM "  " << timebuf << C_RESET "\n";
+                if (isPlaceholder) {
+                    std::cout << C_DIM "  ╰─ you: " << dm.plaintext << "\n\n" C_RESET;
+                } else {
+                    std::cout << C_SENT "  ╰─ you: " C_RESET << dm.plaintext << "\n\n";
+                }
             } else {
-                std::cout << C_MUTED "  #" << idx++ << "  " << timebuf << "  ← " << dm.senderId << "\n" C_RESET;
-                std::cout << C_RECV  "  " << dm.plaintext << "\n\n" C_RESET;
+                std::cout << C_MUTED "  #" << idx++ << C_DIM "  " << timebuf << C_RESET "\n";
+                std::cout << C_RECV "  ╰─ " << dm.senderId << ": " C_RESET << dm.plaintext << "\n\n";
             }
         }
     }
@@ -276,9 +284,9 @@ inline ConvChoice showConversationMenu()
 {
     printTitle("what would you like to do?");
     printRow("1  📨  reply");
-    printRow("2  🔧  message actions");
+    printRow("2  📃  message actions");
     printRow("3  🔄  refresh");
-    printRow("4  ↩   back");
+    printRow("4  ⬅️  back");
     printPrompt();
 
     std::string c;
