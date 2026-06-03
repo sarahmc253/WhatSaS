@@ -94,6 +94,7 @@ export function renderLogin(container, navigate) {
         <div class="auth-toggle">
             No account yet? <button id="show-register">Register</button>
         </div>
+        <p style="text-align:center; margin-top:.75rem; font-size:.85rem;"><a href="/verify.html">Verify a message on-chain</a></p>
     `);
 
     const form = document.getElementById('login-form');
@@ -162,6 +163,7 @@ function renderRegister(container, navigate) {
         <div class="auth-toggle">
             Already have an account? <button id="show-login">Sign in</button>
         </div>
+        <p style="text-align:center; margin-top:.75rem; font-size:.85rem;"><a href="/verify.html">Verify a message on-chain</a></p>
     `);
 
     const form    = document.getElementById('reg-form');

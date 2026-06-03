@@ -1,11 +1,14 @@
 /* ── Auth views ───────────────────────────────────────────────────────────── */
 
 #app.auth-mode {
+    /* Override the chat layout's fixed height and overflow:hidden so the browser
+       page scroll handles auth/verify pages instead of an inner scrollbar. */
+    height: auto;
+    min-height: calc(100vh - 56px);
+    overflow: visible;
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100vh;
-    overflow-y: auto;
     padding: 1rem;
     background: radial-gradient(ellipse at 50% 20%, #f8bbd0 0%, #fdf2f8 65%);
 }
@@ -18,7 +21,6 @@
     width: 100%;
     max-width: 480px;
     margin: auto;
-    max-height: 100%;
 }
 
 /* ── Bear emoji ───────────────────────────────────────────────────────────── */
