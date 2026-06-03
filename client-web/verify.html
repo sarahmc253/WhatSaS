@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="contract-address" content="0x1F26Bfe3086E03F5c968fCB070C1e4D6cAbaB38B">
+    <meta name="sepolia-rpc-url" content="https://sepolia.infura.io/v3/8ba71a7911e74488a3ac48750accc930">
+    <title>Verify Message</title>
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/verify.css">
+</head>
+<body>
+    <div id="app"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+    <script type="module">
+        import { renderVerify } from './blockchain/blockchainVerifyView.js';
+        document.addEventListener('DOMContentLoaded', () => {
+            renderVerify(document.getElementById('app'));
+        });
+    </script>
+</body>
+</html>
