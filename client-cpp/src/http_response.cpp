@@ -86,6 +86,27 @@ std::string buildPostRequest(const ParsedUrl& u,
     return req;
 }
 
+std::string buildNoBodyPostRequest(const ParsedUrl& u, const std::string& authToken) {
+    std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
+    std::string req = "POST " + u.path + " HTTP/1.1\r\n"
+                      "Host: " + hostHeader + "\r\n"
+                      "Connection: close\r\n"
+                      "Content-Length: 0\r\n";
+    if (!authToken.empty()) req += "Authorization: Bearer " + authToken + "\r\n";
+    req += "\r\n";
+    return req;
+}
+
+std::string buildDeleteRequest(const ParsedUrl& u, const std::string& authToken) {
+    std::string hostHeader = (u.port == "443") ? u.host : u.host + ":" + u.port;
+    std::string req = "DELETE " + u.path + " HTTP/1.1\r\n"
+                      "Host: " + hostHeader + "\r\n"
+                      "Connection: close\r\n";
+    if (!authToken.empty()) req += "Authorization: Bearer " + authToken + "\r\n";
+    req += "\r\n";
+    return req;
+}
+
 // ============================================================================
 // Response parser
 // ============================================================================
