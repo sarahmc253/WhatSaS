@@ -18,7 +18,7 @@ public:
         const std::string& username,
         const std::string& password);
 
-    void logout(HttpClient& client, const std::string& baseUrl);
+    bool logout(HttpClient& client, const std::string& baseUrl);
 
     void changePassword(HttpClient& client,
                         const std::string& baseUrl,

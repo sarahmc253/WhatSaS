@@ -41,57 +41,7 @@ static bool hasAesNi() {
 #endif
 }
 
-static void runMockFlow() {
-    const std::string username = "testuser";
-    showInfo("mock mode — welcome " + username + "~ 🎀");
-
-    while (true) {
-        const MainChoice action = showMainMenu(username);
-        if (action == MainChoice::Eof || action == MainChoice::Logout) break;
-        if (action == MainChoice::ChangePassword) {
-            showInfo("mock mode — password change not available");
-            continue;
-        }
-
-        const std::string peerId = promptPeer();
-        if (peerId.empty()) continue;
-
-        if (action == MainChoice::Send) {
-            const std::string text = promptMessage(peerId);
-            if (text.empty()) continue;
-            showSendResult(true, 200, "");
-        } else {
-            while (true) {
-                // build a fake conversation with some sample messages
-                Conversation conv(peerId);
-                std::time_t now = std::time(nullptr);
-                conv.addMessage({"id1", peerId,   username, "hey! how are you?",     now - 120});
-                conv.addMessage({"id2", username, peerId,   "doing great, you?",     now - 60});
-                conv.addMessage({"id3", peerId,   username, "same! 🎀",              now - 30});
-
-                showConversation(conv, username, 3, "mock-fingerprint", "mock-fingerprint");
-
-                const ConvChoice convAction = showConversationMenu();
-                if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
-
-                const std::string text = promptMessage(peerId);
-                if (text.empty()) continue;
-                showSendResult(true, 200, "");
-            }
-        }
-    }
-
-    showGoodbye();
-}
-
 int main(int argc, char* argv[]) {
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--mock") {
-            runMockFlow();
-            return 0;
-        }
-    }
-
     if (sodium_init() < 0) {
         showError("failed to initialise libsodium");
         return 1;
@@ -192,14 +142,16 @@ int main(int argc, char* argv[]) {
     while (true) {
         const MainChoice action = showMainMenu(username);
         if (action == MainChoice::Eof || action == MainChoice::Logout) {
-            auth.logout(http, BASE_URL);
+            if (!auth.logout(http, BASE_URL))
+                showError("logout request failed — session may still be active server-side");
             showInfo("logged out — see you soon, " + username + "~ 💖");
             showGoodbye();
             return 0;
         }
 
         if (action == MainChoice::SwitchUser) {
-            auth.logout(http, BASE_URL);
+            if (!auth.logout(http, BASE_URL))
+                showError("logout request failed — session may still be active server-side");
             showInfo("switching user — bye " + username + "~ 💖");
 
             client.reset();

@@ -17,9 +17,13 @@ bool Auth::isLoggedIn() const {
 
 // ── Instance methods ─────────────────────────────────────────────────────────
 
-void Auth::logout(HttpClient& client, const std::string& baseUrl) {
+bool Auth::logout(HttpClient& client, const std::string& baseUrl) {
     const auto resp = client.post(baseUrl + "/auth/logout", "", "application/json", token_);
-    (void)resp;
+    if (!resp.success || resp.statusCode < 200 || resp.statusCode >= 300) {
+        std::cerr << "logout: server error (HTTP " << resp.statusCode << "): " << resp.error << "\n";
+        return false;
+    }
+    return true;
 }
 
 void Auth::changePassword(HttpClient& client,
