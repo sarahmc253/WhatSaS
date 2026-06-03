@@ -197,6 +197,7 @@ export async function renderInbox(container, navigate) {
                 )
             );
 
+            console.log('[tryDecrypt AD]', { messageId: msgId, senderId, recipientId, timestamp, ad: JSON.stringify({ sender_id: senderId, recipient_id: recipientId, message_id: msgId, timestamp }, ['sender_id', 'recipient_id', 'message_id', 'timestamp']) });
             return await decryptMessage(
                 ciphertext, nonce, ephPubKey, ephPkBytes,
                 privKey, senderStaticPubKey,
@@ -954,6 +955,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                 const { ephPkBytes: fwdEphPkBytes, nonce, ciphertext, messageId, timestamp } = await encryptMessage(
                     plaintext, recipPublicKey, privKey, myUserId, recipientUser.id,
                 );
+                console.log('[forward encrypt]', { myUserId, recipientUserId: recipientUser.id, messageId, timestamp });
 
                 const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 

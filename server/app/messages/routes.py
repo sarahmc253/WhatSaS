@@ -296,7 +296,11 @@ def forward_message(message_id):
     if message['is_revoked'] and recipient['id'] == message['recipient_id']:
         return jsonify({'error': 'Cannot forward a revoked message back to the original recipient'}), 403
 
-    new_id = str(uuid.uuid4()).replace('-', '')
+    client_msg_id = data.get('message_id', '')
+    if isinstance(client_msg_id, str) and re.fullmatch(r'[0-9a-f]{32}', client_msg_id):
+        message_id_new = client_msg_id
+    else:
+        message_id_new = str(uuid.uuid4()).replace('-', '')
     now = datetime.now(timezone.utc)
     content_hash = '0x' + hashlib.sha256(data['ciphertext'].encode('utf-8')).hexdigest()
 
@@ -308,7 +312,7 @@ def forward_message(message_id):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                new_id, current_user_id, recipient['id'],
+                message_id_new, current_user_id, recipient['id'],
                 data['ciphertext'], data['nonce'], data['ephemeral_pk'], created_at, data['timestamp'], message_id, content_hash,
             ),
         )
@@ -324,9 +328,9 @@ def forward_message(message_id):
     finally:
         cursor.close()
 
-    log_audit('send_message', user_id=current_user_id, message_id=new_id,
+    log_audit('send_message', user_id=current_user_id, message_id=message_id_new,
               metadata={'forwarded_from': message_id})
-    return jsonify({'id': new_id}), 201
+    return jsonify({'id': message_id_new}), 201
 
 @messages_bp.route('/blockchain-record', methods=['GET'])
 @jwt_required()
