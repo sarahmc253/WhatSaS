@@ -246,14 +246,12 @@ int main(int argc, char* argv[]) {
                         showSuccess("logged in! welcome back, " + username + "~ 🎀");
                     }
                         } catch (const std::exception& e) {
-                    std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m";
-                    std::cout << "\033[1;33m        ↩  try again\n\033[0m\n";
+                    showError(e.what());
+                    showRetry();
                 }
             }
 
-            std::cout << "\033[1;35m            🔑 your key fingerprint: "
-                      << keyFingerprint(client->getPublicKey())
-                      << "\n            share this with contacts to verify your identity out-of-band\n\033[0m\n";
+            showFingerprint("your fingerprint", keyFingerprint(client->getPublicKey()));
             continue;
         }
 

@@ -8,7 +8,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <functional>
 
 // High-level messaging client with DHKEM(X25519) key establishment.
 //

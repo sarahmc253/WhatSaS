@@ -3,17 +3,12 @@
 #include <string>
 #include <vector>
 #include <ctime>
-#include <cstdlib>
 #include <limits>
 #include "../include/Conversation.hpp"
 #include "../include/DecryptedMessage.hpp"
 
 inline void clearScreen() {
-#ifdef _WIN32
-    system("cls");
-#else
-    system("clear");
-#endif
+    std::cout << "\033[2J\033[H" << std::flush;
 }
 
 // ── Colour palette (mirrors web client CSS variables) ─────────────────────────
