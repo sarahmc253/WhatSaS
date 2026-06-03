@@ -351,6 +351,7 @@ export async function renderInbox(container, navigate) {
                     <span class="thread-partner">${esc(partner)}</span>
                     <span id="thread-fingerprint" class="key-fingerprint" style="margin:0"></span>
                 </div>
+                <button id="btn-refresh" class="btn-refresh" title="Refresh messages">↻</button>
             </div>
             <div class="chat-thread" id="chat-thread">
                 ${bubbles || '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>'}
@@ -359,6 +360,13 @@ export async function renderInbox(container, navigate) {
                 <input type="text" id="send-input" class="send-input" placeholder="Message…" autocomplete="off" required maxlength="2000">
                 <button type="submit" class="btn btn-primary send-btn">Send</button>
             </form>`;
+
+        document.getElementById('btn-refresh')?.addEventListener('click', async () => {
+            const btn = document.getElementById('btn-refresh');
+            if (btn) { btn.classList.add('spinning'); btn.disabled = true; }
+            await doPoll();
+            if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
+        });
 
         getUser(partner).then(async user => {
             const fpEl = document.getElementById('thread-fingerprint');
@@ -468,7 +476,32 @@ export async function renderInbox(container, navigate) {
                 return false;
             });
 
-            if (newMsgs.length === 0 && changedMsgs.length === 0) return;
+            // Detect messages that were deleted server-side (absent from fresh response)
+            const freshIds = new Set(fresh.map(m => String(m.id ?? m.message_id ?? '')));
+            const deletedIds = [...knownIds].filter(id => !freshIds.has(id));
+            for (const id of deletedIds) {
+                knownIds.delete(id);
+                for (const [partner, msgs] of currentConvMap) {
+                    const idx = msgs.findIndex(m => String(m.id ?? m.message_id ?? '') === id);
+                    if (idx !== -1) {
+                        msgs.splice(idx, 1);
+                        if (msgs.length === 0) currentConvMap.delete(partner);
+                        break;
+                    }
+                }
+                const liveBubble = document.querySelector(`.message-card[data-id="${CSS.escape(id)}"]`);
+                (liveBubble?.closest('.bubble-wrap') ?? liveBubble)?.remove();
+            }
+            if (deletedIds.length > 0) {
+                const activePartner = body.querySelector('.thread-partner')?.textContent?.trim() ?? '';
+                renderConvList(currentConvMap, activePartner);
+                const thread = body.querySelector('#chat-thread');
+                if (thread && !thread.querySelector('.bubble-wrap')) {
+                    thread.innerHTML = '<div class="empty-state" style="padding:2rem">No messages yet — say hello!</div>';
+                }
+            }
+
+            if (newMsgs.length === 0 && changedMsgs.length === 0 && deletedIds.length === 0) return;
 
             const newDecrypted = await Promise.all(
                 newMsgs.map(async msg => ({ ...msg, content: await tryDecrypt(msg) }))
@@ -893,6 +926,7 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                 const recipientUsername = await showForwardDialog();
                 if (!recipientUsername) { btn.disabled = false; return; }
 
+
                 const privKey  = api.getPrivateKey();
                 const myUserId = getUserId();
                 if (!privKey || !myUserId) throw new Error('Session key unavailable — please log in again.');
@@ -956,6 +990,9 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
 
                 const origLabel = btn.textContent;
                 btn.textContent = '✅';
+                // Optimistic: poll immediately so the forwarded bubble (with ↗️ badge)
+                // appears in the sender's thread without waiting for the next 10s tick.
+                setTimeout(() => doPoll(), 500);
                 setTimeout(() => { btn.disabled = false; btn.textContent = origLabel; }, 1500);
                 return;
             }
