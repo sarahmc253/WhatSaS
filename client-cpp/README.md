@@ -1,10 +1,28 @@
 # WhatSaS C++ Client
 
-Secure messaging client in C++17. Uses raw BSD sockets (Winsock2) + OpenSSL for HTTPS, libsodium for E2EE encryption (AES-256-GCM), and SQLite3 for local message storage.
+Secure messaging client in C++17. Uses raw BSD sockets (Winsock2) + OpenSSL for HTTPS, and libsodium for E2EE encryption (AES-256-GCM).
+
+> **Platform: Windows only.**
+> The networking layer uses Winsock2 (`winsock2.h`), the Windows CA store (`wincrypt.h`, `CertOpenSystemStoreA`), and Windows socket types (`SOCKET`, `INVALID_SOCKET`, `WSAGetLastError`). It will not compile on Linux or macOS without a porting effort.
+
+---
 
 ## Prerequisites
 
-MSYS2 with the ucrt64 toolchain. Open the **UCRT64** shell and install:
+You need **MSYS2** with the UCRT64 toolchain. Check if you already have it:
+
+```powershell
+where.exe cmake   # should show C:\msys64\ucrt64\bin\cmake.exe
+where.exe ninja   # should show C:\msys64\ucrt64\bin\ninja.exe
+```
+
+If either is missing, install MSYS2 from https://www.msys2.org, open the **UCRT64** shell (not MinGW64, not MSYS), and run:
+
+```sh
+pacman -Syu
+```
+
+Then close and reopen the UCRT64 shell and install the dependencies:
 
 ```sh
 pacman -S mingw-w64-ucrt-x86_64-cmake \
@@ -12,128 +30,122 @@ pacman -S mingw-w64-ucrt-x86_64-cmake \
           mingw-w64-ucrt-x86_64-gcc \
           mingw-w64-ucrt-x86_64-openssl \
           mingw-w64-ucrt-x86_64-libsodium \
-          mingw-w64-ucrt-x86_64-sqlite3 \
           mingw-w64-ucrt-x86_64-nlohmann-json
 ```
 
+If you already have MSYS2, you can just run the `pacman -S` line — it will skip anything already installed.
+
+Build commands can be run from **PowerShell** or the **UCRT64 shell** — both work as long as MSYS2 is installed.
+
+---
+
+## Server certificate
+
+The server uses a self-signed TLS certificate.
+
+> `certs/` is gitignored — do not commit the cert file.
+
+### SSH access to the VM
+
+```sh
+# Run this from local machine in any terminal with scp
+scp -P 2200 student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
+```
+
+---
+
 ## Build
+
+Run from the `client-cpp/` directory in PowerShell:
 
 ```powershell
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-## Server certificate
+A successful build produces `build/sas-client.exe`.
 
-The server uses a self-signed TLS certificate. Place it at `client-cpp/certs/server.crt` before running.
-
-> **Note:** `certs/` is gitignored — do not commit the cert file.
-
-### Team members (access to the VM)
-
-SSH into the VM and copy the cert directly:
-
-```bash
-scp -P 2200 student@sas.theburkenator.com:/path/to/server.crt client-cpp/certs/server.crt
-```
-
-Or copy it from within the VM session:
-
-```bash
-ssh student@sas.theburkenator.com -p 2200
-# then copy the cert to your local machine via scp or paste the contents
-```
-
-### External / general setup
-
-Obtain `server.crt` from a team member and place it in the `certs/` directory:
-
-```powershell
-mkdir certs
-copy path\to\server.crt certs\server.crt
-```
-
-The client loads this cert at startup (`loadPinnedCert` in `tls_connect.cpp`) and adds it to the OpenSSL trust store so the TLS handshake with `sas.theburkenator.com` succeeds even though the cert is not signed by a public CA.
+---
 
 ## Run
 
-```powershell
-# Must be run from the client-cpp\ directory so certs/server.crt resolves correctly
+Must be run from the `client-cpp/` directory so `certs/server.crt` resolves correctly.
 
- $OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
- 
+Open PowerShell, navigate to `client-cpp/`, then:
+
+```powershell
+$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 .\build\sas-client.exe
 ```
 
+The UTF-8 line is required for emoji and Unicode to display correctly in the terminal.
+
+---
+
 ## Tests
 
+Run from `client-cpp/` in PowerShell. Offline tests only by default:
+
 ```powershell
-# Full E2E chain: register, login, send, receive — no network
-.\build\test_e2e.exe
-
-# DHKEM(X25519) + HKDF-SHA256 key derivation
-.\build\test_hpke.exe
-
-# AES-256-GCM tamper detection
-.\build\test_tamper.exe
-
-# Client crypto unit tests
-.\build\test_client.exe
-
-# Conversation deduplication and ordering
-.\build\test_conversation.exe
-
-# Raw TCP socket tests (no internet required)
-.\build\test_tcp.exe
-
-# HTTPS/TLS tests (internet required)
-.\build\test_http.exe --network
-
-# CTest — offline only by default
 ctest --test-dir build
-
-# CTest — include network tests
-ctest --test-dir build -L network
 ```
+
+Individual binaries (all offline unless noted):
+
+| Binary | What it tests |
+|--------|---------------|
+| `.\build\test_e2e.exe` | Full register → login → send → receive chain |
+| `.\build\test_hpke.exe` | DHKEM(X25519) + HKDF-SHA256 key derivation |
+| `.\build\test_tamper.exe` | AES-256-GCM tamper detection |
+| `.\build\test_client.exe` | Client crypto unit tests |
+| `.\build\test_conversation.exe` | Conversation deduplication and ordering |
+| `.\build\test_tcp.exe` | Raw TCP socket tests |
+| `.\build\test_http.exe --network` | HTTPS/TLS tests *(internet required)* |
+
+To include network tests via CTest: `ctest --test-dir build -L network`
+
+---
 
 ## Project structure
 
 ```text
 client-cpp/
-  include/                      — public headers
-    User.hpp                    — user identity + Curve25519 public key
-    Message.hpp                 — immutable encrypted message (ciphertext, nonce, IDs, timestamp)
-    MessageStore.hpp            — dual-index store: std::vector + std::map
-    HttpClient.hpp              — HTTPS GET + POST client (raw sockets + OpenSSL TLS)
-    Client.hpp                  — high-level encryption + network layer (AES-256-GCM)
-    DecryptedMessage.hpp        — plain struct: messageId, senderId, recipientId, plaintext, timestamp
-    Conversation.hpp            — decrypted message organiser for a single peer; printConversation()
-  src/                          — implementation
-    User.cpp
-    Message.cpp
-    MessageStore.cpp
-    HttpClient.cpp              — orchestration: doRequest(), get(), post()
-    Client.cpp                  — sendMessage(), getMessages(), receiveMessages()
-    message_crypto.hpp          — internal: encryptMessage(), decryptMessage() (message-level AEAD)
-    tcp_connect.hpp             — internal: raw TCP connect with 5s timeout
-    tls_connect.hpp / .cpp      — internal: TLS handshake, Windows CA store, cert validation
-    http_response.hpp / .cpp    — internal: URL parser, GET/POST HTTP framing, chunked decoder
-    crypto_utils.hpp            — internal: b64Encode, b64Decode, generateMsgId, buildAd (ordered_json)
-    Conversation.cpp            — scaffold
-    main.cpp
-  tests/
-    test_helpers.hpp            — CHECK_EQ / CHECK_TRUE macros
-    test_main.cpp               — test runner
-    test_message.cpp            — Message class tests
-    test_user.cpp               — User class tests
-    test_store.cpp              — MessageStore tests
-    test_tcp.cpp                — raw TCP socket tests (offline)
-    test_http.cpp               — HTTPS GET tests (--network)
-    test_client.cpp             — AES-256-GCM crypto tests (offline)
-    test_conversation.cpp       — Conversation + message_crypto offline tests
-  CMakeLists.txt
-  README.md
+  include/              public headers
+    Auth.hpp            auth state (token, userId, wrapped key)
+    Client.hpp          high-level E2EE send/receive + TOFU key pinning
+    Conversation.hpp    decrypted message store for one peer
+    DecryptedMessage.hpp plain struct: messageId, senderId, recipientId, plaintext, timestamp
+    HttpClient.hpp      HTTPS GET / POST / DELETE (raw sockets + OpenSSL)
+    Message.hpp         immutable encrypted message value type
+    MessageStore.hpp    insertion-ordered store + unordered_map index by peer key
+    User.hpp            user identity + X25519 public key
+
+  src/                  implementation + internal headers
+    main.cpp            entry point and main UI loop
+    Auth.cpp            login, register, logout, change-password
+    Client.cpp          sendMessage(), receiveMessages(), fetchPeerPublicKey()
+    HttpClient.cpp      doRequest() pipeline: TCP → TLS → write → read → parse
+    tcp_connect.hpp     raw Winsock2 TCP connect with 5 s timeout
+    tls_connect.hpp/.cpp  TLS handshake, cert pinning, hostname verification
+    http_response.hpp/.cpp  URL parser, request builders, response parser
+    hpke_utils.hpp      DHKEM(X25519): hpkeSend() / hpkeReceive()
+    message_crypto.hpp  encryptMessage() / decryptMessage() (AES-256-GCM)
+    crypto_utils.hpp    b64Encode/Decode, generateMsgId, buildAd, HKDF, keyFingerprint
+    key_wrap.hpp        wrapPrivateKey() / unwrapPrivateKey() (Argon2id KEK → AES-GCM)
+    AuthCLI.hpp         CLI prompts for auth flows
+    ui.hpp              banner, menus, conversation display
+
+  tests/                offline unit + integration tests
+    test_e2e.cpp        full crypto chain (no network)
+    test_hpke.cpp       DHKEM key derivation
+    test_tamper.cpp     AES-GCM tamper detection
+    test_client.cpp     crypto unit tests
+    test_conversation.cpp  deduplication and ordering
+    test_tcp.cpp        TCP socket tests
+    test_http.cpp       HTTPS tests (--network flag required)
 ```
+
+---
 
 ## Cryptography
 
@@ -145,21 +157,23 @@ client-cpp/
 | Message ID | 16 CSPRNG bytes → 32 hex chars | libsodium `randombytes_buf` + `sodium_bin2hex` |
 | Base64 encoding | RFC 4648 standard | libsodium `sodium_bin2base64` |
 | Key exchange | DHKEM(X25519) — ephemeral + static DH, authenticated sender | libsodium `crypto_scalarmult_*` |
-| Key derivation | HKDF-SHA256 over DH1 \|\| DH2 → 32-byte AES key | libsodium `crypto_kdf_hkdf_sha256_*` |
+| Key derivation | HKDF-Extract(salt=eph_pk, IKM=DH1\|\|DH2) → PRK; HKDF-Expand(PRK, info) → 32-byte AES key | libsodium `crypto_auth_hmacsha256_*` (manual RFC 5869) |
 | Password hashing / KEK derivation | Argon2id, INTERACTIVE ops/mem, 16-byte random salt | libsodium `crypto_pwhash_*` |
 | Private key wrapping | AES-256-GCM over X25519 sk; envelope = nonce \|\| ct \|\| tag | libsodium `crypto_aead_aes256gcm_*` |
 | Transport | HTTPS/TLS 1.2+ | Raw OpenSSL (libssl + libcrypto) |
-| Cert validation | System CA store | Windows `CertOpenSystemStoreA` + OpenSSL X509 |
+| Cert validation | Pinned self-signed cert (only the pinned cert is trusted; Windows CA store is bypassed) | OpenSSL `SSL_CTX_load_verify_locations` + `SSL_set1_host` |
 
 **Notes:**
 - AES-256-GCM requires hardware AES-NI (Intel/AMD); `Client` constructor throws `std::runtime_error` if unavailable
 - Nonce scheme: fresh 96-bit nonce drawn from `randombytes_buf` on every `encryptAes256Gcm` call — no counter, no state carried between messages
 - Associated data (sender_id, recipient_id, message_id, timestamp) is bound into the AEAD tag but not encrypted — any tampering causes decryption to fail
-- HPKE-style key establishment is fully implemented: each message derives a fresh AES key via `DH1 = X25519(eph_sk, recipient_pk)` and `DH2 = X25519(sender_sk, recipient_pk)`; `kem_output` carries the ephemeral public key; `sender_ephemeral_pk` is a deprecated wire field kept for server schema compatibility
+- HPKE-style key establishment: each message derives a fresh AES key via `DH1 = X25519(eph_sk, recipient_pk)` and `DH2 = X25519(sender_sk, recipient_pk)`; IKM = `DH1 || DH2`; salt = `eph_pk`; HKDF-Extract → PRK; HKDF-Expand(PRK, info) → 32-byte AES key; `eph_pk` travels in the `ephemeral_pk` wire field (hex-encoded)
 - Private keys are stored server-side wrapped under a password-derived KEK (Argon2id → AES-256-GCM); the server never holds a plaintext private key
-- TLS certificate chain validated against the Windows system root CA store
+- TLS uses cert pinning: `certs/server.crt` is loaded as the sole trust anchor via `SSL_CTX_load_verify_locations`; the Windows system CA store is intentionally bypassed so only the pinned cert is trusted
 - Hostname verification enforced via `SSL_set1_host` — connections rejected on CN/SAN mismatch
 - Plain HTTP rejected — this client is HTTPS only
+
+---
 
 ## Manual TLS verification
 
