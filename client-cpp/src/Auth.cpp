@@ -19,8 +19,8 @@ bool Auth::isLoggedIn() const {
 
 bool Auth::logout(HttpClient& client, const std::string& baseUrl) {
     const auto resp = client.post(baseUrl + "/auth/logout", "", "application/json", token_);
-    if (!resp.success || resp.statusCode < 200 || resp.statusCode >= 300) {
-        std::cerr << "logout: server error (HTTP " << resp.statusCode << "): " << resp.error << "\n";
+    if (resp.statusCode_ < 200 || resp.statusCode_ >= 300) {
+        std::cerr << "logout: server error (HTTP " << resp.statusCode_ << "): " << resp.error_ << "\n";
         return false;
     }
     return true;
