@@ -154,3 +154,16 @@ For the full threat model and primitive justifications see the cryptographic des
 
 **CORS errors on the blockchain verify page**
 - The Sepolia RPC endpoint (`sepolia.gateway.tenderly.co`) must be CORS-enabled; the one configured in `index.html` supports browser requests
+
+---
+
+## Running the verify page locally
+
+To serve the verify page without the Flask backend, use Python's built-in HTTP server:
+
+```bash
+cd client-web
+python3 -m http.server 8080
+```
+
+Then open [http://localhost:8080/verify.html](http://localhost:8080/verify.html) in your browser.
