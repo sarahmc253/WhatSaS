@@ -84,7 +84,8 @@ export function renderVerify(container) {
                     <input type="text" id="v-txhash"
                            placeholder="0x…"
                            autocomplete="off"
-                           spellcheck="false">
+                           spellcheck="false"
+                           style="font-family:monospace;font-size:.875rem">
                 </div>
                 <button class="btn btn-primary" id="btn-fetch">Fetch from chain</button>
                 <div id="fetch-status" role="alert" style="margin-top:.75rem"></div>
