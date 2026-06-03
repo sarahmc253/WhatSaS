@@ -1,4 +1,6 @@
 /* ── Verify view (blockchain) ─────────────────────────────────────────────── */
+#v-txhash { box-sizing: border-box; }
+
 .verify-header               { margin-bottom: 1.5rem; }
 .verify-header h2            { font-size: 1.25rem; font-weight: 600; }
 .verify-subtitle             { font-size: .875rem; color: var(--muted); margin-top: .375rem; }
