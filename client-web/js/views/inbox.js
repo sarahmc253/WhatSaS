@@ -188,12 +188,20 @@ export async function renderInbox(container, navigate) {
             const senderStaticPubKey = senderKeyCache[msg.sender_username];
             const senderId    = msg.sender_id ?? '';
             const recipientId = msg.recipient_id ?? '';
-            const timestamp   = msg.timestamp ?? 0;
+            const timestamp   = Math.floor(new Date(msg.created_at).getTime() / 1000);
+
+            const ad = new TextEncoder().encode(
+                JSON.stringify(
+                    { sender_id: senderId, recipient_id: recipientId, message_id: msgId, timestamp },
+                    ['sender_id', 'recipient_id', 'message_id', 'timestamp'],
+                )
+            );
 
             return await decryptMessage(
                 ciphertext, nonce, ephPubKey, ephPkBytes,
                 privKey, senderStaticPubKey,
                 senderId, recipientId, msgId, timestamp,
+                ad,
             );
         } catch (err) {
             console.error(`[decrypt] failed for msg ${msgId} from ${msg.sender_username}:`, err);
@@ -922,13 +930,22 @@ async function handleAction(btn, inboxBody, currentConvMap, myUsername, doPoll =
                 if (cachedPlaintext) {
                     plaintext = cachedPlaintext;
                 } else {
-                    const origCt    = decodeField(orig.ciphertext);
-                    const origNonce = decodeField(orig.nonce);
-                    const origTs    = orig.timestamp;
+                    const origCt       = decodeField(orig.ciphertext);
+                    const origNonce    = decodeField(orig.nonce);
+                    const origTs       = orig.timestamp;
+                    const origSenderId = orig.sender_id ?? '';
+                    const origRecipId  = orig.recipient_id ?? '';
+                    const origAd = new TextEncoder().encode(
+                        JSON.stringify(
+                            { sender_id: origSenderId, recipient_id: origRecipId, message_id: orig.id, timestamp: origTs },
+                            ['sender_id', 'recipient_id', 'message_id', 'timestamp'],
+                        )
+                    );
                     plaintext = await decryptMessage(
                         origCt, origNonce, origEphPubKey, origEphPkBytes,
                         privKey, origSenderPubKey,
-                        orig.sender_id ?? '', orig.recipient_id ?? '', orig.id, origTs,
+                        origSenderId, origRecipId, orig.id, origTs,
+                        origAd,
                     );
                 }
 

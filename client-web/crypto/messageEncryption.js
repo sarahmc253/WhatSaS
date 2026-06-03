@@ -69,13 +69,16 @@ export async function decryptMessage(
     ciphertext, nonce, ephPublicKey, ephPkBytes,
     recipientPrivateKey, senderStaticPubKey,
     senderId, recipientId, messageId, timestamp,
+    additionalData = null,
 ) {
     // DH1 = X25519(recipient_sk, eph_pk),  DH2 = X25519(recipient_sk, sender_pk)
     const dh1 = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: ephPublicKey }, recipientPrivateKey, 256));
     const dh2 = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: senderStaticPubKey }, recipientPrivateKey, 256));
 
     const messageKey = await deriveAesKey(dh1, dh2, ephPkBytes, 'decrypt');
-    const ad = new TextEncoder().encode(buildAd(senderId, recipientId, messageId, timestamp));
+    const ad = additionalData instanceof Uint8Array
+        ? additionalData
+        : new TextEncoder().encode(buildAd(senderId, recipientId, messageId, timestamp));
 
     try {
         const plaintext = await crypto.subtle.decrypt(
