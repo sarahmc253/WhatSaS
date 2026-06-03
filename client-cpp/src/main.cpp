@@ -13,6 +13,7 @@
 #include "AuthCLI.hpp"
 #include "crypto_utils.hpp"
 #include <regex>
+#include <fstream>
 #include "key_wrap.hpp"
 #include "ui.hpp"
 #include "../include/Auth.hpp"
@@ -42,13 +43,13 @@ static bool hasAesNi() {
 
 static void runMockFlow() {
     const std::string username = "testuser";
-    std::cout << "\033[1;35m\n        💖 mock mode — skipping auth, welcome " << username << "~ 🎀\n\033[0m\n";
+    showInfo("mock mode — welcome " + username + "~ 🎀");
 
     while (true) {
         const MainChoice action = showMainMenu(username);
         if (action == MainChoice::Eof || action == MainChoice::Logout) break;
         if (action == MainChoice::ChangePassword) {
-            std::cout << "\033[1;35m\n        🔒 mock mode — password change not available\n\033[0m\n";
+            showInfo("mock mode — password change not available");
             continue;
         }
 
@@ -92,7 +93,7 @@ int main(int argc, char* argv[]) {
     }
 
     if (sodium_init() < 0) {
-        std::cerr << "\033[1;31m\n        💔 failed to initialise libsodium\n\033[0m\n";
+        showError("failed to initialise libsodium");
         return 1;
     }
 
@@ -109,17 +110,17 @@ int main(int argc, char* argv[]) {
     static const std::regex usernameRe("^[A-Za-z0-9_]{3,32}$");
     auto validUsername = [&](const std::string& u) -> bool {
         if (std::regex_match(u, usernameRe)) return true;
-        std::cout << "\033[1;33m\n        ⚠  username must be 3–32 characters: letters, numbers, and underscores only\n\033[0m";
+        showWarning("username must be 3–32 characters: letters, numbers, and underscores only");
         return false;
     };
     auto validPassword = [](const std::string& p) -> bool {
         if (p.size() >= 8) return true;
-        std::cout << "\033[1;33m\n        ⚠  password must be at least 8 characters\n\033[0m";
+        showWarning("password must be at least 8 characters");
         return false;
     };
 
     if (!hasAesNi()) {
-        std::cerr << "\033[1;31m\n        💔 AES-256-GCM requires hardware AES-NI — unavailable on this CPU\n\033[0m\n";
+        showError("AES-256-GCM requires hardware AES-NI — unavailable on this CPU");
         return 1;
     }
 
@@ -150,7 +151,7 @@ int main(int argc, char* argv[]) {
                                "whatsas_pins.txt", auth.getToken());
 
                 username = creds.username;
-                std::cout << "\033[1;35m\n                🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
+                showSuccess("registered! welcome to whatsas, " + username + "~ 💖");
 
             } else {
                 LoginCredentials creds;
@@ -173,34 +174,30 @@ int main(int argc, char* argv[]) {
                                "whatsas_pins.txt", auth.getToken());
 
                 username = creds.username;
-                std::cout << "\033[1;35m\n                💖 logged in! welcome back, " << username << "~ 🎀\n";
+                showSuccess("logged in! welcome back, " + username + "~ 🎀");
             }
 
-            std::cout << "\033[0m\n";
 
         } catch (const std::exception& e) {
-            std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m";
-            std::cout << "\033[1;33m        ↩  try again\n\033[0m\n";
+            showError(e.what()); showRetry();
         }
     }
 
-    std::cout << "\033[1;35m            🔑 your key fingerprint: "
-              << keyFingerprint(client->getPublicKey())
-              << "\n            share this with contacts to verify your identity out-of-band\n\033[0m\n";
+    showFingerprint("your fingerprint", keyFingerprint(client->getPublicKey()));
 
     // ── main loop ─────────────────────────────────────────────────────────────
     while (true) {
         const MainChoice action = showMainMenu(username);
         if (action == MainChoice::Eof || action == MainChoice::Logout) {
             auth.logout(http, BASE_URL);
-            std::cout << "\033[1;35m\n        🚪 logged out — see you soon, " << username << "~ 💖\n\033[0m\n";
+            showInfo("logged out — see you soon, " + username + "~ 💖");
             showGoodbye();
             return 0;
         }
 
         if (action == MainChoice::SwitchUser) {
             auth.logout(http, BASE_URL);
-            std::cout << "\033[1;35m\n        🔄 switching user — bye " << username << "~ 💖\n\033[0m\n";
+            showInfo("switching user — bye " + username + "~ 💖");
 
             client.reset();
             username.clear();
@@ -229,7 +226,7 @@ int main(int argc, char* argv[]) {
                         client.emplace(BASE_URL, auth.getUserId(), std::move(sk), std::move(pk),
                                        "whatsas_pins.txt", auth.getToken());
                         username = creds.username;
-                        std::cout << "\033[1;35m\n                🌸 registered! welcome to whatsas, " << username << "~ 💖\n";
+                        showSuccess("registered! welcome to whatsas, " + username + "~ 💖");
                     } else {
                         LoginCredentials creds;
                         std::cout << "Username: "; std::getline(std::cin, creds.username);
@@ -243,10 +240,9 @@ int main(int argc, char* argv[]) {
                         client.emplace(BASE_URL, auth.getUserId(), std::move(sk), std::move(pk),
                                        "whatsas_pins.txt", auth.getToken());
                         username = creds.username;
-                        std::cout << "\033[1;35m\n                💖 logged in! welcome back, " << username << "~ 🎀\n";
+                        showSuccess("logged in! welcome back, " + username + "~ 🎀");
                     }
-                    std::cout << "\033[0m\n";
-                } catch (const std::exception& e) {
+                        } catch (const std::exception& e) {
                     std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m";
                     std::cout << "\033[1;33m        ↩  try again\n\033[0m\n";
                 }
@@ -299,9 +295,9 @@ int main(int argc, char* argv[]) {
                                     b64Encode(newWrapped.data(), newWrapped.size()),
                                     b64Encode(newKekSalt.data(), newKekSalt.size()));
 
-                std::cout << "\033[1;35m\n        🔒 password changed successfully! 💖\n\033[0m\n";
+                showSuccess("password changed successfully! 💖");
             } catch (const std::exception& e) {
-                std::cerr << "\033[1;31m\n        💔 " << e.what() << "\n\033[0m\n";
+                showError(e.what());
             }
             continue;
         }
@@ -312,8 +308,7 @@ int main(int argc, char* argv[]) {
 
         const auto peerPk = client->fetchPeerPublicKey(peerId);
         if (peerPk.empty()) {
-            std::cout << "\033[1;31m\n        💔 could not find '" << peerId
-                      << "' — user not found or key substitution detected\033[0m\n";
+            showUserNotFound(peerId);
             continue;
         }
 
@@ -335,87 +330,114 @@ int main(int argc, char* argv[]) {
 
             while (true) {
                 clearScreen();
-                Conversation freshConv(peerId);
-                const int count = client->receiveMessages(store, freshConv, peerPk);
+                // Rebuild conv fresh each time so deleted/revoked messages disappear.
+                store = MessageStore{};
+                conv  = Conversation{peerId};
+                const int count = client->receiveMessages(store, conv, peerPk);
                 if (count < 0) {
-                    std::cout << "\033[1;31m\n        💔 failed to fetch messages from server\033[0m\n";
+                    std::cout << C_DANGER "\n  💔 failed to fetch messages from server\n" C_RESET;
                     break;
-                }
-                // Merge fresh received messages into conv (preserves locally-injected sent msgs).
-                for (const auto& dm : freshConv.getMessages()) {
-                    conv.addMessage(dm);
                 }
 
                 showConversation(conv, username, count,
-                                keyFingerprint(client->getPublicKey()),
-                                keyFingerprint(peerPk));
+                                 keyFingerprint(client->getPublicKey()),
+                                 keyFingerprint(peerPk));
 
                 const ConvChoice convAction = showConversationMenu();
                 if (convAction == ConvChoice::Back || convAction == ConvChoice::Eof) break;
                 if (convAction == ConvChoice::Refresh) continue;
+
                 if (convAction == ConvChoice::MessageAction) {
-                    const auto& msgs = conv.getMessages();
+                    const auto msgs = conv.getMessages();
                     if (msgs.empty()) {
-                        std::cout << C_MUTED "                no messages to act on\n" C_RESET;
+                        showInfo("no messages to act on");
                         pauseForUser();
                         continue;
                     }
 
-                    std::cout << C_MUTED "\n                enter message number (e.g. 3): " C_RESET;
+                    std::cout << C_MUTED "\n  message #: " C_RESET;  // kept inline — single prompt
                     std::string numStr;
                     if (!std::getline(std::cin, numStr)) continue;
                     int msgIdx = 0;
                     try { msgIdx = std::stoi(numStr) - 1; } catch (...) { continue; }
                     if (msgIdx < 0 || msgIdx >= static_cast<int>(msgs.size())) {
-                        std::cout << C_DANGER "                invalid message number\n" C_RESET;
+                        std::cout << C_DANGER "  invalid number\n" C_RESET;
                         pauseForUser();
                         continue;
                     }
-                    const auto& selected = msgs[msgIdx];
-                    const bool isReceived = (selected.senderId != username);
+                    const auto& sel = msgs[msgIdx];
+                    const bool isMine    = (sel.senderId == username);
+                    const bool hasPlain  = (sel.plaintext != "[message sent]" && sel.plaintext != "[revoked]");
 
-                    std::cout << C_MUTED
-                              << "\n                message #" << (msgIdx + 1) << " selected\n"
-                              << "                (1)  🗑   delete\n";
-                    if (selected.senderId == username)
-                        std::cout << "                (2)  ↩   revoke\n";
-                    if (isReceived)
-                        std::cout << "                (3)  ➤   forward\n";
-                    std::cout << "                (4)  ✕   cancel\n\n"
-                              << C_PRIMARY "                action: " C_RESET;
+                    showMessageActionMenu(msgIdx + 1, sel.plaintext, isMine, hasPlain);
 
                     std::string act;
                     if (!std::getline(std::cin, act)) continue;
 
                     if (act == "1") {
-                        const auto r = client->deleteMessage(selected.messageId);
-                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299)
-                            std::cout << C_SUCCESS "                ✓  message deleted\n" C_RESET;
-                        else
-                            std::cout << C_DANGER "                ✗  delete failed (HTTP " << r.statusCode_ << ")\n" C_RESET;
+                        const auto r = client->deleteMessage(sel.messageId);
+                        std::cout << (r.statusCode_ >= 200 && r.statusCode_ <= 299
+                            ? C_SUCCESS "\n  ✓  deleted\n" C_RESET
+                            : C_DANGER  "\n  ✗  delete failed\n" C_RESET);
                         pauseForUser();
-                    } else if (act == "2" && selected.senderId == username) {
-                        const auto r = client->revokeMessage(selected.messageId);
-                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299)
-                            std::cout << C_SUCCESS "                ✓  message revoked\n" C_RESET;
-                        else
-                            std::cout << C_DANGER "                ✗  revoke failed (HTTP " << r.statusCode_ << ")\n" C_RESET;
+
+                    } else if (act == "2" && isMine) {
+                        const auto r = client->revokeMessage(sel.messageId);
+                        std::cout << (r.statusCode_ >= 200 && r.statusCode_ <= 299
+                            ? C_SUCCESS "\n  ✓  revoked\n" C_RESET
+                            : C_DANGER  "\n  ✗  revoke failed\n" C_RESET);
                         pauseForUser();
-                    } else if (act == "3" && isReceived) {
-                        std::cout << C_MUTED "                forward to: " C_RESET;
+
+                    } else if (act == "3") {
+                        std::cout << C_MUTED "\n  forward to: " C_RESET;
                         std::string fwdPeer;
                         if (!std::getline(std::cin, fwdPeer) || fwdPeer.empty()) continue;
                         const auto fwdPk = client->fetchPeerPublicKey(fwdPeer);
                         if (fwdPk.empty()) {
-                            std::cout << C_DANGER "                ✗  user not found\n" C_RESET;
-                            pauseForUser();
-                            continue;
+                            std::cout << C_DANGER "  ✗  user not found\n" C_RESET;
+                        } else {
+                            const auto r = client->forwardMessage(sel.messageId, fwdPeer, fwdPk, sel.plaintext);
+                            std::cout << (r.statusCode_ >= 200 && r.statusCode_ <= 299
+                                ? C_SUCCESS "\n  ✓  forwarded\n" C_RESET
+                                : C_DANGER  "\n  ✗  forward failed: " + r.body_ + "\n" C_RESET);
                         }
-                        const auto r = client->forwardMessage(selected.messageId, fwdPeer, fwdPk, selected.plaintext);
-                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299)
-                            std::cout << C_SUCCESS "                ✓  forwarded to " << fwdPeer << "\n" C_RESET;
-                        else
-                            std::cout << C_DANGER "                ✗  forward failed (HTTP " << r.statusCode_ << ")\n" C_RESET;
+                        pauseForUser();
+
+                    } else if (act == "4" && hasPlain) {
+                        const auto r = client->getMessage(sel.messageId);
+                        if (r.statusCode_ >= 200 && r.statusCode_ <= 299) {
+                            const std::string fname = "msg_" + sel.messageId.substr(0, 8) + ".txt";
+                            std::ofstream f(fname);
+                            if (f) {
+                                try {
+                                    auto j = nlohmann::json::parse(r.body_);
+                                    auto field = [&](const char* k) -> std::string {
+                                        return j.contains(k) && !j[k].is_null() ? j[k].get<std::string>() : "(unknown)";
+                                    };
+                                    std::string tsStr = "(unknown)";
+                                    if (j.contains("timestamp") && j["timestamp"].is_number_integer()) {
+                                        std::time_t ts = j["timestamp"].get<long long>();
+                                        char tbuf[32];
+                                        if (std::tm* t = std::localtime(&ts))
+                                            std::strftime(tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", t);
+                                        tsStr = tbuf;
+                                    }
+                                    std::string senderUser = sel.senderId;
+                                    std::string recipUser  = sel.recipientId.empty() ? peerId : sel.recipientId;
+                                    if (senderUser.size() == 36 && senderUser[8] == '-') senderUser = field("sender_username");
+                                    if (recipUser.size()  == 36 && recipUser[8]  == '-') recipUser  = field("recipient_username");
+                                    f << "From : " << senderUser << "\n"
+                                      << "To   : " << recipUser  << "\n"
+                                      << "Date : " << tsStr      << "\n\n"
+                                      << sel.plaintext << "\n";
+                                } catch (...) { f << r.body_; }
+                                std::cout << C_SUCCESS "\n  ✓  saved to " << fname << "\n" C_RESET;
+                            } else {
+                                std::cout << C_DANGER "\n  ✗  could not write file\n" C_RESET;
+                            }
+                        } else {
+                            std::cout << C_DANGER "\n  ✗  download failed\n" C_RESET;
+                        }
                         pauseForUser();
                     }
                     continue;
